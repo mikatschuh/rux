@@ -1,9 +1,11 @@
+use std::ops::ControlFlow;
+
 use crate::{
     comp,
     error::{ErrorCode, Errors, Position, Span},
     parser::{
-        binding_pow::BindingPow,
         intern::{Internalizer, Symbol},
+        tokenizing::TokenStream,
     },
     typing::TypeParser,
     utilities::Rc,
@@ -46,8 +48,8 @@ pub fn parse<'src>(
     (root, internalizer, errors)
 }
 
-struct Parser<'src> {
-    tokenizer: Tokenizer<'src>,
+struct Parser<'src, T: Iterator> {
+    tokenizer: T,
     errors: Rc<Errors<'src>>,
     brackets: usize,
 
@@ -57,10 +59,10 @@ struct Parser<'src> {
     /*dash_slot: Option<Ref<'src, NodeBox<'src>>>,*/
 }
 
-impl<'src> Parser<'src> {
+impl<'src, T: TokenStream<'src>> Parser<'src, T> {
     #[inline]
     fn new(
-        tokenizer: Tokenizer<'src>,
+        tokenizer: T,
         internalizer: Rc<Internalizer<'src>>,
         errors: Rc<Errors<'src>>,
         arena: &'src Bump,
@@ -86,7 +88,7 @@ impl<'src> Parser<'src> {
         self.pop_expr(0, Position::beginning())
     }
 
-    fn parse_expr(&mut self, min_bp: BindingPow) -> Option<NodeBox<'src>> {
+    fn parse_expr(&mut self, min_bp: u8) -> Option<NodeBox<'src>> {
         let mut lhs = self.tokenizer.next()?.nud(self, min_bp)?;
 
         while let Some(tok) = self.tokenizer.peek() {
@@ -135,9 +137,18 @@ impl<'src> Parser<'src> {
     }
 
     #[inline]
-    fn pop_expr(&mut self, min_bp: BindingPow, pos: Position) -> NodeBox<'src> {
+    fn pop_expr(&mut self, min_bp: u8, pos: Position) -> NodeBox<'src> {
         let node = self.parse_expr(min_bp);
         self.expect_node(node, pos)
+    }
+
+    /// Parses statements. This functions goes through tokens one by one and trys
+    /// to find the end of the current statement, if
+    ///     a terminator is found, the current statement is an expression
+    ///     a write operator is found, the current thing is a pattern
+    ///     a function call is found, the current thing is an expression-statement
+    fn parse_statements(&mut self) -> Option<NodeBox<'src>> {
+        loop {}
     }
 
     #[inline]
@@ -252,7 +263,7 @@ impl<'src> Parser<'src> {
         &mut self,
         lhs: NodeBox<'src>,
         own_tok: TokenKind,
-        right_bp: BindingPow,
+        right_bp: u8,
         nud: impl Fn(comp::Vec<NodeBox<'src>, 2>) -> Node<'src>,
         pos: Position,
     ) -> NodeBox<'src> {

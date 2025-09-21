@@ -20,14 +20,10 @@ use num::{bigint::Sign, BigInt, BigUint};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Literal {
     pub digits: BigUint,
+    pub base: Base,
     pub digits_after_dot: usize,
     pub exponent: Option<BigInt>,
     pub type_suffix: Option<NumberType>,
-}
-
-#[allow(dead_code)]
-fn divisor_equation(base: Base, digits_after_dot: usize) -> BigUint {
-    (base as u32).pow(digits_after_dot as u32).into()
 }
 
 impl<'src> Tokenizer<'src> {
@@ -110,6 +106,7 @@ impl<'src> Tokenizer<'src> {
                 original_len - ident.len(),
                 Some(Literal {
                     digits,
+                    base,
                     digits_after_dot,
                     exponent,
                     type_suffix,

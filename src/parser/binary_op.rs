@@ -22,7 +22,7 @@ pub enum BinaryOp {
     DotAssign,   // a ·= b
     CrossAssign, // a ><= b
 
-    PowAssign { grade: usize }, // a ^= b
+    PowAssign { grade: u8 }, // a ^= b
 
     Swap, // a =|= b
 
@@ -60,7 +60,7 @@ pub enum BinaryOp {
     Dot,   // a · b
     Cross, // a >< b
 
-    Pow { grade: usize }, // a (^)+ b
+    Pow { grade: u8 }, // a (^)+ b
 
     Index, // a[b]
     App,   // a(b)

@@ -287,7 +287,6 @@ impl<'src> Token<'src> {
             TokenKind::Not => Not,
             And => Ref,
             RightArrow => Ptr,
-            Ident if self.src == "mut" => Mut,
             _ => return None,
         })
     }
@@ -330,10 +329,18 @@ impl<'src> Token<'src> {
             TokenKind::Cross => Cross,
             CrossEqual => CrossAssign,
             Up => Pow {
-                grade: self.src.len() - 1,
+                grade: if self.src.len() < 5 {
+                    self.src.len() as u8 - 1
+                } else {
+                    return None;
+                },
             },
             UpEqual => PowAssign {
-                grade: self.src.len() - 2,
+                grade: if self.src.len() < 6 {
+                    self.src.len() as u8 - 2
+                } else {
+                    return None;
+                },
             }, // -2 to account for the equal sign
 
             Pipe => BitOr,

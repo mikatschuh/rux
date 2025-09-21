@@ -1,4 +1,5 @@
 pub mod num;
+pub mod slicing;
 #[cfg(test)]
 pub mod test;
 #[allow(dead_code)]
@@ -14,11 +15,17 @@ use crate::{
         tokenizing::{num::Literal, token::TokenKind},
     },
     typing::TypeParser,
-    utilities::{ArrayQueue, Rc},
+    utilities::Rc,
 };
 
-const BUFFER_SIZE: usize = 2;
-const BUFFER_LOG_2: usize = 1;
+pub trait TokenStream<'src>: Iterator<Item = Token<'src>> + FusedIterator {
+    fn next_is(&mut self, predicate: impl FnOnce(&Token<'src>) -> bool) -> bool;
+    fn next_if(&mut self, predicate: impl FnOnce(&Token<'src>) -> bool) -> Option<Token<'src>>;
+    fn peek(&mut self) -> Option<&Token<'src>>;
+    fn get_literal(&mut self) -> Literal;
+    fn buffer(&mut self, token: Token<'src>);
+    fn consume_while(&mut self, predicate: impl FnMut(&Token) -> bool) -> IntoIter<Token>;
+}
 
 #[derive(Debug, Clone)]
 pub struct Tokenizer<'src> {
@@ -32,7 +39,7 @@ pub struct Tokenizer<'src> {
     i: usize,
     next_i: usize,
 
-    buffer: ArrayQueue<Token<'src>, BUFFER_SIZE, BUFFER_LOG_2>,
+    buffer: VecDeque<Token<'src>>,
     numbers: VecDeque<Literal>,
 
     errors: Rc<Errors<'src>>,
@@ -63,8 +70,51 @@ impl<'src> Iterator for Tokenizer<'src> {
 }
 impl<'src> FusedIterator for Tokenizer<'src> {}
 
-impl<'src> Tokenizer<'src> {
-    pub fn consume_while(&mut self, mut predicate: impl FnMut(&Token) -> bool) -> IntoIter<Token> {
+impl<'src> TokenStream<'src> for Tokenizer<'src> {
+    fn peek(&mut self) -> Option<&Token<'src>> {
+        if self.buffer.is_empty() {
+            self.restock_tokens();
+        }
+        self.buffer.front()
+    }
+
+    fn next_if(&mut self, predicate: impl FnOnce(&Token<'src>) -> bool) -> Option<Token<'src>> {
+        if self.buffer.is_empty() {
+            self.restock_tokens();
+        }
+
+        if let Some(tok) = self.buffer.front() {
+            if predicate(tok) {
+                return self.buffer.pop_front();
+            }
+        }
+        None
+    }
+
+    fn next_is(&mut self, predicate: impl FnOnce(&Token<'src>) -> bool) -> bool {
+        if self.buffer.is_empty() {
+            self.restock_tokens();
+        }
+        if let Some(tok) = self.buffer.front() {
+            predicate(tok)
+        } else {
+            false
+        }
+    }
+
+    fn get_literal(&mut self) -> Literal {
+        self.numbers
+            .pop_front()
+            .expect("This shouldnt be called without the literal token")
+    }
+
+    /// Method for buffering a token. If the buffer is full (or this is called twice in a row)
+    /// a panic is invocated.
+    fn buffer(&mut self, token: Token<'src>) {
+        self.buffer.push_front(token)
+    }
+
+    fn consume_while(&mut self, mut predicate: impl FnMut(&Token) -> bool) -> IntoIter<Token> {
         let mut tokens = Vec::new();
         while self.peek().is_some_and(&mut predicate) {
             tokens.push(unsafe { self.next().unwrap_unchecked() });
@@ -86,55 +136,12 @@ impl<'src> Tokenizer<'src> {
             i: 0,
             next_i: 0,
 
-            buffer: ArrayQueue::new(),
+            buffer: VecDeque::new(),
             numbers: VecDeque::new(),
 
             errors,
             type_parser,
         }
-    }
-
-    pub fn peek(&mut self) -> Option<&Token<'src>> {
-        if self.buffer.is_empty() {
-            self.restock_tokens();
-        }
-        self.buffer.first()
-    }
-
-    pub fn next_if(&mut self, predicate: impl FnOnce(&Token<'src>) -> bool) -> Option<Token<'src>> {
-        if self.buffer.is_empty() {
-            self.restock_tokens();
-        }
-
-        if let Some(tok) = self.buffer.first() {
-            if predicate(tok) {
-                return self.buffer.pop_front();
-            }
-        }
-        None
-    }
-
-    pub fn next_is(&mut self, predicate: impl FnOnce(&Token<'src>) -> bool) -> bool {
-        if self.buffer.is_empty() {
-            self.restock_tokens();
-        }
-        if let Some(tok) = self.buffer.first() {
-            predicate(tok)
-        } else {
-            false
-        }
-    }
-
-    pub fn get_literal(&mut self) -> Literal {
-        self.numbers
-            .pop_front()
-            .expect("This shouldnt be called without the literal token")
-    }
-
-    /// Method for buffering a token. If the buffer is full (or this is called twice in a row)
-    /// a panic is invocated.
-    pub fn buffer(&mut self, token: Token<'src>) {
-        self.buffer.push_front(token)
     }
 }
 
@@ -256,7 +263,7 @@ impl<'src> Tokenizer<'src> {
                     self.set_id();
                 }
             }
-            if self.buffer.len() > BUFFER_SIZE - 2 {
+            if self.buffer.len() >= 10 {
                 return;
             }
         }

@@ -2,7 +2,6 @@ use std::fmt::Display;
 
 use crate::parser::{
     intern::Internalizer,
-    parse,
     tokenizing::num,
     tree::{NodeBox, TreeDisplay},
 };
@@ -14,8 +13,6 @@ pub enum NumberKind {
     Float,
     Arbitrary,
 }
-use ::num::Num;
-use colored::control::set_override;
 use NumberKind::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

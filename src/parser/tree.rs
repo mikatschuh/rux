@@ -239,8 +239,12 @@ impl<'src> TreeDisplay<'src> for NodeWrapper<'src> {
                     literal.as_ref().map_or_else(
                         || "".to_owned(),
                         |literal| format!(
-                            "\n{indentation}| digits = {}\n{indentation}| digits-after-dot = {}{}{}",
+                            "\n{indentation}| digits = {}\n\
+                            {indentation}| base = {:?}\n\
+                            {indentation}| digits-after-dot = {}\n\
+                            {}{}",
                             literal.digits,
+                            literal.base,
                             literal.digits_after_dot,
                             literal.exponent.as_ref().map_or_else(
                                 || "".to_owned(),

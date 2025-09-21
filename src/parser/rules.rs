@@ -7,45 +7,54 @@ use crate::{
         keyword::Keyword,
         tokenizing::{
             resolve_escape_sequences,
-            token::{
-                Token,
-                TokenKind::{self, *},
-            },
+            token::{Token, TokenKind::*},
+            TokenStream,
         },
-        tree::{Bracket, FunctionInterface, Node, NodeBox, Note, Path},
+        tree::{Bracket, Node, NodeBox, Note},
         unary_op::UnaryOp,
-        BindingPow, NodeWrapper, Parser,
+        NodeWrapper, Parser,
     },
-    typing::Type,
 };
 
 impl<'src> Token<'src> {
-    pub(super) fn nud(self, state: &mut Parser<'src>, min_bp: BindingPow) -> Option<NodeBox<'src>> {
+    pub(super) fn nud<T: TokenStream<'src>>(
+        self,
+        state: &mut Parser<'src, T>,
+        min_bp: u8,
+    ) -> Option<NodeBox<'src>> {
         Some(match self.kind {
             Ident => {
+                macro_rules! submit_identifier {
+                    () => {{
+                        let sym = state.internalizer.get(self.src);
+                        state.make_node(
+                            NodeWrapper::new(self.span)
+                                .with_node(Node::Ident { sym, literal: None }),
+                        )
+                    }};
+                }
                 if self.src == "_" {
                     state.make_node(NodeWrapper::new(self.span).with_node(Node::Placeholder))
-                } else if binding_pow::STATEMENT >= min_bp
-                    && state.tokenizer.next_is(|tok| tok.binding_pow() == Some(0))
-                {
-                    let content = state.pop_expr(binding_pow::LABEL, self.span.end);
-                    let label = state.internalizer.get(self.src);
-                    state.make_node(
-                        NodeWrapper::new(self.span - content.span.end)
-                            .with_node(Node::Typed { label, content }),
-                    )
-                } else if let Some(primitive_type) =
-                    state.type_parser.parse_number_type(self.src.as_bytes())
-                {
-                    state.make_node(
-                        NodeWrapper::new(self.span)
-                            .with_node(Node::PrimitiveType(Type::Number(primitive_type))),
-                    )
+                } else if binding_pow::STATEMENT >= min_bp {
+                    if state.tokenizer.next_is(|tok| tok.binding_pow() == Some(0)) {
+                        let content = state.pop_expr(binding_pow::LABEL, self.span.end);
+                        let label = state.internalizer.get(self.src);
+                        state.make_node(
+                            NodeWrapper::new(self.span - content.span.end)
+                                .with_node(Node::Typed { label, content }),
+                        )
+                    } else if state.tokenizer.next_is(|tok| tok.kind == And) {
+                        let content = state.pop_expr(binding_pow::LABEL, self.span.end);
+                        let label = state.internalizer.get(self.src);
+                        state.make_node(
+                            NodeWrapper::new(self.span - content.span.end)
+                                .with_node(Node::Typed { label, content }),
+                        )
+                    } else {
+                        submit_identifier!()
+                    }
                 } else {
-                    let sym = state.internalizer.get(self.src);
-                    state.make_node(
-                        NodeWrapper::new(self.span).with_node(Node::Ident { sym, literal: None }),
-                    )
+                    submit_identifier!()
                 }
             }
             Literal => {
@@ -83,31 +92,7 @@ impl<'src> Token<'src> {
             Keyword(keyword) => {
                 use Keyword::*;
                 match keyword {
-                    If | Loop => {
-                        let condition = state.pop_expr(binding_pow::PATH, self.span.end);
-
-                        let then_body = state.pop_path(condition.span.end);
-                        let else_body = if let Some(Token { span, .. }) =
-                            state.tokenizer.next_if(|x| x.kind == Keyword(Else))
-                        {
-                            Some(state.pop_path(span.end))
-                        } else {
-                            None
-                        };
-                        state.make_node(NodeWrapper::new(self.span).with_node(if keyword == If {
-                            Node::If {
-                                condition,
-                                then_body,
-                                else_body,
-                            }
-                        } else {
-                            Node::Loop {
-                                condition,
-                                then_body,
-                                else_body,
-                            }
-                        }))
-                    }
+                    If | Loop => state.parse_if(self.span),
                     Proc => {
                         /*
                         let convention = if let Some(tok) = state
@@ -148,7 +133,7 @@ impl<'src> Token<'src> {
                         };
 
                         if let Some(Token { span, kind, .. }) = state.tokenizer.next_if(|tok| {
-                            matches!(tok.kind, TokenKind::Open(Bracket::Round | Bracket::Squared))
+                            matches!(tok.kind, Open(Bracket::Round | Bracket::Squared))
                         }) {}
                         state.brackets += 1;
                         let op = match bracket {
@@ -185,36 +170,9 @@ impl<'src> Token<'src> {
                             .push(self.span - body.node.span, ErrorCode::LonelyElse);
                         return None;
                     }
-                    Continue => {
-                        let mut end = self.span.end;
-                        let layers = state
-                            .tokenizer
-                            .consume_while(|tok| tok.kind == Keyword(Keyword::Continue))
-                            .map(|tok| end = tok.span.end)
-                            .count();
-                        state.make_node(
-                            NodeWrapper::new(self.span - end).with_node(Node::Continue { layers }),
-                        )
-                    }
-                    Break => {
-                        let mut end = self.span.end;
-                        let layers = state
-                            .tokenizer
-                            .consume_while(|tok| tok.kind == Keyword(Keyword::Break))
-                            .map(|tok| end = tok.span.end)
-                            .count();
-                        let val = state.pop_expr(binding_pow::PATH, end);
-                        state.make_node(
-                            NodeWrapper::new(self.span - val.span)
-                                .with_node(Node::Break { layers, val }),
-                        )
-                    }
-                    Return => {
-                        let val = state.pop_expr(binding_pow::PATH, self.span.end);
-                        state.make_node(
-                            NodeWrapper::new(self.span - val.span).with_node(Node::Return { val }),
-                        )
-                    }
+                    Continue => state.parse_continue(self.span),
+                    Break => state.parse_break(self.span),
+                    Return => state.parse_return(self.span),
                 }
             }
             Tick => {
@@ -281,10 +239,10 @@ impl<'src> Token<'src> {
         })
     }
 
-    pub(super) fn led(
+    pub(super) fn led<T: TokenStream<'src>>(
         self,
         lhs: NodeBox<'src>,
-        state: &mut Parser<'src>,
+        state: &mut Parser<'src, T>,
     ) -> Result<NodeBox<'src>, NodeBox<'src>> {
         Ok(match self.kind {
             Open(bracket) if matches!(bracket, Bracket::Round | Bracket::Squared) => {
@@ -316,7 +274,7 @@ impl<'src> Token<'src> {
             ColonColon => state.parse_dynamic_arg_op(
                 lhs,
                 ColonColon,
-                binding_pow::BIND,
+                binding_pow::WRITE_RIGHT,
                 |exprs| Node::Binding { exprs },
                 self.span.end + 1,
             ),
