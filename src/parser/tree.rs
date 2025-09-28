@@ -14,6 +14,7 @@ use crate::{
 use std::{
     fmt::Debug,
     ops::{Deref, DerefMut},
+    os::macos::raw::stat,
     vec,
 };
 
@@ -241,8 +242,7 @@ impl<'src> TreeDisplay<'src> for NodeWrapper<'src> {
                         |literal| format!(
                             "\n{indentation}| digits = {}\n\
                             {indentation}| base = {:?}\n\
-                            {indentation}| digits-after-dot = {}\n\
-                            {}{}",
+                            {indentation}| digits-after-dot = {}{}{}",
                             literal.digits,
                             literal.base,
                             literal.digits_after_dot,
@@ -261,12 +261,11 @@ impl<'src> TreeDisplay<'src> for NodeWrapper<'src> {
             Lifetime(sym) => format!("Lifetime  {}", internalizer.resolve(*sym)),
             Placeholder => "_".to_owned(),
             Quote(quote) => format!("Quote  \"{}\"", with_written_out_escape_sequences(quote)),
-            Typed { label, content } => tree!(
-                format!("Typed  {}", internalizer.resolve(*label)),
+            Label { label, ty: content } => tree!(
+                format!("Label  {}", internalizer.resolve(*label)),
                 content,
                 |node: &NodeBox<'src>, indent| node.display(internalizer, &indent)
             ),
-            PrimitiveType(ty) => format!("Type  {}", ty.display(internalizer, indentation)),
             Unit => "()".to_owned(),
             Binary { op, lhs, rhs } => tree!(op, [lhs], rhs, |node: &NodeBox<'src>, indent| node
                 .display(internalizer, &indent)),
@@ -283,9 +282,7 @@ impl<'src> TreeDisplay<'src> for NodeWrapper<'src> {
                 val,
                 |val: &NodeBox<'src>, indent| val.display(internalizer, &indent)
             ),
-            Statements(content) => {
-                tree!(vec content, |node: &NodeBox<'src>, indent| node.display(internalizer, &indent))
-            }
+            Scope(scope) => scope.display(internalizer, indentation),
             Chain { first, additions } => tree!(
                 first.display(internalizer, indentation),
                 vec additions,
@@ -309,7 +306,7 @@ impl<'src> TreeDisplay<'src> for NodeWrapper<'src> {
                     [condition],
                     |node: &NodeBox<'src>, indent| node.display(internalizer, &indent),
                     vec vector,
-                    |node: &Path<'src>, indent| node.display(internalizer, &indent)
+                    |node: &NodeBox<'src>, indent| node.display(internalizer, &indent)
                 )
             }
             If {
@@ -325,7 +322,7 @@ impl<'src> TreeDisplay<'src> for NodeWrapper<'src> {
                     [condition],
                     |node: &NodeBox<'src>, indent| node.display(internalizer, &indent),
                     vec vector,
-                    |node: &Path<'src>, indent| node.display(internalizer, &indent)
+                    |node: &NodeBox<'src>, indent| node.display(internalizer, &indent)
                 )
             }
             Proc {
@@ -344,7 +341,7 @@ impl<'src> TreeDisplay<'src> for NodeWrapper<'src> {
                     [interface],
                     |conv: &FunctionInterface<'src>, indent| conv.display(internalizer, &indent),
                     vec body,
-                    |body: &Path<'src>, indent| body.display(internalizer, &indent)
+                    |body: &NodeBox<'src>, indent| body.display(internalizer, &indent)
                 )
             }
             Continue { layers } => format!("continue * {}", layers + 1),
@@ -359,14 +356,35 @@ impl<'src> TreeDisplay<'src> for NodeWrapper<'src> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct Path<'src> {
-    pub node: NodeBox<'src>,
+#[derive(PartialEq, Eq, Debug)]
+pub struct Scope<'src> {
+    pub statements: Vec<NodeBox<'src>>,
+    pub expr: NodeBox<'src>,
 }
 
-impl<'src> TreeDisplay<'src> for Path<'src> {
+impl<'src> TreeDisplay<'src> for Scope<'src> {
     fn display(&self, internalizer: &Internalizer<'src>, indentation: &String) -> String {
-        self.node.display(internalizer, &indentation)
+        let mut statements = self.statements.iter().collect::<Vec<&_>>();
+        statements.push(&self.expr);
+        let mut nodes = statements.iter();
+        format!(
+            "{FORK_START} {}{}{}",
+            nodes
+                .next()
+                .unwrap()
+                .display(internalizer, &(indentation.clone() + VERTICAL_PLUS_2)),
+            nodes
+                .map(|node| format!(
+                    "\n{indentation}{BRANCH} {}",
+                    node.display(internalizer, &(indentation.clone() + VERTICAL_PLUS_2))
+                ))
+                .collect::<String>(),
+            format!(
+                "\n{indentation}{FORK_END} {}",
+                self.expr
+                    .display(internalizer, &(indentation.clone() + VERTICAL_PLUS_2))
+            )
+        )
     }
 }
 
@@ -398,20 +416,20 @@ pub enum Node<'src> {
     // control flow structures
     Loop {
         condition: NodeBox<'src>,
-        then_body: Path<'src>,
-        else_body: Option<Path<'src>>,
+        then_body: NodeBox<'src>,
+        else_body: Option<NodeBox<'src>>,
     }, // loop condition then_body (else else_body)
 
     If {
         condition: NodeBox<'src>,
-        then_body: Path<'src>,
-        else_body: Option<Path<'src>>,
+        then_body: NodeBox<'src>,
+        else_body: Option<NodeBox<'src>>,
     }, // loop condition then_body (else else_body)
 
     Proc {
         interface: FunctionInterface<'src>,
         convention: Option<NodeBox<'src>>,
-        body: Path<'src>,
+        body: NodeBox<'src>,
     },
 
     Continue {
@@ -440,9 +458,9 @@ pub enum Node<'src> {
     Quote(String), // "..."
     Placeholder,   // _
 
-    Typed {
+    Label {
         label: Symbol<'src>,
-        content: NodeBox<'src>,
+        ty: NodeBox<'src>,
     },
 
     // identifiers
@@ -452,13 +470,12 @@ pub enum Node<'src> {
     }, // x / (0(b/s/o/d/x))N(.N)((u/i/f/c)(0(b/s/o/d/x))N)(i)
     Lifetime(Symbol<'src>), // 'x
 
-    PrimitiveType(Type<'src>), // u32, i32, c32, f32, ...
     Unit,
     Or(Vec<NodeBox<'src>>),
 
     // multiple values
-    List(comp::Vec<NodeBox<'src>, 2>),       // a, b, c, d, ...
-    Statements(comp::Vec<NodeBox<'src>, 2>), // a b c d ...
+    List(comp::Vec<NodeBox<'src>, 2>), // a, b, c, d, ...
+    Scope(Scope<'src>),                // { a b c d ... }
 
     // operations
     Binary {

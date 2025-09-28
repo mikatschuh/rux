@@ -52,6 +52,7 @@ pub enum ErrorCode<'src> {
     ExpectedValue,
     ExpectedIdent,
     ExpectedInterface,
+    ExpectedTerminator,
 
     NoClosingQuotes { quote: &'src str },
     // control structure mistakes
@@ -200,6 +201,10 @@ impl Error<'_> {
                 self.section.to_string(path),
                 "the ending quotes of the quote {} were missing",
                 [format!("{}{}{}", "\"", quote, "\"".red().underline())]
+            ),
+            ExpectedTerminator => format_error!(
+                self.section.to_string(path),
+                "expected a comma or any closed bracket"
             ),
             LonelyElse => {
                 format_error!(

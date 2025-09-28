@@ -1,11 +1,10 @@
-use std::ops::ControlFlow;
-
 use crate::{
     comp,
     error::{ErrorCode, Errors, Position, Span},
     parser::{
         intern::{Internalizer, Symbol},
         tokenizing::TokenStream,
+        tree::Scope,
     },
     typing::TypeParser,
     utilities::Rc,
@@ -15,17 +14,15 @@ use tokenizing::{
     token::{Token, TokenKind},
     Tokenizer,
 };
-use tree::{Bracket, Node, NodeBox, NodeWrapper, Path};
+use tree::{Bracket, Node, NodeBox, NodeWrapper};
 
 pub mod binary_op;
 mod binding_pow;
 pub mod intern;
 #[allow(dead_code)]
 pub mod keyword;
+mod labels;
 mod rules;
-pub mod symbol;
-#[cfg(test)]
-mod test;
 pub mod tokenizing;
 pub mod tree;
 pub mod unary_op;
@@ -37,43 +34,36 @@ pub fn parse<'src>(
 ) -> (NodeBox<'src>, Rc<Internalizer<'src>>, Rc<Errors<'src>>) {
     let errors = Rc::new(Errors::empty(path));
     let internalizer = Rc::new(Internalizer::new());
-    let root = Parser::new(
-        Tokenizer::new(text, errors.clone(), TypeParser::new()),
-        internalizer.clone(),
+    let root = Parser::new(internalizer.clone(), errors.clone(), arena).parse(Tokenizer::new(
+        text,
         errors.clone(),
-        arena,
-    )
-    .parse();
+        TypeParser::new(),
+    ));
 
     (root, internalizer, errors)
 }
 
-struct Parser<'src, T: Iterator> {
-    tokenizer: T,
+struct Parser<'src> {
     errors: Rc<Errors<'src>>,
     brackets: usize,
 
     internalizer: Rc<Internalizer<'src>>,
-    type_parser: TypeParser,
     arena: &'src Bump,
     /*dash_slot: Option<Ref<'src, NodeBox<'src>>>,*/
 }
 
-impl<'src, T: TokenStream<'src>> Parser<'src, T> {
+impl<'src> Parser<'src> {
     #[inline]
     fn new(
-        tokenizer: T,
         internalizer: Rc<Internalizer<'src>>,
         errors: Rc<Errors<'src>>,
         arena: &'src Bump,
     ) -> Self {
         Self {
-            tokenizer,
             errors,
             brackets: 0,
 
             internalizer,
-            type_parser: TypeParser::new(),
             arena,
         }
     }
@@ -84,51 +74,49 @@ impl<'src, T: TokenStream<'src>> Parser<'src, T> {
     }
 
     #[inline]
-    fn parse(mut self) -> NodeBox<'src> {
-        self.pop_expr(0, Position::beginning())
+    fn parse(mut self, mut tokenizer: impl TokenStream<'src>) -> NodeBox<'src> {
+        let global_scope = self.parse_statements(&mut tokenizer);
+        self.make_node(
+            NodeWrapper::new(
+                global_scope
+                    .statements
+                    .first()
+                    .map_or(global_scope.expr.span, |first| first.span)
+                    - global_scope.expr.span,
+            )
+            .with_node(Node::Scope(global_scope)),
+        )
     }
 
-    fn parse_expr(&mut self, min_bp: u8) -> Option<NodeBox<'src>> {
-        let mut lhs = self.tokenizer.next()?.nud(self, min_bp)?;
+    fn parse_expr(
+        &mut self,
+        tokens: &mut impl TokenStream<'src>,
+        min_bp: u8,
+    ) -> Option<NodeBox<'src>> {
+        let mut lhs = tokens.next()?.nud(self, tokens)?;
 
-        while let Some(tok) = self.tokenizer.peek() {
+        while let Some(tok) = tokens.peek() {
             if self.brackets == 0 {
                 if let TokenKind::Closed(closed) = tok.kind {
-                    let Token { span, .. } = self.tokenizer.next().unwrap();
+                    let Token { span, .. } = tokens.next().unwrap();
                     self.errors
                         .push(span, ErrorCode::NoOpenedBracket { closed });
                     continue;
                 }
             } // Generate missing opening bracket error
 
-            let Some(bp) = tok.binding_pow() else {
+            if tok.kind.is_terminator() {
                 return Some(lhs);
-            };
-            if bp < min_bp {
+            }
+            if tok.binding_pow() < min_bp {
                 return Some(lhs);
             }
 
-            let tok = self
-                .tokenizer
-                .next()
-                .expect("the token-stream was peeked before");
-            lhs = match tok.led(lhs, self) {
+            let tok = tokens.next().expect("the token-stream was peeked before");
+            lhs = match tok.led(lhs, self, tokens) {
                 Ok(new_lhs) => new_lhs,
                 Err(old_lhs) => {
-                    self.tokenizer.buffer(tok);
-
-                    if let Some(rhs) = self.parse_expr(binding_pow::STATEMENT) {
-                        let mut chain = comp::Vec::new([old_lhs, rhs]);
-                        while let Some(rhs) = self.parse_expr(binding_pow::STATEMENT) {
-                            chain.push(rhs)
-                        }
-                        self.make_node(
-                            NodeWrapper::new(chain.first().span - chain.last().span)
-                                .with_node(Node::Statements(chain)),
-                        )
-                    } else {
-                        return Some(old_lhs);
-                    }
+                    return Some(old_lhs);
                 }
             };
         }
@@ -137,36 +125,108 @@ impl<'src, T: TokenStream<'src>> Parser<'src, T> {
     }
 
     #[inline]
-    fn pop_expr(&mut self, min_bp: u8, pos: Position) -> NodeBox<'src> {
-        let node = self.parse_expr(min_bp);
-        self.expect_node(node, pos)
+    fn pop_expr(&mut self, tokens: &mut impl TokenStream<'src>, min_bp: u8) -> NodeBox<'src> {
+        let node = self.parse_expr(tokens, min_bp);
+        self.expect_node(node, tokens.current_pos())
     }
 
     /// Parses statements. This functions goes through tokens one by one and trys
     /// to find the end of the current statement, if
     ///     a terminator is found, the current statement is an expression
     ///     a write operator is found, the current thing is a pattern
-    ///     a function call is found, the current thing is an expression-statement
-    fn parse_statements(&mut self) -> Option<NodeBox<'src>> {
-        loop {}
+    fn parse_statements(&mut self, tokens: &mut impl TokenStream<'src>) -> Scope<'src> {
+        let mut statements = vec![];
+        'outer: loop {
+            let Some(tok) = tokens.peek() else {
+                return Scope {
+                    statements,
+                    expr: self.make_node(NodeWrapper::new(tokens.current_pos().into())),
+                };
+            };
+            use TokenKind::*;
+
+            match tok.kind {
+                Ident => {
+                    let mut first = true;
+                    let mut open_brackets = 0_usize;
+                    let mut could_be_end = false;
+                    let (mut next_tokens, expr) = tokens.slice_start(|tok| {
+                        if first {
+                            first = false;
+                            return None;
+                        }
+                        if tok.kind.is_terminator() {
+                            return Some(true);
+                        }
+                        if tok.binding_pow() == 0 {
+                            if could_be_end {
+                                return Some(false);
+                            }
+                            if let Open(..) = tok.kind {
+                                open_brackets += 1;
+                            }
+                        }
+                        if tok.binding_pow() < binding_pow::LABEL {
+                            return Some(false);
+                        }
+                        could_be_end = !tok.kind.has_right_side();
+                        None
+                    });
+                    if expr {
+                        return Scope {
+                            statements: vec![],
+                            expr: self.pop_expr(&mut next_tokens, binding_pow::STATEMENT),
+                        };
+                    }
+                    let mut lhs = self.parse_label(&mut next_tokens);
+                    while let Some(tok) = tokens.peek() {
+                        if self.brackets == 0 {
+                            if let TokenKind::Closed(closed) = tok.kind {
+                                let Token { span, .. } = tokens.next().unwrap();
+                                self.errors
+                                    .push(span, ErrorCode::NoOpenedBracket { closed });
+                                continue;
+                            }
+                        } // Generate missing opening bracket error
+
+                        if tok.binding_pow() < binding_pow::STATEMENT {
+                            break;
+                        }
+
+                        let tok = tokens.next().unwrap();
+                        lhs = match tok.led(lhs, self, tokens) {
+                            Ok(new_lhs) => new_lhs,
+                            Err(old_lhs) => {
+                                statements.push(old_lhs);
+                                continue 'outer;
+                            }
+                        };
+                    }
+                    statements.push(lhs);
+                }
+                _ => {
+                    return Scope {
+                        statements,
+                        expr: self.pop_expr(tokens, binding_pow::STATEMENT),
+                    };
+                }
+            }
+        }
     }
 
-    #[inline]
-    fn pop_path(&mut self, pos: Position) -> Path<'src> {
-        let node = self.pop_expr(binding_pow::PATH, pos);
-        let path = Path { node };
-        path
-    }
-
-    fn handle_closed_bracket(&mut self, pos: Position, open_bracket: Bracket) -> Span {
+    fn handle_closed_bracket(
+        &mut self,
+        tokens: &mut impl TokenStream<'src>,
+        open_bracket: Bracket,
+    ) -> Span {
         use TokenKind::*;
         if let Some(Token {
             kind: Closed(closed_bracket),
             ..
-        }) = self.tokenizer.peek()
+        }) = tokens.peek()
         {
             let found = *closed_bracket;
-            let span = self.tokenizer.next().unwrap().span;
+            let span = tokens.next().unwrap().span;
             self.brackets -= 1;
             if found != open_bracket {
                 self.errors.push(
@@ -194,7 +254,7 @@ impl<'src, T: TokenStream<'src>> Parser<'src, T> {
             }*/
             span
         } else {
-            let mut left_over_tokens = self.tokenizer.consume_while(
+            let mut left_over_tokens = tokens.consume_while(
                 |tok| !matches!(tok.kind, TokenKind::Closed(bracket) if bracket == open_bracket),
             );
 
@@ -210,68 +270,60 @@ impl<'src, T: TokenStream<'src>> Parser<'src, T> {
                 );
             } else {
                 self.errors.push(
-                    pos.into(),
+                    tokens.current_pos().into(),
                     ErrorCode::NoClosedBracket {
                         opened: open_bracket,
                     },
                 );
             }
 
-            if let Some(Token { span, .. }) = self.tokenizer.next() {
+            if let Some(Token { span, .. }) = tokens.next() {
                 self.brackets -= 1;
                 return span;
             }
-            pos.into()
+            tokens.current_pos().into()
         }
     }
 
     /// Pops an identifier if the next token is one. If not it generates the correct error message
     /// and leaves the token there. The position indicates were the identifier is expected to go.
-    fn next_identifier(&mut self, pos: Position) -> (Span, Symbol<'src>) {
-        if let Some(tok) = self
-            .tokenizer
-            .next_if(|tok| matches!(tok.kind, TokenKind::Ident))
-        {
+    fn pop_identifier(&mut self, tokens: &mut impl TokenStream<'src>) -> (Span, Symbol<'src>) {
+        if let Some(tok) = tokens.next_if(|tok| matches!(tok.kind, TokenKind::Ident)) {
             (tok.span, self.internalizer.get(tok.src))
-        } else if let Some(tok) = self
-            .tokenizer
-            .next_if(|tok| matches!(tok.kind, TokenKind::Literal))
-        {
-            _ = self.tokenizer.get_literal();
+        } else if let Some(tok) = tokens.next_if(|tok| matches!(tok.kind, TokenKind::Literal)) {
+            _ = tokens.pop_literal();
             (tok.span, self.internalizer.get(tok.src))
         } else {
+            let pos = tokens.current_pos();
             self.errors.push(pos.into(), ErrorCode::ExpectedIdent);
             (pos.into(), self.internalizer.empty())
         }
     }
 
-    fn parse_list(&mut self, lhs: NodeBox<'src>) -> NodeBox<'src> {
-        let Some(Token { span, .. }) = self.tokenizer.next_if(|tok| tok.kind == TokenKind::Comma)
-        else {
+    fn parse_list(
+        &mut self,
+        tokens: &mut impl TokenStream<'src>,
+        lhs: NodeBox<'src>,
+    ) -> NodeBox<'src> {
+        let Some(..) = tokens.next_if(|tok| tok.kind == TokenKind::Comma) else {
             return lhs;
         };
-        self.parse_dynamic_arg_op(
-            lhs,
-            TokenKind::Comma,
-            0,
-            |exprs| Node::List(exprs),
-            span.end + 1,
-        )
+        self.parse_dynamic_arg_op(tokens, lhs, TokenKind::Comma, 0, |exprs| Node::List(exprs))
     }
 
     fn parse_dynamic_arg_op(
         &mut self,
+        tokens: &mut impl TokenStream<'src>,
         lhs: NodeBox<'src>,
         own_tok: TokenKind,
         right_bp: u8,
         nud: impl Fn(comp::Vec<NodeBox<'src>, 2>) -> Node<'src>,
-        pos: Position,
     ) -> NodeBox<'src> {
-        let rhs = self.pop_expr(right_bp, pos);
+        let rhs = self.pop_expr(tokens, right_bp);
         let mut exprs = comp::Vec::new([lhs, rhs]);
 
-        while let Some(Token { span, .. }) = self.tokenizer.next_if(|tok| tok.kind == own_tok) {
-            let next = self.pop_expr(right_bp, span.end + 1);
+        while let Some(..) = tokens.next_if(|tok| tok.kind == own_tok) {
+            let next = self.pop_expr(tokens, right_bp);
             exprs.push(next)
         }
 

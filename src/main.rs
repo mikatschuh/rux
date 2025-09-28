@@ -18,7 +18,7 @@ mod utilities;
 #[macro_use]
 mod comp;
 mod bench;
-mod interpreter;
+// mod interpreter;
 mod vms;
 /*
 ___    __

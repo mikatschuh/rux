@@ -17,64 +17,25 @@ use crate::{
 };
 
 impl<'src> Token<'src> {
-    pub(super) fn nud<T: TokenStream<'src>>(
+    pub(super) fn nud(
         self,
-        state: &mut Parser<'src, T>,
-        min_bp: u8,
+        state: &mut Parser<'src>,
+        tokens: &mut impl TokenStream<'src>,
     ) -> Option<NodeBox<'src>> {
         Some(match self.kind {
             Ident => {
-                macro_rules! submit_identifier {
-                    () => {{
-                        let sym = state.internalizer.get(self.src);
-                        state.make_node(
-                            NodeWrapper::new(self.span)
-                                .with_node(Node::Ident { sym, literal: None }),
-                        )
-                    }};
-                }
-                if self.src == "_" {
-                    state.make_node(NodeWrapper::new(self.span).with_node(Node::Placeholder))
-                } else if binding_pow::STATEMENT >= min_bp {
-                    if state.tokenizer.next_is(|tok| tok.binding_pow() == Some(0)) {
-                        let content = state.pop_expr(binding_pow::LABEL, self.span.end);
-                        let label = state.internalizer.get(self.src);
-                        state.make_node(
-                            NodeWrapper::new(self.span - content.span.end)
-                                .with_node(Node::Typed { label, content }),
-                        )
-                    } else if state.tokenizer.next_is(|tok| tok.kind == And) {
-                        let content = state.pop_expr(binding_pow::LABEL, self.span.end);
-                        let label = state.internalizer.get(self.src);
-                        state.make_node(
-                            NodeWrapper::new(self.span - content.span.end)
-                                .with_node(Node::Typed { label, content }),
-                        )
-                    } else {
-                        submit_identifier!()
-                    }
-                } else {
-                    submit_identifier!()
-                }
+                let sym = state.internalizer.get(self.src);
+                state.make_node(
+                    NodeWrapper::new(self.span).with_node(Node::Ident { sym, literal: None }),
+                )
             }
             Literal => {
-                if binding_pow::STATEMENT >= min_bp
-                    && state.tokenizer.next_is(|tok| tok.binding_pow() == Some(0))
-                {
-                    let content = state.pop_expr(binding_pow::LABEL, self.span.end);
-                    let label = state.internalizer.get(self.src);
-                    state.make_node(
-                        NodeWrapper::new(self.span - content.span.end)
-                            .with_node(Node::Typed { label, content }),
-                    )
-                } else {
-                    let sym = state.internalizer.get(self.src);
-                    let literal = state.tokenizer.get_literal();
-                    state.make_node(NodeWrapper::new(self.span).with_node(Node::Ident {
-                        sym,
-                        literal: Some(literal),
-                    }))
-                }
+                let sym = state.internalizer.get(self.src);
+                let literal = tokens.pop_literal();
+                state.make_node(NodeWrapper::new(self.span).with_node(Node::Ident {
+                    sym,
+                    literal: Some(literal),
+                }))
             }
             Quote => {
                 let (string, confusions) = resolve_escape_sequences(self.src);
@@ -92,7 +53,7 @@ impl<'src> Token<'src> {
             Keyword(keyword) => {
                 use Keyword::*;
                 match keyword {
-                    If | Loop => state.parse_if(self.span),
+                    If | Loop => state.parse_if(tokens, self.span),
                     Proc => {
                         /*
                         let convention = if let Some(tok) = state
@@ -132,7 +93,7 @@ impl<'src> Token<'src> {
                             }
                         };
 
-                        if let Some(Token { span, kind, .. }) = state.tokenizer.next_if(|tok| {
+
                             matches!(tok.kind, Open(Bracket::Round | Bracket::Squared))
                         }) {}
                         state.brackets += 1;
@@ -164,60 +125,63 @@ impl<'src> Token<'src> {
                         todo!()
                     }
                     Else => {
-                        let body = state.pop_path(self.span.end);
+                        let body = state.pop_expr(tokens, binding_pow::PATH);
                         state
                             .errors
-                            .push(self.span - body.node.span, ErrorCode::LonelyElse);
+                            .push(self.span - body.span, ErrorCode::LonelyElse);
                         return None;
                     }
-                    Continue => state.parse_continue(self.span),
-                    Break => state.parse_break(self.span),
-                    Return => state.parse_return(self.span),
+                    Continue => state.parse_continue(tokens, self.span),
+                    Break => state.parse_break(tokens, self.span),
+                    Return => state.parse_return(tokens, self.span),
                 }
             }
             Tick => {
-                let (ident_span, sym) = state.next_identifier(self.span.end);
+                let (ident_span, sym) = state.pop_identifier(tokens);
                 state.make_node(
                     NodeWrapper::new(self.span.start - ident_span).with_node(Node::Lifetime(sym)),
                 )
             }
+            Open(Bracket::Curly) => {
+                state.brackets += 1;
+                if let Some(Token { span, .. }) =
+                    tokens.next_if(|tok| tok.kind == Closed(Bracket::Curly))
+                {
+                    return Some(
+                        state.make_node(NodeWrapper::new(self.span - span).with_node(Node::Unit)),
+                    );
+                }
+                let scope = state.parse_statements(tokens);
+                let end = state.handle_closed_bracket(tokens, Bracket::Curly);
+                state.make_node(NodeWrapper::new(self.span - end).with_node(Node::Scope(scope)))
+            }
             Open(own_bracket) => {
                 state.brackets += 1;
-                let Some(content) = state.parse_expr(0) else {
-                    let end = state.handle_closed_bracket(self.span.end, own_bracket);
+                let Some(content) = state.parse_expr(tokens, 0) else {
+                    let end = state.handle_closed_bracket(tokens, own_bracket);
                     return Some(
                         state.make_node(NodeWrapper::new(self.span - end).with_node(Node::Unit)),
                     );
                 };
 
-                let mut content = state.parse_list(content);
+                let mut content = state.parse_list(tokens, content);
 
-                let end = state.handle_closed_bracket(self.span.end, own_bracket);
+                let end = state.handle_closed_bracket(tokens, own_bracket);
                 content.span = self.span - end;
-                if (binding_pow::COLON >= min_bp || min_bp == binding_pow::LABEL)
-                    && state.tokenizer.next_is(|tok| tok.binding_pow() == Some(0))
-                {
-                    let content = state.pop_expr(binding_pow::LABEL, self.span.end);
-                    let label = state.internalizer.get(self.src);
-                    state.make_node(
-                        NodeWrapper::new(self.span - content.span.end)
-                            .with_node(Node::Typed { label, content }),
-                    )
-                } else {
-                    content
-                }
+
+                content
             }
             Pipe => {
                 let op = BinaryOp::BitOr;
-                let Some(rhs) = state.parse_expr(op.binding_pow()) else {
+                let Some(rhs) = state.parse_expr(tokens, op.binding_pow()) else {
                     return Some(
                         state.make_node(NodeWrapper::new(self.span).with_node(Node::Or(vec![]))),
                     );
                 };
                 let mut chain = vec![rhs];
-                while state.tokenizer.next_is(|tok| tok.kind == Pipe) {
-                    let Token { span, .. } = state.tokenizer.next().unwrap();
-                    let next = state.pop_expr(op.binding_pow(), span.end);
+                while tokens.next_is(|tok| tok.kind == Pipe) {
+                    _ = tokens.next().unwrap();
+                    let next = state.pop_expr(tokens, op.binding_pow());
                     chain.push(next);
                 }
                 state.make_node(
@@ -225,24 +189,25 @@ impl<'src> Token<'src> {
                         .with_node(Node::Or(chain)),
                 )
             }
-            Plus | PlusPlus | DashDash => state.pop_expr(UnaryOp::Neg.binding_pow(), self.span.end),
+            Plus | PlusPlus | DashDash => state.pop_expr(tokens, UnaryOp::Neg.binding_pow()),
             _ => match self.as_prefix() {
                 Some(op) => {
-                    let val = state.pop_expr(op.binding_pow(), self.span.end);
+                    let val = state.pop_expr(tokens, op.binding_pow());
                     state.make_node(NodeWrapper::new(self.span).with_node(Node::Unary { op, val }))
                 }
                 _ => {
-                    state.tokenizer.buffer(self);
+                    tokens.buffer(self);
                     return None;
                 }
             },
         })
     }
 
-    pub(super) fn led<T: TokenStream<'src>>(
+    pub(super) fn led(
         self,
         lhs: NodeBox<'src>,
-        state: &mut Parser<'src, T>,
+        state: &mut Parser<'src>,
+        tokens: &mut impl TokenStream<'src>,
     ) -> Result<NodeBox<'src>, NodeBox<'src>> {
         Ok(match self.kind {
             Open(bracket) if matches!(bracket, Bracket::Round | Bracket::Squared) => {
@@ -252,12 +217,12 @@ impl<'src> Token<'src> {
                     Bracket::Squared => BinaryOp::Index,
                     _ => unreachable!(),
                 };
-                let content = state.parse_expr(0).unwrap_or_else(|| {
+                let content = state.parse_expr(tokens, 0).unwrap_or_else(|| {
                     state.make_node(NodeWrapper::new(self.span.end() + 1).with_node(Node::Unit))
                 });
 
-                let content = state.parse_list(content);
-                let end = state.handle_closed_bracket(self.span.end, bracket);
+                let content = state.parse_list(tokens, content);
+                let end = state.handle_closed_bracket(tokens, bracket);
                 state.make_node(NodeWrapper::new(self.span - end).with_node(Node::Binary {
                     op,
                     lhs,
@@ -265,49 +230,47 @@ impl<'src> Token<'src> {
                 }))
             }
             Tick => {
-                let (ident_span, sym) = state.next_identifier(self.span.end);
+                let (ident_span, sym) = state.pop_identifier(tokens);
                 state.make_node(
                     NodeWrapper::new(lhs.span - ident_span)
                         .with_node(Node::Lifetimed { sym, val: lhs }),
                 )
             }
             ColonColon => state.parse_dynamic_arg_op(
+                tokens,
                 lhs,
                 ColonColon,
                 binding_pow::WRITE_RIGHT,
                 |exprs| Node::Binding { exprs },
-                self.span.end + 1,
             ),
-            Colon => state.parse_dynamic_arg_op(
-                lhs,
-                ColonColon,
-                binding_pow::COLON,
-                |exprs| Node::Iterator { exprs },
-                self.span.end + 1,
-            ),
+            Colon => {
+                state.parse_dynamic_arg_op(tokens, lhs, ColonColon, binding_pow::COLON, |exprs| {
+                    Node::Iterator { exprs }
+                })
+            }
             EqualPipe => {
-                state.tokenizer.buffer(Token {
+                tokens.buffer(Token {
                     span: self.span.end(),
                     src: &self.src[1..2],
                     kind: Pipe,
                 });
                 let op = BinaryOp::Write;
-                let rhs = state.pop_expr(op.binding_pow(), self.span.end);
+                let rhs = state.pop_expr(tokens, op.binding_pow());
                 state.make_node(
                     NodeWrapper::new(lhs.span - rhs.span).with_node(Node::Binary { op, lhs, rhs }),
                 )
             }
             Pipe => {
                 let op = BinaryOp::BitOr;
-                let Some(rhs) = state.parse_expr(op.binding_pow()) else {
+                let Some(rhs) = state.parse_expr(tokens, op.binding_pow()) else {
                     return Ok(state.make_node(
                         NodeWrapper::new(lhs.span - self.span).with_node(Node::Or(vec![lhs])),
                     ));
                 };
                 let mut chain = vec![lhs, rhs];
-                while state.tokenizer.next_is(|tok| tok.kind == Pipe) {
-                    let Token { span, .. } = state.tokenizer.next().unwrap();
-                    let next = state.pop_expr(op.binding_pow(), span.end);
+                while tokens.next_is(|tok| tok.kind == Pipe) {
+                    _ = tokens.next().unwrap();
+                    let next = state.pop_expr(tokens, op.binding_pow());
                     chain.push(next);
                 }
                 state.make_node(
@@ -322,13 +285,13 @@ impl<'src> Token<'src> {
                             .with_node(Node::Unary { op, val: lhs }),
                     )
                 } else if let Some(op) = self.as_infix() {
-                    let rhs = state.pop_expr(op.binding_pow(), self.span.end);
+                    let rhs = state.pop_expr(tokens, op.binding_pow());
                     if op.is_chained() {
                         let mut chain = comp::Vec::new([(op, rhs)]);
-                        while let Some(op) = state.tokenizer.peek().and_then(|op| op.as_infix()) {
+                        while let Some(op) = tokens.peek().and_then(|op| op.as_infix()) {
                             if op.is_chained() {
-                                let Token { span, .. } = state.tokenizer.next().unwrap();
-                                let rhs = state.pop_expr(op.binding_pow(), span.end);
+                                _ = tokens.next().unwrap();
+                                let rhs = state.pop_expr(tokens, op.binding_pow());
                                 chain.push((op, rhs));
                                 continue;
                             }

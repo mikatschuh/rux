@@ -2,10 +2,7 @@ use crate::{
     error::Span,
     parser::{
         binding_pow,
-        tokenizing::{
-            token::{Token, TokenKind},
-            TokenStream,
-        },
+        tokenizing::{token::TokenKind, TokenStream},
         tree::{Node, NodeBox, NodeWrapper},
         Parser,
     },
@@ -56,16 +53,20 @@ impl Keyword {
     }
 }
 
-impl<'src, T: TokenStream<'src>> Parser<'src, T> {
-    pub fn parse_if(&mut self, span: Span) -> NodeBox<'src> {
-        let condition = self.pop_expr(binding_pow::PATH, span.end);
+impl<'src> Parser<'src> {
+    pub fn parse_if(
+        &mut self,
+        tokens: &mut impl TokenStream<'src>,
+        mut span: Span,
+    ) -> NodeBox<'src> {
+        let condition = self.pop_expr(tokens, binding_pow::PATH);
 
-        let then_body = self.pop_path(condition.span.end);
-        let else_body = if let Some(Token { span, .. }) = self
-            .tokenizer
-            .next_if(|x| x.kind == TokenKind::Keyword(Else))
-        {
-            Some(self.pop_path(span.end))
+        let then_body = self.pop_expr(tokens, binding_pow::PATH);
+        span = span - then_body.span;
+        let else_body = if let Some(..) = tokens.next_if(|x| x.kind == TokenKind::Keyword(Else)) {
+            let body = self.pop_expr(tokens, binding_pow::PATH);
+            span = span - body.span;
+            Some(body)
         } else {
             None
         };
@@ -76,15 +77,19 @@ impl<'src, T: TokenStream<'src>> Parser<'src, T> {
         }))
     }
 
-    pub fn parse_loop(&mut self, span: Span) -> NodeBox<'src> {
-        let condition = self.pop_expr(binding_pow::PATH, span.end);
+    pub fn parse_loop(
+        &mut self,
+        tokens: &mut impl TokenStream<'src>,
+        mut span: Span,
+    ) -> NodeBox<'src> {
+        let condition = self.pop_expr(tokens, binding_pow::PATH);
 
-        let then_body = self.pop_path(condition.span.end);
-        let else_body = if let Some(Token { span, .. }) = self
-            .tokenizer
-            .next_if(|x| x.kind == TokenKind::Keyword(Else))
-        {
-            Some(self.pop_path(span.end))
+        let then_body = self.pop_expr(tokens, binding_pow::PATH);
+        span = span - then_body.span;
+        let else_body = if let Some(..) = tokens.next_if(|x| x.kind == TokenKind::Keyword(Else)) {
+            let body = self.pop_expr(tokens, binding_pow::PATH);
+            span = span - body.span;
+            Some(self.pop_expr(tokens, binding_pow::PATH))
         } else {
             None
         };
@@ -95,26 +100,36 @@ impl<'src, T: TokenStream<'src>> Parser<'src, T> {
         }))
     }
 
-    pub fn parse_return(&mut self, span: Span) -> NodeBox<'src> {
-        let val = self.pop_expr(binding_pow::PATH, span.end);
+    pub fn parse_return(
+        &mut self,
+        tokens: &mut impl TokenStream<'src>,
+        span: Span,
+    ) -> NodeBox<'src> {
+        let val = self.pop_expr(tokens, binding_pow::PATH);
         self.make_node(NodeWrapper::new(span - val.span).with_node(Node::Return { val }))
     }
 
-    pub fn parse_break(&mut self, span: Span) -> NodeBox<'src> {
+    pub fn parse_break(
+        &mut self,
+        tokens: &mut impl TokenStream<'src>,
+        span: Span,
+    ) -> NodeBox<'src> {
         let mut end = span.end;
-        let layers = self
-            .tokenizer
+        let layers = tokens
             .consume_while(|tok| tok.kind == TokenKind::Keyword(Keyword::Break))
             .map(|tok| end = tok.span.end)
             .count();
-        let val = self.pop_expr(binding_pow::PATH, end);
+        let val = self.pop_expr(tokens, binding_pow::PATH);
         self.make_node(NodeWrapper::new(span - val.span).with_node(Node::Break { layers, val }))
     }
 
-    pub fn parse_continue(&mut self, span: Span) -> NodeBox<'src> {
+    pub fn parse_continue(
+        &mut self,
+        tokens: &mut impl TokenStream<'src>,
+        span: Span,
+    ) -> NodeBox<'src> {
         let mut end = span.end;
-        let layers = self
-            .tokenizer
+        let layers = tokens
             .consume_while(|tok| tok.kind == TokenKind::Keyword(Keyword::Continue))
             .map(|tok| end = tok.span.end)
             .count();
@@ -122,7 +137,7 @@ impl<'src, T: TokenStream<'src>> Parser<'src, T> {
     }
 
     #[allow(unused)]
-    pub fn parse_proc(&mut self, span: Span) -> NodeBox<'src> {
+    pub fn parse_proc(&mut self, tokens: &mut impl TokenStream<'src>, span: Span) -> NodeBox<'src> {
         /*
         let convention = if let Some(tok) =self
             .tokenizer

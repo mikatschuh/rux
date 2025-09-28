@@ -1,56 +1,48 @@
-use std::{collections::VecDeque, iter::FusedIterator, vec::IntoIter};
+use std::{collections::VecDeque, iter::FusedIterator};
 
-use crate::parser::tokenizing::{num::Literal, token::Token, TokenStream};
+use crate::{
+    error::Position,
+    parser::tokenizing::{num::Literal, token::Token, TokenStream},
+};
 
-pub struct TokenSlice<'src> {
-    pub numbers: &'src mut VecDeque<Literal>,
-    tokens: &'src mut VecDeque<Token<'src>>,
-    tokens_len: usize,
+pub struct TokenSlice<'src, 'a> {
+    pub(super) last_outputted_pos: Position,
+    pub(super) numbers: &'a mut VecDeque<Literal>,
+    pub(super) tokens: &'a mut VecDeque<Token<'src>>,
+    pub(super) tokens_len: usize,
 }
 
-impl<'src> TokenSlice<'src> {
-    #[inline]
-    fn pop_front(&mut self) -> Option<Token<'src>> {
+impl<'src, 'a> Iterator for TokenSlice<'src, 'a> {
+    type Item = Token<'src>;
+    fn next(&mut self) -> Option<Self::Item> {
         if self.tokens.len() == 0 {
             return None;
         }
-        let token = self.tokens.pop_front();
+        let token = self.tokens.pop_front().map(|tok| {
+            self.last_outputted_pos = tok.span.end;
+            tok
+        });
         self.tokens_len -= 1;
         token
     }
 }
+impl<'src, 'a> FusedIterator for TokenSlice<'src, 'a> {}
 
-impl<'src> Iterator for TokenSlice<'src> {
-    type Item = Token<'src>;
-    fn next(&mut self) -> Option<Self::Item> {
-        self.pop_front()
-    }
-}
-impl<'src> FusedIterator for TokenSlice<'src> {}
-
-impl<'src> TokenStream<'src> for TokenSlice<'src> {
+impl<'src, 'a> TokenStream<'src> for TokenSlice<'src, 'a> {
     fn peek(&mut self) -> Option<&Token<'src>> {
         self.tokens.front()
     }
 
-    fn next_if(&mut self, predicate: impl FnOnce(&Token<'src>) -> bool) -> Option<Token<'src>> {
-        if let Some(tok) = self.tokens.front() {
-            if predicate(tok) {
-                return self.pop_front();
-            }
-        }
-        None
-    }
-
-    fn next_is(&mut self, predicate: impl FnOnce(&Token<'src>) -> bool) -> bool {
-        if let Some(tok) = self.tokens.front() {
-            predicate(tok)
+    #[inline]
+    fn current_pos(&mut self) -> Position {
+        if let Some(Token { span, .. }) = self.peek() {
+            span.start
         } else {
-            false
+            self.last_outputted_pos
         }
     }
 
-    fn get_literal(&mut self) -> Literal {
+    fn pop_literal(&mut self) -> Literal {
         self.numbers
             .pop_front()
             .expect("This shouldnt be called without the literal token")
@@ -59,15 +51,42 @@ impl<'src> TokenStream<'src> for TokenSlice<'src> {
     /// Method for tokensing a token. If the tokens is full (or this is called twice in a row)
     /// a panic is invocated.
     fn buffer(&mut self, token: Token<'src>) {
+        self.last_outputted_pos = token.span.start;
         self.tokens.push_front(token);
         self.tokens_len += 1;
     }
 
-    fn consume_while(&mut self, mut predicate: impl FnMut(&Token) -> bool) -> IntoIter<Token> {
-        let mut tokens = Vec::new();
-        while self.peek().is_some_and(&mut predicate) {
-            tokens.push(unsafe { self.next().unwrap_unchecked() });
+    fn slice_start(
+        &mut self,
+        mut regular_end: impl FnMut(&Token<'src>) -> Option<bool>,
+    ) -> (TokenSlice<'src, '_>, bool) {
+        let mut i = 0;
+        loop {
+            if i == self.tokens_len {
+                return (
+                    TokenSlice {
+                        numbers: self.numbers,
+                        tokens_len: i,
+                        tokens: self.tokens,
+                        ..*self
+                    },
+                    false,
+                );
+            }
+            let tok = self.tokens[i];
+            if let Some(x) = regular_end(&tok) {
+                return (
+                    TokenSlice {
+                        numbers: self.numbers,
+                        tokens_len: i,
+                        tokens: self.tokens,
+                        ..*self
+                    },
+                    x,
+                );
+            }
+
+            i += 1;
         }
-        tokens.into_iter()
     }
 }

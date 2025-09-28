@@ -53,11 +53,10 @@ pub(super) const PREFIX: u8 = 130;
 pub(super) const APPLICATION: u8 = 140;
 
 impl<'src> Token<'src> {
-    pub const fn binding_pow(self) -> Option<u8> {
-        Some(match self.kind {
-            Closed(..) | Comma => return None,
-
-            RightArrow | Ident | Literal | Quote | Keyword(..) | Open(Bracket::Curly) => 0,
+    pub const fn binding_pow(self) -> u8 {
+        match self.kind {
+            Comma | Closed(..) | RightArrow | Placeholder | Dot | Ident | Literal | Quote
+            | Keyword(..) | Open(Bracket::Curly) => 0,
 
             TokenKind::Colon => COLON,
 
@@ -83,14 +82,14 @@ impl<'src> Token<'src> {
 
             Plus | Dash => ADDITIVE,
 
-            Star | Slash | Percent | Dot | Cross => MULTIPLICATIVE,
+            Star | Slash | Percent | CenterDot | Cross => MULTIPLICATIVE,
 
             Not => FACTORIAL,
 
             Up => POTENTIATION + ((self.src.len() - 1) << 1) as u8,
 
             Open(Bracket::Squared | Bracket::Round) => APPLICATION,
-        })
+        }
     }
 }
 

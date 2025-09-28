@@ -51,12 +51,12 @@ pub enum TokenKind {
     Percent,      // %
     PercentEqual, // %=
 
-    Dot,        // a · b
-    DotEqual,   // a ·= b
-    Cross,      // a >< b
-    CrossEqual, // a ><= b
-    Up,         // a (^)+ b
-    UpEqual,    // a (^)+= b
+    CenterDot,  // ·
+    DotEqual,   // ·=
+    Cross,      // ><
+    CrossEqual, // ><=
+    Up,         // (^)+
+    UpEqual,    // (^)+=
 
     Pipe,         // |
     PipePipe,     // ||
@@ -86,7 +86,9 @@ pub enum TokenKind {
 
     Comma, // ,
 
-    Ident,            // _
+    Ident,            // x
+    Placeholder,      // _
+    Dot,              // .
     Literal,          // 1001010101
     Quote,            // "_"
     Keyword(Keyword), // if / loop / ..
@@ -105,7 +107,7 @@ impl Display for Token<'_> {
 
 impl<'a> Token<'a> {
     #[inline]
-    pub fn new(span: Span, src: &'a str, kind: TokenKind) -> Self {
+    pub const fn new(span: Span, src: &'a str, kind: TokenKind) -> Self {
         Self { span, src, kind }
     }
     #[inline]
@@ -115,7 +117,7 @@ impl<'a> Token<'a> {
 }
 
 impl TokenKind {
-    pub fn new(c: char) -> Option<TokenKind> {
+    pub const fn new(c: char) -> Option<TokenKind> {
         Some(match c {
             '!' => Not,
             '\'' => Tick,
@@ -125,7 +127,7 @@ impl TokenKind {
             '*' => Star,
             '/' => Slash,
             '%' => Percent,
-            '·' => Dot,
+            '·' => CenterDot,
             '^' => Up,
             '|' => Pipe,
             '&' => And,
@@ -142,7 +144,7 @@ impl TokenKind {
             _ => return None,
         })
     }
-    pub fn add(self, c: char) -> Option<TokenKind> {
+    pub const fn add(self, c: char) -> Option<TokenKind> {
         // transformation table to make tokens out of their char components
         Some(match self {
             Not if c == '=' => NotEqual,
@@ -199,7 +201,7 @@ impl TokenKind {
 
             Percent if c == '=' => PercentEqual,
 
-            Dot if c == '=' => DotEqual,
+            CenterDot if c == '=' => DotEqual,
 
             Cross if c == '=' => CrossEqual,
 
@@ -252,7 +254,7 @@ impl TokenKind {
             '*' => self == Star,
             '/' => self == Slash,
             '%' => self == Percent,
-            '·' => self == Dot,
+            '·' => self == CenterDot,
             '<' => matches!(self, Cross | Left | LeftLeft | NotLeft),
             '^' => self == Up,
             '|' => matches!(
@@ -267,7 +269,7 @@ impl TokenKind {
                     | EqualPipe
             ),
             '&' => matches!(self, And | NotAnd | AndAnd | NotAndAnd),
-            ':' => self == Colon,
+            ':' => matches!(self, ColonColon),
             ',' => self == Comma,
             '(' => self == Open(Round),
             '[' => self == Open(Squared),
@@ -277,6 +279,17 @@ impl TokenKind {
             '}' => self == Closed(Curly),
             _ => false,
         }
+    }
+
+    pub const fn is_terminator(self) -> bool {
+        matches!(self, Closed(..) | Comma)
+    }
+
+    pub const fn has_right_side(self) -> bool {
+        !matches!(
+            self,
+            Ident | Placeholder | Dot | Literal | Quote | Closed(..)
+        )
     }
 }
 impl<'src> Token<'src> {
@@ -324,7 +337,7 @@ impl<'src> Token<'src> {
             Percent => Mod,
             PercentEqual => ModAssign,
 
-            TokenKind::Dot => Dot,
+            TokenKind::CenterDot => Dot,
             DotEqual => DotAssign,
             TokenKind::Cross => Cross,
             CrossEqual => CrossAssign,

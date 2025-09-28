@@ -12,23 +12,51 @@ use crate::{
     error::{ErrorCode, Errors, Position, Span},
     parser::{
         keyword::Keyword,
-        tokenizing::{num::Literal, token::TokenKind},
+        tokenizing::{num::Literal, slicing::TokenSlice, token::TokenKind},
     },
     typing::TypeParser,
     utilities::Rc,
 };
 
 pub trait TokenStream<'src>: Iterator<Item = Token<'src>> + FusedIterator {
-    fn next_is(&mut self, predicate: impl FnOnce(&Token<'src>) -> bool) -> bool;
-    fn next_if(&mut self, predicate: impl FnOnce(&Token<'src>) -> bool) -> Option<Token<'src>>;
     fn peek(&mut self) -> Option<&Token<'src>>;
-    fn get_literal(&mut self) -> Literal;
+    fn current_pos(&mut self) -> Position;
+    fn next_is(&mut self, predicate: impl FnOnce(&Token<'src>) -> bool) -> bool {
+        if let Some(tok) = self.peek() {
+            predicate(tok)
+        } else {
+            false
+        }
+    }
+    fn next_if(&mut self, predicate: impl FnOnce(&Token<'src>) -> bool) -> Option<Token<'src>> {
+        if let Some(tok) = self.peek() {
+            if predicate(tok) {
+                return self.next();
+            }
+        }
+        None
+    }
+    fn pop_literal(&mut self) -> Literal;
     fn buffer(&mut self, token: Token<'src>);
-    fn consume_while(&mut self, predicate: impl FnMut(&Token) -> bool) -> IntoIter<Token>;
+    fn consume_while(
+        &mut self,
+        mut predicate: impl FnMut(&Token) -> bool,
+    ) -> IntoIter<Token<'src>> {
+        let mut tokens = Vec::new();
+        while self.peek().is_some_and(&mut predicate) {
+            tokens.push(unsafe { self.next().unwrap_unchecked() });
+        }
+        tokens.into_iter()
+    }
+    fn slice_start(
+        &mut self,
+        regular_end: impl FnMut(&Token) -> Option<bool>,
+    ) -> (TokenSlice<'src, '_>, bool);
 }
 
 #[derive(Debug, Clone)]
 pub struct Tokenizer<'src> {
+    last_outputted_pos: Position,
     span: Span,
 
     state: State,
@@ -65,7 +93,11 @@ impl<'src> Iterator for Tokenizer<'src> {
         if self.buffer.is_empty() {
             self.restock_tokens();
         }
-        self.buffer.pop_front()
+
+        self.buffer.pop_front().map(|tok| {
+            self.last_outputted_pos = tok.span.end;
+            tok
+        })
     }
 }
 impl<'src> FusedIterator for Tokenizer<'src> {}
@@ -75,34 +107,20 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
         if self.buffer.is_empty() {
             self.restock_tokens();
         }
+
         self.buffer.front()
     }
 
-    fn next_if(&mut self, predicate: impl FnOnce(&Token<'src>) -> bool) -> Option<Token<'src>> {
-        if self.buffer.is_empty() {
-            self.restock_tokens();
-        }
-
-        if let Some(tok) = self.buffer.front() {
-            if predicate(tok) {
-                return self.buffer.pop_front();
-            }
-        }
-        None
-    }
-
-    fn next_is(&mut self, predicate: impl FnOnce(&Token<'src>) -> bool) -> bool {
-        if self.buffer.is_empty() {
-            self.restock_tokens();
-        }
-        if let Some(tok) = self.buffer.front() {
-            predicate(tok)
+    #[inline]
+    fn current_pos(&mut self) -> Position {
+        if let Some(Token { span, .. }) = self.peek() {
+            span.start
         } else {
-            false
+            self.last_outputted_pos
         }
     }
 
-    fn get_literal(&mut self) -> Literal {
+    fn pop_literal(&mut self) -> Literal {
         self.numbers
             .pop_front()
             .expect("This shouldnt be called without the literal token")
@@ -111,21 +129,52 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
     /// Method for buffering a token. If the buffer is full (or this is called twice in a row)
     /// a panic is invocated.
     fn buffer(&mut self, token: Token<'src>) {
+        self.last_outputted_pos = token.span.start;
         self.buffer.push_front(token)
     }
 
-    fn consume_while(&mut self, mut predicate: impl FnMut(&Token) -> bool) -> IntoIter<Token> {
-        let mut tokens = Vec::new();
-        while self.peek().is_some_and(&mut predicate) {
-            tokens.push(unsafe { self.next().unwrap_unchecked() });
+    fn slice_start(
+        &mut self,
+        mut regular_end: impl FnMut(&Token<'src>) -> Option<bool>,
+    ) -> (TokenSlice<'src, '_>, bool) {
+        let mut i = 1;
+        loop {
+            if i >= self.buffer.len() {
+                self.restock_tokens();
+            }
+            if i >= self.buffer.len() {
+                return (
+                    TokenSlice {
+                        last_outputted_pos: self.last_outputted_pos,
+                        numbers: &mut self.numbers,
+                        tokens_len: i,
+                        tokens: &mut self.buffer,
+                    },
+                    false,
+                );
+            }
+            let tok = self.buffer[i];
+            if let Some(x) = regular_end(&tok) {
+                return (
+                    TokenSlice {
+                        last_outputted_pos: self.last_outputted_pos,
+                        numbers: &mut self.numbers,
+                        tokens_len: i,
+                        tokens: &mut self.buffer,
+                    },
+                    x,
+                );
+            }
+
+            i += 1;
         }
-        tokens.into_iter()
     }
 }
 
 impl<'src> Tokenizer<'src> {
     pub fn new(text: &'src str, errors: Rc<Errors<'src>>, type_parser: TypeParser) -> Self {
         Tokenizer {
+            last_outputted_pos: Position::beginning(),
             span: Span::beginning(),
 
             state: State::Nothing,
@@ -202,47 +251,15 @@ impl<'src> Tokenizer<'src> {
         return Some(c);
     }
 
-    #[inline]
-    fn set_op(&mut self, op: TokenKind) {
-        self.span.start = self.span.end;
-        self.start_i = self.i;
-        self.state = State::Op(op)
-    }
-    #[inline]
-    fn set_id(&mut self) {
-        self.span.start = self.span.end;
-        self.start_i = self.i;
-        let (num_of_chars_used, literal) =
-            self.try_to_parse_literal(&self.text[self.start_i..], self.type_parser);
-        if num_of_chars_used > 0 {
-            self.i += num_of_chars_used - 1;
-            self.next_i += num_of_chars_used - 1;
-            self.span.end += num_of_chars_used - 1;
-        }
-        match literal {
-            Some(literal) => {
-                self.numbers.push_back(literal);
-                self.buffer.push_back(Token {
-                    span: self.span.start - self.span.end + 1,
-                    kind: TokenKind::Literal,
-                    src: to_str(self.text, self.start_i, self.i + 1),
-                });
-                self.state = State::Nothing
-            }
-            None => self.state = State::Id,
-        }
-    }
-
     fn restock_tokens(&mut self) {
         while let Some(c) = self.consume_one_char() {
             if c.is_whitespace() {
                 self.submit_current(self.span - 1, self.i); // -1 to ignore the whitespace
+            } else if c == '"' {
+                self.submit_current(self.span - 1, self.i); // -1 to ignore the quotation mark
+                self.quote(self.i);
+                return;
             } else {
-                if c == '"' {
-                    self.submit_current(self.span - 1, self.i); // -1 to ignore the quotation mark
-                    self.quote(self.i);
-                    return;
-                }
                 if let State::Op(ref mut token) = self.state {
                     if *token == TokenKind::Slash && c == '/' {
                         self.comment();
@@ -258,9 +275,31 @@ impl<'src> Tokenizer<'src> {
                 }
                 if let Some(new_token) = TokenKind::new(c) {
                     self.submit_current(self.span - 1, self.i); // incase the previous one was an identifier
-                    self.set_op(new_token);
+                    self.span.start = self.span.end;
+                    self.start_i = self.i;
+                    self.state = State::Op(new_token)
                 } else if let State::Nothing = self.state {
-                    self.set_id();
+                    self.span.start = self.span.end;
+                    self.start_i = self.i;
+                    let (num_of_chars_used, literal) =
+                        self.try_to_parse_literal(&self.text[self.start_i..], self.type_parser);
+                    if num_of_chars_used > 0 {
+                        self.i += num_of_chars_used - 1;
+                        self.next_i += num_of_chars_used - 1;
+                        self.span.end += num_of_chars_used - 1;
+                    }
+                    match literal {
+                        Some(literal) => {
+                            self.numbers.push_back(literal);
+                            self.buffer.push_back(Token {
+                                span: self.span.start - self.span.end + 1,
+                                kind: TokenKind::Literal,
+                                src: to_str(self.text, self.start_i, self.i + 1),
+                            });
+                            self.state = State::Nothing
+                        }
+                        None => self.state = State::Id,
+                    }
                 }
             }
             if self.buffer.len() >= 10 {
@@ -306,13 +345,20 @@ impl<'src> Tokenizer<'src> {
                 src: to_str(self.text, self.start_i, end_i),
                 kind: token,
             }),
-            State::Id => self.buffer.push_back(Token {
-                span: span.start - span.end + 1,
-                kind: Keyword::from_str(to_str(self.text, self.start_i, end_i))
-                    .map(TokenKind::Keyword)
-                    .unwrap_or(TokenKind::Ident),
-                src: to_str(self.text, self.start_i, end_i),
-            }),
+            State::Id => {
+                let src = to_str(self.text, self.start_i, end_i);
+                self.buffer.push_back(Token {
+                    span: span.start - span.end + 1,
+                    kind: match src {
+                        "." => TokenKind::Dot,
+                        _ if src.trim_start_matches('_').is_empty() => TokenKind::Placeholder,
+                        _ => Keyword::from_str(src)
+                            .map(TokenKind::Keyword)
+                            .unwrap_or(TokenKind::Ident),
+                    },
+                    src,
+                })
+            }
             State::Nothing => return, // skip the reassignment
         }
         self.state = State::Nothing
