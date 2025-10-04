@@ -53,6 +53,7 @@ pub enum ErrorCode<'src> {
     ExpectedIdent,
     ExpectedInterface,
     ExpectedTerminator,
+    ExpectedOpenCurly,
 
     NoClosingQuotes { quote: &'src str },
     // control structure mistakes
@@ -205,6 +206,11 @@ impl Error<'_> {
             ExpectedTerminator => format_error!(
                 self.section.to_string(path),
                 "expected a comma or any closed bracket"
+            ),
+            ExpectedOpenCurly => format_error!(
+                self.section.to_string(path),
+                "expected open curly brace {}",
+                ["{"]
             ),
             LonelyElse => {
                 format_error!(

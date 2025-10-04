@@ -226,6 +226,9 @@ impl<'src> TreeDisplay<'src> for NodeWrapper<'src> {
                 |node: &NodeBox<'src>, indent| node.display(internalizer, &indent),
                 |node: &NodeBox<'src>, indent| format!("(::) {}", node.display(internalizer, &(indent + "     ")))
             ),
+            Struct { fields } => {
+                tree!("Struct", vec fields, |node: &NodeBox<'src>, indent| node.display(internalizer, &indent))
+            }
             Iterator { exprs } => tree!(
                 vec exprs,
                 |node: &NodeBox<'src>, indent| node.display(internalizer, &indent),
@@ -440,6 +443,9 @@ pub enum Node<'src> {
     },
     Return {
         val: NodeBox<'src>,
+    },
+    Struct {
+        fields: Vec<NodeBox<'src>>,
     },
 
     Binding {

@@ -1,9 +1,12 @@
 use crate::{
-    error::Span,
+    error::{ErrorCode, Span},
     parser::{
         binding_pow,
-        tokenizing::{token::TokenKind, TokenStream},
-        tree::{Node, NodeBox, NodeWrapper},
+        tokenizing::{
+            token::{Token, TokenKind},
+            TokenStream,
+        },
+        tree::{Bracket, Node, NodeBox, NodeWrapper},
         Parser,
     },
 };
@@ -11,6 +14,7 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Keyword {
     Proc,
+    Struct,
     Loop,
     If,
     Else,
@@ -24,6 +28,7 @@ impl Keyword {
     pub fn display(&self) -> &'static str {
         match self {
             Proc => "proc",
+            Struct => "struct",
             Loop => "loop",
             If => "if",
             Else => "else",
@@ -36,6 +41,8 @@ impl Keyword {
         Some(match string {
             "proc" => Proc,
             "prozedur" => Proc,
+            "struct" => Struct,
+            "struktur" => Struct,
             "loop" => Loop,
             "wiederhole" => Loop,
             "if" => If,
@@ -134,6 +141,39 @@ impl<'src> Parser<'src> {
             .map(|tok| end = tok.span.end)
             .count();
         self.make_node(NodeWrapper::new(span - end).with_node(Node::Continue { layers }))
+    }
+
+    pub fn parse_struct(
+        &mut self,
+        tokens: &mut impl TokenStream<'src>,
+        span: Span,
+    ) -> NodeBox<'src> {
+        if let Some(Token { .. }) =
+            tokens.next_if(|tok| tok.kind == TokenKind::Open(Bracket::Curly))
+        {
+            self.open_brackets += 1;
+            let Some(content) = self.parse_expr(tokens, 0) else {
+                let end = self.handle_closed_bracket(tokens, Bracket::Curly);
+                return self.make_node(
+                    NodeWrapper::new(span - end).with_node(Node::Struct { fields: vec![] }),
+                );
+            };
+            let mut fields = vec![content];
+
+            while let Some(Token { .. }) = tokens.next_if(|tok| tok.kind == TokenKind::Comma) {
+                let Some(expr) = self.parse_expr(tokens, binding_pow::STATEMENT) else {
+                    break;
+                };
+                fields.push(expr)
+            }
+
+            let end = self.handle_closed_bracket(tokens, Bracket::Curly);
+
+            self.make_node(NodeWrapper::new(span - end).with_node(Node::Struct { fields }))
+        } else {
+            self.errors.push(span.end(), ErrorCode::ExpectedOpenCurly);
+            self.make_node(NodeWrapper::new(span))
+        }
     }
 
     #[allow(unused)]

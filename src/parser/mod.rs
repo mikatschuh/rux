@@ -44,11 +44,10 @@ pub fn parse<'src>(
 
 struct Parser<'src> {
     errors: Rc<Errors<'src>>,
-    brackets: usize,
+    open_brackets: usize,
 
     internalizer: Rc<Internalizer<'src>>,
     arena: &'src Bump,
-    /*dash_slot: Option<Ref<'src, NodeBox<'src>>>,*/
 }
 
 impl<'src> Parser<'src> {
@@ -60,7 +59,7 @@ impl<'src> Parser<'src> {
     ) -> Self {
         Self {
             errors,
-            brackets: 0,
+            open_brackets: 0,
 
             internalizer,
             arena,
@@ -95,7 +94,7 @@ impl<'src> Parser<'src> {
         let mut lhs = tokens.next()?.nud(self, min_bp, tokens)?;
 
         while let Some(tok) = tokens.peek() {
-            if self.brackets == 0 {
+            if self.open_brackets == 0 {
                 if let TokenKind::Closed(closed) = tok.kind {
                     let Token { span, .. } = tokens.next().unwrap();
                     self.errors
@@ -170,7 +169,7 @@ impl<'src> Parser<'src> {
         {
             let found = *closed_bracket;
             let span = tokens.next().unwrap().span;
-            self.brackets -= 1;
+            self.open_brackets -= 1;
             if found != open_bracket {
                 self.errors.push(
                     span,
@@ -221,7 +220,7 @@ impl<'src> Parser<'src> {
             }
 
             if let Some(Token { span, .. }) = tokens.next() {
-                self.brackets -= 1;
+                self.open_brackets -= 1;
                 return span;
             }
             tokens.current_pos().into()

@@ -65,77 +65,9 @@ impl<'src> Token<'src> {
             Keyword(keyword) => {
                 use Keyword::*;
                 match keyword {
+                    Proc => todo!(),
+                    Struct => state.parse_struct(tokens, self.span),
                     If | Loop => state.parse_if(tokens, self.span),
-                    Proc => {
-                        /*
-                        let convention = if let Some(tok) = state
-                            .tokenizer
-                            .next_if(|next| next.binding_pow() == Some(0))
-                        {
-                            let content = state.parse_expr(0);
-                            content
-                        } else {
-                            None
-                        };
-                        let Some(Token { span, kind, .. }) = state.tokenizer.next() else {
-                            state
-                                .errors
-                                .push(self.span.end(), ErrorCode::ExpectedInterface);
-                            let return_type = state
-                                .make_node(NodeWrapper::new(self.span.end()).with_node(Node::Unit));
-                            let body = state
-                                .make_node(NodeWrapper::new(self.span.end()).with_node(Node::Unit));
-                            return Some(state.make_node(NodeWrapper::new(self.span).with_node(
-                                Node::Proc {
-                                    interface: FunctionInterface {
-                                        parameters: vec![],
-                                        return_type,
-                                    },
-                                    convention: None,
-                                    body: Path { node: body },
-                                },
-                            )));
-                        };
-                        let op = match kind {
-                            Open(Bracket::Round) => BinaryOp::App,
-                            Open(Bracket::Squared) => BinaryOp::Index,
-                            _ => {
-                                state.errors.push(span, ErrorCode::ExpectedInterface);
-
-                            }
-                        };
-
-
-                            matches!(tok.kind, Open(Bracket::Round | Bracket::Squared))
-                        }) {}
-                        state.brackets += 1;
-                        let op = match bracket {
-                            Bracket::Round => BinaryOp::App,
-                            Bracket::Squared => BinaryOp::Index,
-                            _ => unreachable!(),
-                        };
-                        let content = state.parse_expr(0).unwrap_or_else(|| {
-                            state.make_node(
-                                NodeWrapper::new(self.span.end() + 1).with_node(Node::Unit),
-                            )
-                        });
-
-                        let content = state.parse_list(content);
-                        let end = state.handle_closed_bracket(self.span.end, bracket);
-                        state.make_node(NodeWrapper::new(self.span - end).with_node(
-                            Node::Binary {
-                                op,
-                                lhs,
-                                rhs: content,
-                            },
-                        ));
-                        let body = state.pop_path(pos);
-                        state.make_node(
-                            NodeWrapper::new(self.span - body.node.span)
-                                .with_node(Node::Proc { convention, body }),
-                        )*/
-                        todo!()
-                    }
                     Else => {
                         let body = state.pop_expr(tokens, binding_pow::PATH);
                         state
@@ -155,7 +87,7 @@ impl<'src> Token<'src> {
                 )
             }
             Open(Bracket::Curly) => {
-                state.brackets += 1;
+                state.open_brackets += 1;
                 if let Some(Token { span, .. }) =
                     tokens.next_if(|tok| tok.kind == Closed(Bracket::Curly))
                 {
@@ -168,7 +100,7 @@ impl<'src> Token<'src> {
                 state.make_node(NodeWrapper::new(self.span - end).with_node(Node::Scope(scope)))
             }
             Open(own_bracket) => {
-                state.brackets += 1;
+                state.open_brackets += 1;
                 let Some(content) = state.parse_expr(tokens, 0) else {
                     let end = state.handle_closed_bracket(tokens, own_bracket);
                     return Some(
@@ -223,7 +155,7 @@ impl<'src> Token<'src> {
     ) -> Result<NodeBox<'src>, NodeBox<'src>> {
         Ok(match self.kind {
             Open(bracket) if matches!(bracket, Bracket::Round | Bracket::Squared) => {
-                state.brackets += 1;
+                state.open_brackets += 1;
                 let op = match bracket {
                     Bracket::Round => BinaryOp::App,
                     Bracket::Squared => BinaryOp::Index,
