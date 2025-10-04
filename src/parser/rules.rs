@@ -26,7 +26,8 @@ impl<'src> Token<'src> {
         Some(match self.kind {
             Ident => {
                 let sym = state.internalizer.get(self.src);
-                if min_bp <= binding_pow::STATEMENT {
+                if min_bp <= binding_pow::STATEMENT && tokens.next_is(|tok| tok.binding_pow() == 0)
+                {
                     if let Some(ty) = state.parse_expr(tokens, binding_pow::LABEL) {
                         return Some(state.make_node(
                             NodeWrapper::new(self.span).with_node(Node::Label { label: sym, ty }),
