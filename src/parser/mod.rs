@@ -21,7 +21,6 @@ mod binding_pow;
 pub mod intern;
 #[allow(dead_code)]
 pub mod keyword;
-mod labels;
 mod rules;
 pub mod tokenizing;
 pub mod tree;
@@ -93,7 +92,7 @@ impl<'src> Parser<'src> {
         tokens: &mut impl TokenStream<'src>,
         min_bp: u8,
     ) -> Option<NodeBox<'src>> {
-        let mut lhs = tokens.next()?.nud(self, tokens)?;
+        let mut lhs = tokens.next()?.nud(self, min_bp, tokens)?;
 
         while let Some(tok) = tokens.peek() {
             if self.brackets == 0 {
@@ -136,80 +135,24 @@ impl<'src> Parser<'src> {
     ///     a write operator is found, the current thing is a pattern
     fn parse_statements(&mut self, tokens: &mut impl TokenStream<'src>) -> Scope<'src> {
         let mut statements = vec![];
-        'outer: loop {
-            let Some(tok) = tokens.peek() else {
+        loop {
+            if tokens.is_empty() {
+                let last = statements.pop().unwrap_or_else(|| {
+                    self.make_node(NodeWrapper::new(tokens.current_pos().into()))
+                });
                 return Scope {
                     statements,
-                    expr: self.make_node(NodeWrapper::new(tokens.current_pos().into())),
+                    expr: last,
                 };
-            };
-            use TokenKind::*;
-
-            match tok.kind {
-                Ident => {
-                    let mut first = true;
-                    let mut open_brackets = 0_usize;
-                    let mut could_be_end = false;
-                    let (mut next_tokens, expr) = tokens.slice_start(|tok| {
-                        if first {
-                            first = false;
-                            return None;
-                        }
-                        if tok.kind.is_terminator() {
-                            return Some(true);
-                        }
-                        if tok.binding_pow() == 0 {
-                            if could_be_end {
-                                return Some(false);
-                            }
-                            if let Open(..) = tok.kind {
-                                open_brackets += 1;
-                            }
-                        }
-                        if tok.binding_pow() < binding_pow::LABEL {
-                            return Some(false);
-                        }
-                        could_be_end = !tok.kind.has_right_side();
-                        None
-                    });
-                    if expr {
-                        return Scope {
-                            statements: vec![],
-                            expr: self.pop_expr(&mut next_tokens, binding_pow::STATEMENT),
-                        };
-                    }
-                    let mut lhs = self.parse_label(&mut next_tokens);
-                    while let Some(tok) = tokens.peek() {
-                        if self.brackets == 0 {
-                            if let TokenKind::Closed(closed) = tok.kind {
-                                let Token { span, .. } = tokens.next().unwrap();
-                                self.errors
-                                    .push(span, ErrorCode::NoOpenedBracket { closed });
-                                continue;
-                            }
-                        } // Generate missing opening bracket error
-
-                        if tok.binding_pow() < binding_pow::STATEMENT {
-                            break;
-                        }
-
-                        let tok = tokens.next().unwrap();
-                        lhs = match tok.led(lhs, self, tokens) {
-                            Ok(new_lhs) => new_lhs,
-                            Err(old_lhs) => {
-                                statements.push(old_lhs);
-                                continue 'outer;
-                            }
-                        };
-                    }
-                    statements.push(lhs);
-                }
-                _ => {
-                    return Scope {
-                        statements,
-                        expr: self.pop_expr(tokens, binding_pow::STATEMENT),
-                    };
-                }
+            }
+            let stmt = self.pop_expr(tokens, binding_pow::STATEMENT);
+            if tokens.next_is(|tok| tok.kind.is_terminator()) {
+                return Scope {
+                    statements,
+                    expr: stmt,
+                };
+            } else {
+                statements.push(stmt);
             }
         }
     }

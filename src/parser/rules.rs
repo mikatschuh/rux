@@ -20,11 +20,19 @@ impl<'src> Token<'src> {
     pub(super) fn nud(
         self,
         state: &mut Parser<'src>,
+        min_bp: u8,
         tokens: &mut impl TokenStream<'src>,
     ) -> Option<NodeBox<'src>> {
         Some(match self.kind {
             Ident => {
                 let sym = state.internalizer.get(self.src);
+                if min_bp <= binding_pow::STATEMENT {
+                    if let Some(ty) = state.parse_expr(tokens, binding_pow::LABEL) {
+                        return Some(state.make_node(
+                            NodeWrapper::new(self.span).with_node(Node::Label { label: sym, ty }),
+                        ));
+                    }
+                }
                 state.make_node(
                     NodeWrapper::new(self.span).with_node(Node::Ident { sym, literal: None }),
                 )
@@ -247,18 +255,6 @@ impl<'src> Token<'src> {
                 state.parse_dynamic_arg_op(tokens, lhs, ColonColon, binding_pow::COLON, |exprs| {
                     Node::Iterator { exprs }
                 })
-            }
-            EqualPipe => {
-                tokens.buffer(Token {
-                    span: self.span.end(),
-                    src: &self.src[1..2],
-                    kind: Pipe,
-                });
-                let op = BinaryOp::Write;
-                let rhs = state.pop_expr(tokens, op.binding_pow());
-                state.make_node(
-                    NodeWrapper::new(lhs.span - rhs.span).with_node(Node::Binary { op, lhs, rhs }),
-                )
             }
             Pipe => {
                 let op = BinaryOp::BitOr;

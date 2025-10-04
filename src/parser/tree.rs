@@ -14,7 +14,6 @@ use crate::{
 use std::{
     fmt::Debug,
     ops::{Deref, DerefMut},
-    os::macos::raw::stat,
     vec,
 };
 
@@ -364,11 +363,14 @@ pub struct Scope<'src> {
 
 impl<'src> TreeDisplay<'src> for Scope<'src> {
     fn display(&self, internalizer: &Internalizer<'src>, indentation: &String) -> String {
-        let mut statements = self.statements.iter().collect::<Vec<&_>>();
-        statements.push(&self.expr);
-        let mut nodes = statements.iter();
+        if self.statements.is_empty() {
+            return format!("{}", self.expr.display(internalizer, indentation));
+        }
+
+        let mut nodes = self.statements.iter();
+
         format!(
-            "{FORK_START} {}{}{}",
+            "{FORK_START} {}{}\n{indentation}{FORK_END} {}",
             nodes
                 .next()
                 .unwrap()
@@ -379,11 +381,8 @@ impl<'src> TreeDisplay<'src> for Scope<'src> {
                     node.display(internalizer, &(indentation.clone() + VERTICAL_PLUS_2))
                 ))
                 .collect::<String>(),
-            format!(
-                "\n{indentation}{FORK_END} {}",
-                self.expr
-                    .display(internalizer, &(indentation.clone() + VERTICAL_PLUS_2))
-            )
+            self.expr
+                .display(internalizer, &(indentation.clone() + "   "))
         )
     }
 }

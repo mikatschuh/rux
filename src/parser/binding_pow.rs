@@ -52,18 +52,21 @@ pub(super) const POTENTIATION: u8 = 121;
 pub(super) const PREFIX: u8 = 130;
 pub(super) const APPLICATION: u8 = 140;
 
+pub(super) const ACCESSOR: u8 = 150;
+pub(super) const ACCESSOR_RIGHT: u8 = 151;
+
 impl<'src> Token<'src> {
     pub const fn binding_pow(self) -> u8 {
         match self.kind {
-            Comma | Closed(..) | RightArrow | Placeholder | Dot | Ident | Literal | Quote
+            Comma | Closed(..) | RightArrow | Placeholder | Ident | Literal | Quote
             | Keyword(..) | Open(Bracket::Curly) => 0,
 
             TokenKind::Colon => COLON,
 
-            ColonColon | Equal | EqualPipe | LeftLeftEqual | RightRightEqual | PipeEqual
-            | NotPipeEqual | RightPipeEqual | NotRightPipeEqual | AndEqual | NotAndEqual
-            | PlusEqual | DashEqual | StarEqual | SlashEqual | PercentEqual | DotEqual
-            | CrossEqual | UpEqual | SwapSign | PlusPlus | DashDash => WRITE,
+            ColonColon | Equal | LeftLeftEqual | RightRightEqual | PipeEqual | NotPipeEqual
+            | RightPipeEqual | NotRightPipeEqual | AndEqual | NotAndEqual | PlusEqual
+            | DashEqual | StarEqual | SlashEqual | PercentEqual | DotEqual | CrossEqual
+            | UpEqual | PlusPlus | DashDash => WRITE,
 
             Tick => LABEL,
 
@@ -89,6 +92,8 @@ impl<'src> Token<'src> {
             Up => POTENTIATION + ((self.src.len() - 1) << 1) as u8,
 
             Open(Bracket::Squared | Bracket::Round) => APPLICATION,
+
+            Dot => ACCESSOR,
         }
     }
 }
@@ -131,8 +136,7 @@ impl BinaryOp {
             | ModAssign
             | DotAssign
             | CrossAssign
-            | PowAssign { .. }
-            | Swap => WRITE_RIGHT,
+            | PowAssign { .. } => WRITE_RIGHT,
 
             BinaryOp::Or | Nor => OR_RIGHT,
             BinaryOp::Xor | Xnor => XOR_RIGHT,
@@ -151,6 +155,7 @@ impl BinaryOp {
             Mul | Div | Mod | Dot | Cross => MULTIPLICATIVE_RIGHT,
 
             Pow { grade } => POTENTIATION_RIGHT + grade << 1,
+            FieldAccess => ACCESSOR_RIGHT,
         }
     }
 }

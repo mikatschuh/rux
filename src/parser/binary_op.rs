@@ -24,8 +24,6 @@ pub enum BinaryOp {
 
     PowAssign { grade: u8 }, // a ^= b
 
-    Swap, // a =|= b
-
     Or,   // a || b
     Nor,  // a !|| b
     Xor,  // a >|| b
@@ -64,6 +62,8 @@ pub enum BinaryOp {
 
     Index, // a[b]
     App,   // a(b)
+
+    FieldAccess, // a.b
 }
 use std::fmt::{self, Display};
 
@@ -97,8 +97,6 @@ impl Display for BinaryOp {
                 CrossAssign => "><=",
                 PowAssign { grade } =>
                     return write!(f, "^{}", (0..*grade).map(|_| "^").collect::<String>()),
-
-                Swap => "=|=",
 
                 Or => "||",
                 Nor => "!||",
@@ -138,6 +136,8 @@ impl Display for BinaryOp {
 
                 Index => "[",
                 App => "(",
+
+                FieldAccess => ".",
             }
         )
     }

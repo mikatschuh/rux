@@ -36,6 +36,9 @@ pub trait TokenStream<'src>: Iterator<Item = Token<'src>> + FusedIterator {
         }
         None
     }
+    fn is_empty(&mut self) -> bool {
+        self.peek().is_none()
+    }
     fn pop_literal(&mut self) -> Literal;
     fn buffer(&mut self, token: Token<'src>);
     fn consume_while(

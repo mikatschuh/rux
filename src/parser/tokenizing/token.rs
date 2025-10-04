@@ -17,6 +17,7 @@ pub enum TokenKind {
     Not, // !
 
     Tick,  // '
+    Dot,   // .
     Equal, // =
 
     EqualEqual, // ==
@@ -81,14 +82,11 @@ pub enum TokenKind {
 
     Colon,      // :
     ColonColon, // ::
-    EqualPipe,  // =|
-    SwapSign,   // =|=
 
     Comma, // ,
 
     Ident,            // x
     Placeholder,      // _
-    Dot,              // .
     Literal,          // 1001010101
     Quote,            // "_"
     Keyword(Keyword), // if / loop / ..
@@ -121,6 +119,7 @@ impl TokenKind {
         Some(match c {
             '!' => Not,
             '\'' => Tick,
+            '.' => Dot,
             '=' => Equal,
             '+' => Plus,
             '-' => Dash,
@@ -169,8 +168,6 @@ impl TokenKind {
             NotRight if c == '=' => NotRightEqual,
             NotRightEqual if c == '=' => NotRightEqual,
 
-            Equal if c == '|' => EqualPipe,
-            EqualPipe if c == '=' => SwapSign,
             Equal if c == '=' => EqualEqual,
             EqualEqual if c == '=' => EqualEqual,
 
@@ -223,6 +220,7 @@ impl TokenKind {
         match c {
             '!' => matches!(self, Not),
             '\'' => matches!(self, Tick),
+            '.' => matches!(self, Dot),
             '=' => matches!(
                 self,
                 Equal
@@ -246,7 +244,6 @@ impl TokenKind {
                     | NotLeftEqual
                     | RightEqual
                     | NotRightEqual
-                    | SwapSign
             ),
             '>' => matches!(self, RightArrow | Right | RightRight | NotRight),
             '+' => matches!(self, Plus | PlusPlus),
@@ -266,7 +263,6 @@ impl TokenKind {
                     | NotRightPipe
                     | RightPipePipe
                     | NotRightPipePipe
-                    | EqualPipe
             ),
             '&' => matches!(self, And | NotAnd | AndAnd | NotAndAnd),
             ':' => matches!(self, ColonColon),
@@ -307,6 +303,7 @@ impl<'src> Token<'src> {
     pub fn as_infix(self) -> Option<BinaryOp> {
         use BinaryOp::*;
         Some(match self.kind {
+            TokenKind::Dot => FieldAccess,
             Equal => Write,
             EqualEqual => Eq,
             NotEqual => Ne,
@@ -377,7 +374,6 @@ impl<'src> Token<'src> {
             AndEqual => AndAssign,
             NotAndEqual => NandAssign,
 
-            SwapSign => Swap,
             _ => return None,
         })
     }
