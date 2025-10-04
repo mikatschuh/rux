@@ -500,7 +500,7 @@ pub enum Node<'src> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct FunctionInterface<'src> {
-    pub parameters: Vec<NodeBox<'src>>,
+    pub parameters: Vec<Vec<NodeBox<'src>>>,
     pub return_type: NodeBox<'src>,
 }
 
@@ -510,6 +510,7 @@ impl<'src> TreeDisplay<'src> for FunctionInterface<'src> {
             "Interface  {}\n{indentation}{FORK_END} -> {}",
             self.parameters
                 .iter()
+                .flatten()
                 .map(|parameter| format!(
                     "\n{indentation}{BRANCH} {}",
                     parameter.display(internalizer, &(indentation.clone() + VERTICAL_PLUS_2))

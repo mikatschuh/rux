@@ -6,7 +6,7 @@ use crate::{
             token::{Token, TokenKind},
             TokenStream,
         },
-        tree::{Bracket, Node, NodeBox, NodeWrapper},
+        tree::{Bracket, FunctionInterface, Node, NodeBox, NodeWrapper},
         Parser,
     },
 };
@@ -178,73 +178,54 @@ impl<'src> Parser<'src> {
 
     #[allow(unused)]
     pub fn parse_proc(&mut self, tokens: &mut impl TokenStream<'src>, span: Span) -> NodeBox<'src> {
-        /*
-        let convention = if let Some(tok) =self
-            .tokenizer
-            .next_if(|next| next.binding_pow() == Some(0))
+        let mut parameter_sets = vec![];
+        let convention = if tokens
+            .next_if(|tok| tok.kind == TokenKind::DashDash)
+            .is_some()
         {
-            let content = self.parse_expr(0);
-            content
+            Some(self.pop_expr(tokens, binding_pow::PATH))
         } else {
             None
         };
-        let Some(Token { span, kind, .. }) = self.tokenizer.next() else {
-           self
-                .errors
-                .push(self.span.end(), ErrorCode::ExpectedInterface);
-            let return_type =self
-                .make_node(NodeWrapper::new(self.span.end()).with_node(Node::Unit));
-            let body =self
-                .make_node(NodeWrapper::new(self.span.end()).with_node(Node::Unit));
-            return Some(self.make_node(NodeWrapper::new(self.span).with_node(
-                Node::Proc {
-                    interface: FunctionInterface {
-                        parameters: vec![],
-                        return_type,
-                    },
-                    convention: None,
-                    body: Path { node: body },
-                },
-            )));
-        };
-        let op = match kind {
-            Open(Bracket::Round) => BinaryOp::App,
-            Open(Bracket::Squared) => BinaryOp::Index,
-            _ => {
-                self.errors.push(span, ErrorCode::ExpectedInterface);
+        loop {
+            match tokens.peek() {
+                Some(Token {
+                    kind: TokenKind::Open(bracket),
+                    ..
+                }) if matches!(bracket, Bracket::Round | Bracket::Squared) => {
+                    let bracket = *bracket;
+                    self.open_brackets += 1;
 
+                    let mut parameters = vec![];
+                    if let Some(first) = self.parse_expr(tokens, 0) {
+                        parameters.push(first);
+                        while let Some(Token { .. }) =
+                            tokens.next_if(|tok| tok.kind == TokenKind::Comma)
+                        {
+                            let Some(expr) = self.parse_expr(tokens, binding_pow::STATEMENT) else {
+                                break;
+                            };
+                            parameters.push(expr)
+                        }
+                    }
+                    parameter_sets.push(parameters);
+                    let end = self.handle_closed_bracket(tokens, bracket);
+                }
+                _ => {
+                    let return_type = self.pop_expr(tokens, binding_pow::PATH);
+                    let body = self.pop_expr(tokens, binding_pow::PATH);
+                    return self.make_node(NodeWrapper::new(span - body.span).with_node(
+                        Node::Proc {
+                            interface: FunctionInterface {
+                                parameters: parameter_sets,
+                                return_type,
+                            },
+                            convention: None,
+                            body,
+                        },
+                    ));
+                }
             }
-        };
-
-        if let Some(Token { span, kind, .. }) = self.tokenizer.next_if(|tok| {
-            matches!(tok.kind, Open(Bracket::Round | Bracket::Squared))
-        }) {}
-        self.brackets += 1;
-        let op = match bracket {
-            Bracket::Round => BinaryOp::App,
-            Bracket::Squared => BinaryOp::Index,
-            _ => unreachable!(),
-        };
-        let content = self.parse_expr(0).unwrap_or_else(|| {
-            self.make_node(
-                NodeWrapper::new(self.span.end() + 1).with_node(Node::Unit),
-            )
-        });
-
-        let content = self.parse_list(content);
-        let end = self.handle_closed_bracket(self.span.end, bracket);
-        self.make_node(NodeWrapper::new(self.span - end).with_node(
-            Node::Binary {
-                op,
-                lhs,
-                rhs: content,
-            },
-        ));
-        let body = self.pop_path(pos);
-        self.make_node(
-            NodeWrapper::new(self.span - body.node.span)
-                .with_node(Node::Proc { convention, body }),
-        )*/
-        todo!()
+        }
     }
 }

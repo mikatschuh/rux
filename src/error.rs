@@ -49,7 +49,7 @@ pub struct Error<'src> {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ErrorCode<'src> {
-    ExpectedValue,
+    ExpectedExpr,
     ExpectedIdent,
     ExpectedInterface,
     ExpectedTerminator,
@@ -188,7 +188,7 @@ impl Error<'_> {
     fn to_string(&self, path: &Path) -> String {
         use ErrorCode::*;
         (match &self.error {
-            ExpectedValue => format_error!(self.section.to_string(path), "expected a value"),
+            ExpectedExpr => format_error!(self.section.to_string(path), "expected a value"),
             ExpectedIdent => format_error!(
                 self.section.to_string(path),
                 "expected an identifier",

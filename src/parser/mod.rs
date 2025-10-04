@@ -25,6 +25,7 @@ mod rules;
 pub mod tokenizing;
 pub mod tree;
 pub mod unary_op;
+pub mod vars;
 
 pub fn parse<'src>(
     text: &'src str,
@@ -276,7 +277,7 @@ impl<'src> Parser<'src> {
 
     fn expect_node(&mut self, node: Option<NodeBox<'src>>, pos: Position) -> NodeBox<'src> {
         node.unwrap_or_else(|| {
-            self.errors.push(pos.into(), ErrorCode::ExpectedValue);
+            self.errors.push(pos.into(), ErrorCode::ExpectedExpr);
             self.make_node(NodeWrapper::new(pos.into()))
         })
     }
