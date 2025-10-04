@@ -24,6 +24,9 @@ impl<'src> Token<'src> {
         tokens: &mut impl TokenStream<'src>,
     ) -> Option<NodeBox<'src>> {
         Some(match self.kind {
+            Ident if self.src.trim_start_matches('_').is_empty() => {
+                state.make_node(NodeWrapper::new(self.span).with_node(Node::Placeholder))
+            }
             Ident => {
                 let sym = state.internalizer.get(self.src);
                 if min_bp <= binding_pow::STATEMENT && tokens.next_is(|tok| tok.binding_pow() == 0)
@@ -273,6 +276,28 @@ impl<'src> Token<'src> {
                 state.make_node(
                     NodeWrapper::new(chain.first().unwrap().span - chain.last().unwrap().span)
                         .with_node(Node::Or(chain)),
+                )
+            }
+            Dot => {
+                if tokens.next_is(|tok| tok.binding_pow() == 0 && !tok.kind.is_terminator()) {
+                    let Token { span, .. } = tokens.peek().unwrap();
+                    if self.span.end == span.start {
+                        let op = BinaryOp::FieldAccess;
+                        let rhs = state.pop_expr(tokens, op.binding_pow());
+                        return Ok(state.make_node(
+                            NodeWrapper::new(lhs.span - rhs.span).with_node(Node::Binary {
+                                op,
+                                lhs,
+                                rhs,
+                            }),
+                        ));
+                    }
+                }
+                state.make_node(
+                    NodeWrapper::new(lhs.span - self.span).with_node(Node::Unary {
+                        op: UnaryOp::Deref,
+                        val: lhs,
+                    }),
                 )
             }
             _ => {

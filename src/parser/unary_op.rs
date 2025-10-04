@@ -13,8 +13,8 @@ pub enum UnaryOp {
 
     Fac, // a!
 
-    Ptr, // -> a
-    Ref, // &a
+    Ptr,   // -> a
+    Deref, // a.
 }
 
 use UnaryOp::*;
@@ -32,7 +32,7 @@ impl fmt::Display for UnaryOp {
             Fac => "_!",
 
             Ptr => "->",
-            Ref => "&",
+            Deref => ".",
         };
         write!(f, "{string}")
     }

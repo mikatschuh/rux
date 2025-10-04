@@ -102,13 +102,12 @@ impl UnaryOp {
     pub const fn binding_pow(self) -> u8 {
         use UnaryOp::*;
         match self {
-            Inc | Dec | Fac => panic!("These don't have right binding power!"),
+            Inc | Dec | Fac | Deref => panic!("These don't have right binding power!"),
 
             Neg => NEGATION_RIGHT,
             Not => PREFIX,
 
             Ptr => PREFIX,
-            Ref => PREFIX,
         }
     }
 }

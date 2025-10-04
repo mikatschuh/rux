@@ -294,8 +294,8 @@ impl<'src> Token<'src> {
         Some(match self.kind {
             Dash => Neg,
             TokenKind::Not => Not,
-            And => Ref,
             RightArrow => Ptr,
+            Dot => Deref,
             _ => return None,
         })
     }
