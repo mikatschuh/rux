@@ -1,7 +1,7 @@
 use std::{
     ops::{Index, IndexMut},
     option::IntoIter,
-    slice::Iter,
+    slice::{Iter, IterMut},
     vec,
 };
 
@@ -63,6 +63,10 @@ impl<T, const MIN: usize> Vec<T, MIN> {
     #[inline]
     pub fn iter(&self) -> Iter<'_, T> {
         self.0.iter()
+    }
+    #[inline]
+    pub fn iter_mut(&mut self) -> IterMut<'_, T> {
+        self.0.iter_mut()
     }
 }
 impl<T, const N: usize, const MIN: usize> From<[T; N]> for Vec<T, MIN> {

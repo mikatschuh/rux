@@ -8,10 +8,12 @@ use crate::{
         intern::{Internalizer, Symbol},
         tokenizing::{num::Literal, with_written_out_escape_sequences, EscapeSequenceConfusion},
         unary_op::UnaryOp,
+        vars::{VarTable, Variable},
     },
     typing::Type,
 };
 use std::{
+    collections::HashMap,
     fmt::Debug,
     ops::{Deref, DerefMut},
     vec,
@@ -169,12 +171,12 @@ impl<'src> TreeDisplay<'src> for NodeWrapper<'src> {
                     $others(last, indentation.clone() + "   ")
                 )
             }};
-            ($root:expr, [$($prev_nodes:expr),*], $prev_others:expr, [$($after_prev_nodes:expr),*], $after_prev_others:expr, vec $nodes:expr, $others:expr) => {{
+            ($root:expr, [$($prev_nodes:expr),*], $prev_others:expr, [$($after_prev_nodes:expr),*], $after_prev_others:expr, [$($after_after_prev_nodes:expr),*], $after_after_prev_others:expr, vec $nodes:expr, $others:expr) => {{
                 let mut nodes = $nodes.iter().rev();
                 let last = nodes.next().unwrap();
                 let nodes = nodes.rev();
                 format!(
-                    "{}{}{}{}\n{indentation}{FORK_END} {}",
+                    "{}{}{}{}{}\n{indentation}{FORK_END} {}",
                     $root,
                     vec![$(format!(
                         "\n{indentation}{BRANCH} {}",
@@ -185,6 +187,12 @@ impl<'src> TreeDisplay<'src> for NodeWrapper<'src> {
                     vec![$(format!(
                         "\n{indentation}{BRANCH} {}",
                         $after_prev_others($after_prev_nodes, indentation.clone() + VERTICAL_PLUS_2)
+                    )), *]
+                        .into_iter()
+                        .collect::<String>(),
+                    vec![$(format!(
+                        "\n{indentation}{BRANCH} {}",
+                        $after_after_prev_others($after_after_prev_nodes, indentation.clone() + VERTICAL_PLUS_2)
                     )), *]
                         .into_iter()
                         .collect::<String>(),
@@ -224,7 +232,7 @@ impl<'src> TreeDisplay<'src> for NodeWrapper<'src> {
             Binding { exprs } => tree!(
                 vec exprs,
                 |node: &NodeBox<'src>, indent| node.display(internalizer, &indent),
-                |node: &NodeBox<'src>, indent| format!("(::) {}", node.display(internalizer, &(indent + "     ")))
+                |node: &NodeBox<'src>, indent| format!(":: {}", node.display(internalizer, &(indent + "   ")))
             ),
             Struct { fields } => {
                 tree!("Struct", vec fields, |node: &NodeBox<'src>, indent| node.display(internalizer, &indent))
@@ -261,13 +269,9 @@ impl<'src> TreeDisplay<'src> for NodeWrapper<'src> {
                 )
             }
             Lifetime(sym) => format!("Lifetime  {}", internalizer.resolve(*sym)),
+            Variable(var) => format!("{}", var),
             Placeholder => "_".to_owned(),
             Quote(quote) => format!("Quote  \"{}\"", with_written_out_escape_sequences(quote)),
-            Label { label, ty: content } => tree!(
-                format!("Label  {}", internalizer.resolve(*label)),
-                content,
-                |node: &NodeBox<'src>, indent| node.display(internalizer, &indent)
-            ),
             Unit => "()".to_owned(),
             Binary { op, lhs, rhs } => tree!(op, [lhs], rhs, |node: &NodeBox<'src>, indent| node
                 .display(internalizer, &indent)),
@@ -276,15 +280,13 @@ impl<'src> TreeDisplay<'src> for NodeWrapper<'src> {
             List(list) => {
                 tree!("[]", vec list, |node: &NodeBox<'src>, indent| node.display(internalizer, &indent))
             }
-            Or(list) => {
-                tree!("|", vec list, |node: &NodeBox<'src>, indent| node.display(internalizer, &indent))
-            }
             Lifetimed { sym, val } => tree!(
                 format!("'{}", internalizer.resolve(*sym)),
                 val,
                 |val: &NodeBox<'src>, indent| val.display(internalizer, &indent)
             ),
             Scope(scope) => scope.display(internalizer, indentation),
+            Branch(branch) => branch.display(internalizer, indentation),
             Chain { first, additions } => tree!(
                 first.display(internalizer, indentation),
                 vec additions,
@@ -331,6 +333,7 @@ impl<'src> TreeDisplay<'src> for NodeWrapper<'src> {
                 interface,
                 convention,
                 body,
+                var_table,
             } => {
                 let body = vec![body];
                 tree!(
@@ -341,7 +344,9 @@ impl<'src> TreeDisplay<'src> for NodeWrapper<'src> {
                         |conv| conv.display(internalizer, &indent)
                     ),
                     [interface],
-                    |conv: &FunctionInterface<'src>, indent| conv.display(internalizer, &indent),
+                    |interface: &FunctionInterface<'src>, indent| interface.display(internalizer, &indent),
+                    [var_table],
+                    |table: &VarTable<'src>, indent| table.display(internalizer, &indent),
                     vec body,
                     |body: &NodeBox<'src>, indent| body.display(internalizer, &indent)
                 )
@@ -390,6 +395,23 @@ impl<'src> TreeDisplay<'src> for Scope<'src> {
     }
 }
 
+#[derive(PartialEq, Eq, Debug)]
+pub struct Branch<'src> {
+    pub var_table: VarTable<'src>,
+    pub content: NodeBox<'src>,
+}
+
+impl<'src> TreeDisplay<'src> for Branch<'src> {
+    fn display(&self, internalizer: &Internalizer<'src>, indentation: &String) -> String {
+        let next_indentation = &(indentation.clone() + "   ");
+        format!(
+            "Branch\n{indentation}│─ {}\n{indentation}╰─ {}",
+            self.var_table.display(internalizer, next_indentation),
+            self.content.display(internalizer, next_indentation)
+        )
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Bracket {
     Round,
@@ -431,6 +453,7 @@ pub enum Node<'src> {
     Proc {
         interface: FunctionInterface<'src>,
         convention: Option<NodeBox<'src>>,
+        var_table: VarTable<'src>,
         body: NodeBox<'src>,
     },
 
@@ -463,11 +486,6 @@ pub enum Node<'src> {
     Quote(String), // "..."
     Placeholder,   // _
 
-    Label {
-        label: Symbol<'src>,
-        ty: NodeBox<'src>,
-    },
-
     // identifiers
     Ident {
         sym: Symbol<'src>,
@@ -475,12 +493,14 @@ pub enum Node<'src> {
     }, // x / (0(b/s/o/d/x))N(.N)((u/i/f/c)(0(b/s/o/d/x))N)(i)
     Lifetime(Symbol<'src>), // 'x
 
+    Variable(Variable<'src>),
+
     Unit,
-    Or(Vec<NodeBox<'src>>),
 
     // multiple values
-    List(comp::Vec<NodeBox<'src>, 2>), // a, b, c, d, ...
+    List(comp::Vec<NodeBox<'src>, 2>), // [a, b, c, d, ...]
     Scope(Scope<'src>),                // { a b c d ... }
+    Branch(Branch<'src>),
 
     // operations
     Binary {
@@ -500,24 +520,24 @@ pub enum Node<'src> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct FunctionInterface<'src> {
-    pub parameters: Vec<Vec<NodeBox<'src>>>,
+    pub parameters: HashMap<Symbol<'src>, Variable<'src>>,
     pub return_type: NodeBox<'src>,
 }
 
 impl<'src> TreeDisplay<'src> for FunctionInterface<'src> {
     fn display(&self, internalizer: &Internalizer<'src>, indentation: &String) -> String {
         format!(
-            "Interface  {}\n{indentation}{FORK_END} -> {}",
+            "Interface  {}\n{indentation}{FORK_END}─> {}",
             self.parameters
                 .iter()
-                .flatten()
                 .map(|parameter| format!(
-                    "\n{indentation}{BRANCH} {}",
-                    parameter.display(internalizer, &(indentation.clone() + VERTICAL_PLUS_2))
+                    "\n{indentation}{BRANCH} {} {}",
+                    internalizer.resolve(*parameter.0),
+                    parameter.1
                 ))
                 .collect::<String>(),
             self.return_type
-                .display(internalizer, &(indentation.clone() + "      "))
+                .display(internalizer, &(indentation.clone() + "     "))
         )
     }
 }

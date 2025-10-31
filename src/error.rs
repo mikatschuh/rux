@@ -29,6 +29,9 @@ impl<'src> Errors<'src> {
     pub fn push(&mut self, pos: Span, error: ErrorCode<'src>) {
         self.errors.push(Error::new(pos, error))
     }
+    pub fn push_err(&mut self, err: Error<'src>) {
+        self.errors.push(err)
+    }
     pub fn concat(&mut self, other: Errors<'src>) {
         self.errors.extend(other.errors.iter().cloned());
     }
@@ -53,9 +56,15 @@ pub enum ErrorCode<'src> {
     ExpectedIdent,
     ExpectedInterface,
     ExpectedTerminator,
-    ExpectedOpenCurly,
+    ExpectedOpenParen,
+    ExpectedComma,
+
+    ParamShadowing,
+
+    UnexpectedToken,
 
     NoClosingQuotes { quote: &'src str },
+
     // control structure mistakes
     LonelyElse,
     ExpectedReturn,
@@ -198,6 +207,10 @@ impl Error<'_> {
                 self.section.to_string(path),
                 "expected a function interface"
             ),
+            ParamShadowing => format_error!(
+                self.section.to_string(path),
+                "found shadowing of parameters, which is illegal"
+            ),
             NoClosingQuotes { quote } => format_error!(
                 self.section.to_string(path),
                 "the ending quotes of the quote {} were missing",
@@ -207,11 +220,15 @@ impl Error<'_> {
                 self.section.to_string(path),
                 "expected a comma or any closed bracket"
             ),
-            ExpectedOpenCurly => format_error!(
-                self.section.to_string(path),
-                "expected open curly brace {}",
-                ["{"]
-            ),
+            ExpectedOpenParen => {
+                format_error!(
+                    self.section.to_string(path),
+                    "expected open parentheses {}",
+                    ["("]
+                )
+            }
+            ExpectedComma => format_error!(self.section.to_string(path), "expected a comma"),
+            UnexpectedToken => format_error!(self.section.to_string(path), "unexpected token"),
             LonelyElse => {
                 format_error!(
                     self.section.to_string(path),

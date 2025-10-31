@@ -29,6 +29,7 @@ pub enum TokenKind {
     NotLeft,       // !<
     LeftEqual,     // <=
     NotLeftEqual,  // !<=
+    LeftArrow,     // <-
 
     Right,           // >
     RightRight,      // >>
@@ -175,6 +176,7 @@ impl TokenKind {
             LeftLeft if c == '=' => LeftLeftEqual,
             Left if c == '=' => LeftEqual,
             LeftEqual if c == '=' => LeftEqual,
+            Left if c == '-' => LeftArrow,
 
             Right if c == '>' => RightRight,
             RightRight if c == '=' => RightRightEqual,
@@ -247,7 +249,7 @@ impl TokenKind {
             ),
             '>' => matches!(self, RightArrow | Right | RightRight | NotRight),
             '+' => matches!(self, Plus | PlusPlus),
-            '-' => matches!(self, Dash | DashDash),
+            '-' => matches!(self, Dash | DashDash | LeftArrow),
             '*' => self == Star,
             '/' => self == Slash,
             '%' => self == Percent,
@@ -280,13 +282,6 @@ impl TokenKind {
     pub const fn is_terminator(self) -> bool {
         matches!(self, Closed(..) | Comma)
     }
-
-    pub const fn has_right_side(self) -> bool {
-        !matches!(
-            self,
-            Ident | Placeholder | Dot | Literal | Quote | Closed(..)
-        )
-    }
 }
 impl<'src> Token<'src> {
     pub fn as_prefix(self) -> Option<UnaryOp> {
@@ -295,7 +290,6 @@ impl<'src> Token<'src> {
             Dash => Neg,
             TokenKind::Not => Not,
             RightArrow => Ptr,
-            Dot => Deref,
             _ => return None,
         })
     }
@@ -384,6 +378,7 @@ impl<'src> Token<'src> {
             PlusPlus => Inc,
             DashDash => Dec,
             TokenKind::Not => Fac,
+            LeftArrow => Ptr,
             _ => return None,
         })
     }

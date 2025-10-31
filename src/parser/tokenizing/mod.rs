@@ -5,20 +5,21 @@ pub mod test;
 #[allow(dead_code)]
 pub mod token;
 
-use std::{collections::VecDeque, iter::FusedIterator, vec::IntoIter};
+use std::{collections::VecDeque, fmt::Debug, iter::FusedIterator, vec::IntoIter};
 use token::Token;
+use TokenKind::*;
 
 use crate::{
     error::{ErrorCode, Errors, Position, Span},
     parser::{
         keyword::Keyword,
-        tokenizing::{num::Literal, slicing::TokenSlice, token::TokenKind},
+        tokenizing::{num::Literal, slicing::TokenBuffer, token::TokenKind},
     },
     typing::TypeParser,
     utilities::Rc,
 };
 
-pub trait TokenStream<'src>: Iterator<Item = Token<'src>> + FusedIterator {
+pub trait TokenStream<'src>: Iterator<Item = Token<'src>> + FusedIterator + Debug {
     fn peek(&mut self) -> Option<&Token<'src>>;
     fn current_pos(&mut self) -> Position;
     fn next_is(&mut self, predicate: impl FnOnce(&Token<'src>) -> bool) -> bool {
@@ -51,10 +52,46 @@ pub trait TokenStream<'src>: Iterator<Item = Token<'src>> + FusedIterator {
         }
         tokens.into_iter()
     }
-    fn slice_start(
-        &mut self,
-        regular_end: impl FnMut(&Token) -> Option<bool>,
-    ) -> (TokenSlice<'src, '_>, bool);
+    #[inline]
+    fn split_at_comma(&mut self) -> Vec<TokenBuffer<'src>> {
+        let mut token_buffers = vec![];
+        let mut open_brackets = 0;
+
+        loop {
+            let mut token_buffer = TokenBuffer {
+                last_outputted_pos: self.current_pos(),
+                numbers: VecDeque::new(),
+                tokens: VecDeque::new(),
+            };
+            loop {
+                let Some(tok) = self.peek() else {
+                    token_buffers.push(token_buffer);
+                    return token_buffers;
+                };
+
+                if let Open(..) = tok.kind {
+                    open_brackets += 1;
+                } else if open_brackets == 0 {
+                    if let Closed(..) = tok.kind {
+                        token_buffers.push(token_buffer);
+                        return token_buffers;
+                    } else if let Comma = tok.kind {
+                        _ = self.next().unwrap();
+                        token_buffers.push(token_buffer);
+                        break;
+                    }
+                } else if let Closed(..) = tok.kind {
+                    open_brackets -= 1;
+                }
+
+                let tok = self.next().unwrap();
+                if tok.kind == TokenKind::Literal {
+                    token_buffer.numbers.push_back(self.pop_literal())
+                }
+                token_buffer.tokens.push_back(tok);
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -134,43 +171,6 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
     fn buffer(&mut self, token: Token<'src>) {
         self.last_outputted_pos = token.span.start;
         self.buffer.push_front(token)
-    }
-
-    fn slice_start(
-        &mut self,
-        mut regular_end: impl FnMut(&Token<'src>) -> Option<bool>,
-    ) -> (TokenSlice<'src, '_>, bool) {
-        let mut i = 1;
-        loop {
-            if i >= self.buffer.len() {
-                self.restock_tokens();
-            }
-            if i >= self.buffer.len() {
-                return (
-                    TokenSlice {
-                        last_outputted_pos: self.last_outputted_pos,
-                        numbers: &mut self.numbers,
-                        tokens_len: i,
-                        tokens: &mut self.buffer,
-                    },
-                    false,
-                );
-            }
-            let tok = self.buffer[i];
-            if let Some(x) = regular_end(&tok) {
-                return (
-                    TokenSlice {
-                        last_outputted_pos: self.last_outputted_pos,
-                        numbers: &mut self.numbers,
-                        tokens_len: i,
-                        tokens: &mut self.buffer,
-                    },
-                    x,
-                );
-            }
-
-            i += 1;
-        }
     }
 }
 

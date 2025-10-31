@@ -52,6 +52,7 @@ pub(super) const POTENTIATION: u8 = 121;
 pub(super) const PREFIX: u8 = 130;
 pub(super) const APPLICATION: u8 = 140;
 
+pub(super) const CALL_CONVENTION: u8 = 150;
 pub(super) const ACCESSOR: u8 = 150;
 pub(super) const ACCESSOR_RIGHT: u8 = 151;
 
@@ -91,7 +92,7 @@ impl<'src> Token<'src> {
 
             Up => POTENTIATION + ((self.src.len() - 1) << 1) as u8,
 
-            Open(Bracket::Squared | Bracket::Round) => APPLICATION,
+            Open(Bracket::Squared | Bracket::Round) | LeftArrow => APPLICATION,
 
             Dot => ACCESSOR,
         }

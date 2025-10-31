@@ -54,6 +54,7 @@ fn test() {
     );
     println!("total number of processed tokens: {count}");*/
 }
+#[allow(unused)]
 const EXAMPLE: &str = "time.now() Instant
 time.since(Instant) f64
 sin(f32) f32

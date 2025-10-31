@@ -101,6 +101,7 @@ impl<'src> Tokenizer<'src> {
         if ident.starts_with("\"")
             || ident.starts_with(|first: char| first.is_whitespace())
             || ident.starts_with(|first: char| TokenKind::new(first).is_some())
+            || ident.is_empty()
         {
             (
                 original_len - ident.len(),
