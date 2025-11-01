@@ -1,10 +1,9 @@
-use bumpalo::Bump;
-
 use super::files::*;
 use crate::{
-    error::CliError,
+    error::{CliError, Errors},
     format_time,
-    parser::{parse, tree::TreeDisplay},
+    parser::{tokenizing::Tokenizer, tree::TreeDisplay, typing::TypeParser, Parser},
+    utilities::Rc,
 };
 use std::{
     ffi::OsString,
@@ -91,7 +90,7 @@ impl Task {
                 }
             }
             Task::Parse { path } => {
-                if path.file_name() != Some(&OsString::from("inter.f")) {
+                if path.file_name() != Some(&OsString::from("inter.rx")) {
                     return Ok(());
                 }
                 let mut file = OpenOptions::new().read(true).open(path)?;
@@ -99,14 +98,34 @@ impl Task {
                 file.read_to_string(&mut content)?;
 
                 let now = Instant::now();
-                let arena = Bump::new();
-                let (root, internalizer, errors) = parse(&content, &arena, path);
-                println!(
-                    "{}\n{}\n\nparsed in: {}",
-                    root.display(&internalizer, &String::new()),
-                    *errors,
-                    format_time(now.elapsed().as_nanos()),
-                );
+
+                let parsing_errors = Rc::new(Errors::empty(path));
+
+                // lazy tokenizing
+                let type_parser = TypeParser::new();
+                let mut tokenizer = Tokenizer::new(&content, parsing_errors.clone(), type_parser);
+
+                let ast = Parser::new(parsing_errors.clone()).parse(&mut tokenizer);
+
+                // Debug Print
+                let time = now.elapsed().as_nanos();
+                for (sym, const_id) in ast.sym_const_table {
+                    let name = ast.internalizer.resolve(sym);
+                    let const_id_print = const_id.to_string();
+                    println!(
+                        "{} {} {}",
+                        name,
+                        const_id_print,
+                        ast.consts[const_id].display(
+                            &ast.internalizer,
+                            &(name.chars().map(|_| " ").collect::<String>()
+                                + "  "
+                                + &const_id_print.chars().map(|_| " ").collect::<String>())
+                        )
+                    )
+                }
+                println!("\n{}", *parsing_errors);
+                println!("\n\n{}", format_time(time))
             }
         }
         Ok(())

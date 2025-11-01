@@ -7,10 +7,10 @@ use crate::{
         binary_op::BinaryOp,
         intern::{Internalizer, Symbol},
         tokenizing::{num::Literal, with_written_out_escape_sequences, EscapeSequenceConfusion},
+        typing::Type,
         unary_op::UnaryOp,
-        vars::{VarTable, Variable},
+        vars::{Var, VarTable},
     },
-    typing::Type,
 };
 use std::{
     collections::HashMap,
@@ -493,7 +493,7 @@ pub enum Node<'src> {
     }, // x / (0(b/s/o/d/x))N(.N)((u/i/f/c)(0(b/s/o/d/x))N)(i)
     Lifetime(Symbol<'src>), // 'x
 
-    Variable(Variable<'src>),
+    Variable(Var<'src>),
 
     Unit,
 
@@ -520,7 +520,7 @@ pub enum Node<'src> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct FunctionInterface<'src> {
-    pub parameters: HashMap<Symbol<'src>, Variable<'src>>,
+    pub parameters: HashMap<Symbol<'src>, Var<'src>>,
     pub return_type: NodeBox<'src>,
 }
 

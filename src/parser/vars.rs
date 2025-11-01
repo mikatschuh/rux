@@ -6,7 +6,7 @@ use crate::{
         tree::{NodeBox, TreeDisplay},
     },
 };
-use std::{collections::HashMap, fmt, marker::PhantomData};
+use std::{collections::HashMap, fmt, marker::PhantomData, ops::Index};
 
 pub trait LabelTable<'src> {
     const IS_SCOPED: bool;
@@ -16,18 +16,18 @@ pub trait LabelTable<'src> {
         sym: Symbol<'src>,
         ty: NodeBox<'src>,
     ) -> Result<(), Error<'src>>;
-    fn label_used(&mut self, sym: Symbol<'src>) -> Option<Variable<'src>>;
+    fn label_used(&mut self, sym: Symbol<'src>) -> Option<Var<'src>>;
     fn open_branch(&mut self);
     fn close_branch(&mut self);
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
-pub struct Variable<'table> {
+pub struct Var<'table> {
     _marker: PhantomData<&'table ()>,
     idx: usize,
 }
 
-impl Variable<'_> {
+impl Var<'_> {
     fn new(idx: usize) -> Self {
         Self {
             _marker: PhantomData::default(),
@@ -36,13 +36,20 @@ impl Variable<'_> {
     }
 }
 
-impl<'src> fmt::Display for Variable<'src> {
+impl<'src> fmt::Display for Var<'src> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "var[ {} ]", self.idx)
     }
 }
 
 pub type VarTable<'src> = Vec<NodeBox<'src>>;
+
+impl<'src> Index<Var<'src>> for VarTable<'src> {
+    type Output = NodeBox<'src>;
+    fn index(&self, index: Var<'src>) -> &Self::Output {
+        &self[index.idx]
+    }
+}
 
 impl<'src> TreeDisplay<'src> for VarTable<'src> {
     fn display(
@@ -55,7 +62,7 @@ impl<'src> TreeDisplay<'src> for VarTable<'src> {
             let new_indentation = format!("{indentation}   ",);
             output += &format!(
                 "\n{indentation} * {}\n{}╰─ {}",
-                Variable::new(idx),
+                Var::new(idx),
                 new_indentation.clone(),
                 var.display(internalizer, &(new_indentation + "   "))
             )
@@ -67,7 +74,7 @@ impl<'src> TreeDisplay<'src> for VarTable<'src> {
 #[derive(Debug, PartialEq, Eq)]
 pub struct ScopedSymTable<'src> {
     table: VarTable<'src>,
-    scopes: comp::Vec<HashMap<Symbol<'src>, Variable<'src>>, 1>,
+    scopes: comp::Vec<HashMap<Symbol<'src>, Var<'src>>, 1>,
 }
 
 impl<'src> ScopedSymTable<'src> {
@@ -92,14 +99,14 @@ impl<'src> LabelTable<'src> for ScopedSymTable<'src> {
         sym: Symbol<'src>,
         ty: NodeBox<'src>,
     ) -> Result<(), Error<'src>> {
-        let var = Variable::new(self.table.len());
+        let var = Var::new(self.table.len());
 
         self.table.push(ty);
         self.scopes.last_mut().insert(sym, var);
         Ok(())
     }
 
-    fn label_used(&mut self, sym: Symbol<'src>) -> Option<Variable<'src>> {
+    fn label_used(&mut self, sym: Symbol<'src>) -> Option<Var<'src>> {
         for sym_var_table in self.scopes.iter().rev() {
             if let Some(var) = sym_var_table.get(&sym) {
                 return Some(*var);
@@ -124,7 +131,7 @@ impl<'src> LabelTable<'src> for ScopedSymTable<'src> {
 #[derive(Debug)]
 pub struct ParamTable<'src> {
     parameters: VarTable<'src>, // types
-    sym_param_table: HashMap<Symbol<'src>, Variable<'src>>,
+    sym_param_table: HashMap<Symbol<'src>, Var<'src>>,
 }
 
 impl<'src> ParamTable<'src> {
@@ -139,7 +146,7 @@ impl<'src> ParamTable<'src> {
         self.parameters
     }
 
-    pub fn make_scoped(self) -> (HashMap<Symbol<'src>, Variable<'src>>, ScopedSymTable<'src>) {
+    pub fn make_scoped(self) -> (HashMap<Symbol<'src>, Var<'src>>, ScopedSymTable<'src>) {
         (
             self.sym_param_table.clone(),
             ScopedSymTable {
@@ -159,7 +166,7 @@ impl<'src> LabelTable<'src> for ParamTable<'src> {
         sym: Symbol<'src>,
         ty: NodeBox<'src>,
     ) -> Result<(), Error<'src>> {
-        let new_param = Variable::new(self.parameters.len());
+        let new_param = Var::new(self.parameters.len());
         let span = span - ty.span;
         self.parameters.push(ty);
         match self.sym_param_table.insert(sym, new_param) {
@@ -169,8 +176,8 @@ impl<'src> LabelTable<'src> for ParamTable<'src> {
     }
 
     #[inline]
-    fn label_used(&mut self, _: Symbol<'src>) -> Option<Variable<'src>> {
-        None
+    fn label_used(&mut self, sym: Symbol<'src>) -> Option<Var<'src>> {
+        self.sym_param_table.get(&sym).copied()
     }
     #[inline]
     fn open_branch(&mut self) {}
@@ -188,7 +195,26 @@ impl<'src> LabelTable<'src> for VarTableMoc {
         Ok(())
     }
     #[inline]
-    fn label_used(&mut self, _: Symbol<'src>) -> Option<Variable<'src>> {
+    fn label_used(&mut self, _: Symbol<'src>) -> Option<Var<'src>> {
+        None
+    }
+    #[inline]
+    fn open_branch(&mut self) {}
+    #[inline]
+    fn close_branch(&mut self) {}
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct GlobalScope;
+
+impl<'src> LabelTable<'src> for GlobalScope {
+    const IS_SCOPED: bool = false;
+    #[inline]
+    fn new_label(&mut self, _: Span, _: Symbol<'src>, _: NodeBox<'src>) -> Result<(), Error<'src>> {
+        Ok(())
+    }
+    #[inline]
+    fn label_used(&mut self, _: Symbol<'src>) -> Option<Var<'src>> {
         None
     }
     #[inline]

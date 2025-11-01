@@ -1,4 +1,4 @@
-use crate::typing::TypeParser;
+use crate::parser::typing::TypeParser;
 
 #[test]
 fn test() {

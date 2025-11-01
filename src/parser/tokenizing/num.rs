@@ -1,3 +1,7 @@
+use crate::parser::{
+    tokenizing::{token::TokenKind, Tokenizer},
+    typing::{NumberType, TypeParser},
+};
 #[allow(unused)]
 use crate::{
     error::*,
@@ -6,14 +10,6 @@ use crate::{
         binary_op::BinaryOp,
         tree::{Node, NodeBox, NodeWrapper, Note},
     },
-    typing::{
-        NumberKind::{self, *},
-        NumberType, Type,
-    },
-};
-use crate::{
-    parser::tokenizing::{token::TokenKind, Tokenizer},
-    typing::TypeParser,
 };
 use num::{bigint::Sign, BigInt, BigUint};
 

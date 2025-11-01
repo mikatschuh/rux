@@ -60,7 +60,7 @@ impl<'src> Token<'src> {
     pub const fn binding_pow(self) -> u8 {
         match self.kind {
             Comma | Closed(..) | RightArrow | Placeholder | Ident | Literal | Quote
-            | Keyword(..) | Open(Bracket::Curly) => 0,
+            | Keyword(..) | Open(Bracket::Curly) | Semicolon => 0,
 
             TokenKind::Colon => COLON,
 

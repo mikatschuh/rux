@@ -1,22 +1,26 @@
+use std::collections::HashMap;
+
 use crate::{
     comp,
     error::{ErrorCode, Errors, Position, Span},
     parser::{
+        binary_op::BinaryOp,
+        const_res::{Const, ConstTable},
         intern::{Internalizer, Symbol},
         tokenizing::{
             token::{Token, TokenKind},
-            TokenStream, Tokenizer,
+            TokenStream,
         },
         tree::{Bracket, Node, NodeBox, NodeWrapper, Scope},
-        vars::{LabelTable, ScopedSymTable},
+        vars::{GlobalScope, LabelTable},
     },
-    typing::TypeParser,
     utilities::Rc,
 };
 use bumpalo::{boxed::Box as BumpBox, Bump};
 
 pub mod binary_op;
 mod binding_pow;
+pub mod const_res;
 pub mod intern;
 #[allow(dead_code)]
 pub mod keyword;
@@ -24,40 +28,32 @@ mod led;
 mod nud;
 pub mod tokenizing;
 pub mod tree;
+#[allow(dead_code)]
+pub mod typing;
 pub mod unary_op;
 pub mod vars;
 
-pub fn parse<'src>(
-    text: &'src str,
-    arena: &'src Bump,
-    path: &'static std::path::Path,
-) -> (NodeBox<'src>, Rc<Internalizer<'src>>, Rc<Errors<'src>>) {
-    let errors = Rc::new(Errors::empty(path));
-    let internalizer = Rc::new(Internalizer::new());
-    let global_var_table = ScopedSymTable::new();
-    let root = Parser::new(internalizer.clone(), errors.clone(), arena).parse(
-        Tokenizer::new(text, errors.clone(), TypeParser::new()),
-        global_var_table,
-    );
-
-    (root, internalizer, errors)
+pub struct Ast<'src> {
+    _arena: Bump,
+    pub internalizer: Rc<Internalizer<'src>>,
+    pub consts: ConstTable<'src>,
+    pub sym_const_table: HashMap<Symbol<'src>, Const<'src>>,
 }
 
-struct Parser<'src> {
+pub struct Parser<'src> {
     errors: Rc<Errors<'src>>,
     open_brackets: usize,
 
     internalizer: Rc<Internalizer<'src>>,
-    arena: &'src Bump,
+    arena: Bump,
 }
 
 impl<'src> Parser<'src> {
     #[inline]
-    fn new(
-        internalizer: Rc<Internalizer<'src>>,
-        errors: Rc<Errors<'src>>,
-        arena: &'src Bump,
-    ) -> Self {
+    pub fn new(errors: Rc<Errors<'src>>) -> Self {
+        let arena = Bump::new();
+        let internalizer = Rc::new(Internalizer::new());
+
         Self {
             errors,
             open_brackets: 0,
@@ -68,27 +64,43 @@ impl<'src> Parser<'src> {
     }
 
     #[inline]
-    fn make_node(&self, node: NodeWrapper<'src>) -> NodeBox<'src> {
-        NodeBox::new(BumpBox::new_in(node, self.arena))
+    pub fn parse(mut self, tokens: &mut impl TokenStream<'src>) -> Ast<'src> {
+        let mut sym_const_table: HashMap<Symbol<'src>, Const<'src>> = HashMap::new();
+        let mut consts: ConstTable = vec![];
+
+        while !tokens.is_empty() {
+            let (_, id) = self.pop_identifier(tokens);
+
+            if !tokens
+                .next_if(|tok| tok.kind == TokenKind::ColonColon)
+                .is_some()
+            {
+                self.errors.push(
+                    tokens.current_pos().into(),
+                    ErrorCode::ExpectedItemDeclaration,
+                );
+            }
+
+            let expr = self.pop_expr(tokens, &mut GlobalScope, BinaryOp::Write.binding_pow());
+
+            _ = tokens.consume_while(|tok| tok.kind == TokenKind::Semicolon);
+
+            sym_const_table.insert(id, Const::new(consts.len()));
+            consts.push(expr)
+        }
+
+        Ast {
+            _arena: self.arena,
+            internalizer: self.internalizer,
+            consts,
+            sym_const_table,
+        }
     }
 
     #[inline]
-    fn parse(
-        mut self,
-        mut tokens: impl TokenStream<'src>,
-        mut var_table: impl LabelTable<'src>,
-    ) -> NodeBox<'src> {
-        let global_scope = self.parse_statements(&mut tokens, &mut var_table);
-        self.make_node(
-            NodeWrapper::new(
-                global_scope
-                    .statements
-                    .first()
-                    .map_or(global_scope.expr.span, |first| first.span)
-                    - global_scope.expr.span,
-            )
-            .with_node(Node::Scope(global_scope)),
-        )
+    fn make_node(&self, node: NodeWrapper<'src>) -> NodeBox<'src> {
+        let arena_ref: &'src Bump = unsafe { std::mem::transmute(&self.arena) };
+        NodeBox::new(BumpBox::new_in(node, arena_ref))
     }
 
     fn parse_expr(
@@ -150,6 +162,7 @@ impl<'src> Parser<'src> {
     ) -> Scope<'src> {
         let mut statements = vec![];
         loop {
+            let _ = tokens.consume_while(|tok| tok.kind == TokenKind::Semicolon); // { ; <--
             if tokens.is_empty() {
                 let last = statements.pop().unwrap_or_else(|| {
                     self.make_node(NodeWrapper::new(tokens.current_pos().into()))
@@ -160,6 +173,14 @@ impl<'src> Parser<'src> {
                 };
             }
             let stmt = self.pop_expr(tokens, var_table, binding_pow::STATEMENT);
+            if tokens
+                .next_if(|tok| tok.kind == TokenKind::Semicolon)
+                .is_some()
+            {
+                statements.push(stmt);
+                continue;
+            }
+
             if tokens.next_is(|tok| tok.kind.is_terminator()) {
                 return Scope {
                     statements,

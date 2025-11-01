@@ -14,8 +14,8 @@ use crate::{
     parser::{
         keyword::Keyword,
         tokenizing::{num::Literal, slicing::TokenBuffer, token::TokenKind},
+        typing::TypeParser,
     },
-    typing::TypeParser,
     utilities::Rc,
 };
 
@@ -195,9 +195,7 @@ impl<'src> Tokenizer<'src> {
             type_parser,
         }
     }
-}
 
-impl<'src> Tokenizer<'src> {
     fn consume_one_char(&mut self) -> Option<char> {
         if self.text.is_empty() || self.next_i >= self.text.len() {
             return None;

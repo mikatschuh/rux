@@ -11,14 +11,15 @@ mod error;
 // mod number;
 mod parser;
 mod threader;
-mod typing;
-#[allow(dead_code)]
 #[macro_use]
+#[allow(dead_code)]
 mod utilities;
 #[macro_use]
 mod comp;
+#[allow(dead_code)]
 mod bench;
 // mod interpreter;
+#[allow(dead_code)]
 mod vms;
 /*
 ___    __

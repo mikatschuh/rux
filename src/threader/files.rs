@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub(super) const FILE_EXTENSION: &str = "f";
+pub(super) const FILE_EXTENSION: &str = "rx";
 pub(super) const COMPILED_FILE_EXTENSION: &str = "o";
 
 pub(super) struct Directory {

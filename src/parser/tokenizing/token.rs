@@ -84,6 +84,8 @@ pub enum TokenKind {
     Colon,      // :
     ColonColon, // ::
 
+    Semicolon, // ;
+
     Comma, // ,
 
     Ident,            // x
@@ -134,6 +136,7 @@ impl TokenKind {
             '<' => Left,
             '>' => Right,
             ':' => Colon,
+            ';' => Semicolon,
             ',' => Comma,
             '(' => Open(Round),
             '[' => Open(Squared),
@@ -267,7 +270,8 @@ impl TokenKind {
                     | NotRightPipePipe
             ),
             '&' => matches!(self, And | NotAnd | AndAnd | NotAndAnd),
-            ':' => matches!(self, ColonColon),
+            ':' => matches!(self, Colon | ColonColon),
+            ';' => self == Semicolon,
             ',' => self == Comma,
             '(' => self == Open(Round),
             '[' => self == Open(Squared),
@@ -280,7 +284,7 @@ impl TokenKind {
     }
 
     pub const fn is_terminator(self) -> bool {
-        matches!(self, Closed(..) | Comma)
+        matches!(self, Closed(..) | Comma | Semicolon)
     }
 }
 impl<'src> Token<'src> {

@@ -59,6 +59,8 @@ pub enum ErrorCode<'src> {
     ExpectedOpenParen,
     ExpectedComma,
 
+    ExpectedItemDeclaration,
+
     ParamShadowing,
 
     UnexpectedToken,
@@ -227,6 +229,11 @@ impl Error<'_> {
                     ["("]
                 )
             }
+            ExpectedItemDeclaration => format_error!(
+                self.section.to_string(path),
+                "expected an item declaration with {}",
+                ["::"]
+            ),
             ExpectedComma => format_error!(self.section.to_string(path), "expected a comma"),
             UnexpectedToken => format_error!(self.section.to_string(path), "unexpected token"),
             LonelyElse => {
