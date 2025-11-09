@@ -1,20 +1,22 @@
 # Repository Guidelines
 
-## Project Info
+## Project Goals
 - This is a work in progress compiler for the not existing Flou (working name) programming language. (file ending ".rx")
+- The goal for Flou is to be a statically typed low level imperative programming language with a strong emphasis on meta-
+  programming and compile time safety
+- The compiler should be a tree less multithreaded "Sea of Nodes" compiler
 
 ## Project Structure & Module Organization
-- `src/` hosts the Rust compiler/interpreter:  tokenizing work in `tokenizing/`, parsing in `parser/`, `codegen/`, `vms/` and `interpreter/` are yet to be
-  filled with content in future sessions
+- `src/` hosts the Rust compiler/interpreter:  tokenizing work in `tokenizing/`, parsing in `parser/`,
+  `codegen/`, `vms/`    and `interpreter/` are yet to be filled with content in future sessions
 - `my_project/` is the sample Flou workspace (`main.rx`, `module/inter.rx`) used by integration tests and quick demos.
 - `docs/` contains design references on Flou but is partially outdated and should be ignored.
 
 ## Build, Test, and Development Commands
-- `cargo build` compiles the toolchain; `cargo run -- --file my_project/main.rx` executes the demo program end-to-end.
+- `cargo build --release` compiles the toolchain; `cargo run -- build my_project/inter.rx` compiles the demo program        end-to-end.
 - `cargo test` runs unit and integration suites; add `-- --ignored` when touching long-running cases.
-- `cargo bench --bench bench` exercises the performance harness in `src/bench.rs`.
 - `cargo fmt && cargo clippy --all-targets` enforces style and lints; run them before every branch push.
-- `./watcher.sh` hot-reloads `cargo run` for rapid parser work—keep it executable.
+- `./watcher.sh` is for humans and can be ignored
 
 ## Coding Style & Naming Conventions
 - Follow `rustfmt` defaults (4-space indents, 100-character lines); no tabs.
