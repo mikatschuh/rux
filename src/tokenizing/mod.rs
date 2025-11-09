@@ -297,7 +297,7 @@ impl<'src> Tokenizer<'src> {
 
     #[inline]
     fn is_empty_after_spaces_consumed(&mut self) -> bool {
-        loop {
+        'outer: loop {
             if self.next_text.is_empty() {
                 return true;
             }
@@ -360,6 +360,29 @@ impl<'src> Tokenizer<'src> {
                         self.next_text = &self.next_text[2..];
                     } else {
                         return false;
+                    }
+                }
+                b'/' => {
+                    if self.next_text.len() < 2 || self.next_text[1] != b'/' {
+                        return false;
+                    }
+                    self.next_text = &self.next_text[2..];
+                    self.next_pos += 2;
+
+                    loop {
+                        if self.next_text.is_empty() {
+                            return true;
+                        }
+                        if self.next_text[0] == b'\n' {
+                            self.next_text = &self.next_text[1..];
+                            self.next_pos.next_line();
+
+                            continue 'outer;
+                        }
+                        if self.next_text[0] & 0b1100_0000 != 0b1000_0000 {
+                            self.next_pos += 1;
+                        }
+                        self.next_text = &self.next_text[1..];
                     }
                 }
                 _ => return false,

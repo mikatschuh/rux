@@ -106,6 +106,26 @@ fn test() {
                 },
             ],
         ),
+        (
+            "a// b + a\nb//",
+            vec![
+                Token {
+                    span: Span::at(1, 1, 2, 1),
+                    src: "a",
+                    kind: Ident,
+                },
+                Token {
+                    span: Span::at(1, 2, 2, 2),
+                    src: "b",
+                    kind: Ident,
+                },
+                Token {
+                    span: Span::at(4, 2, 4, 2),
+                    src: "",
+                    kind: EOF,
+                },
+            ],
+        ),
     ];
 
     let type_parser = TypeParser::new();

@@ -1,0 +1,5 @@
+x i32
+a i32 = 10
+x = (a + 10) * 20
+
+y i32 = 11 a u32 // also possible
