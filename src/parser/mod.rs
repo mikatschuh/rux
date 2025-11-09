@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::{
     comp,
     error::{ErrorCode, Errors, Position, Span},
@@ -17,6 +15,7 @@ use crate::{
     utilities::Rc,
 };
 use bumpalo::{boxed::Box as BumpBox, Bump};
+use std::collections::HashMap;
 
 pub mod binary_op;
 mod binding_pow;
@@ -109,7 +108,7 @@ impl<'src> Parser<'src> {
         var_table: &mut impl LabelTable<'src>,
         min_bp: u8,
     ) -> Option<NodeBox<'src>> {
-        let mut lhs = tokens.peek().nud(self, min_bp, tokens, var_table)?;
+        let mut lhs = self.nud(min_bp, tokens, var_table)?;
 
         loop {
             let tok = tokens.peek();
@@ -133,8 +132,7 @@ impl<'src> Parser<'src> {
                 return Some(lhs);
             }
 
-            let tok = tokens.peek();
-            lhs = match tok.led(lhs, self, tokens, var_table) {
+            lhs = match self.led(lhs, tokens, var_table) {
                 Ok(new_lhs) => new_lhs,
                 Err(old_lhs) => {
                     return Some(old_lhs);
@@ -289,6 +287,7 @@ impl<'src> Parser<'src> {
         right_bp: u8,
         nud: impl Fn(comp::Vec<NodeBox<'src>, 2>) -> Node<'src>,
     ) -> NodeBox<'src> {
+        tokens.consume();
         let rhs = self.pop_expr(tokens, var_table, right_bp);
         let mut exprs = comp::Vec::new([lhs, rhs]);
 

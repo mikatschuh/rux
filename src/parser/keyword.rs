@@ -66,6 +66,7 @@ impl<'src> Parser<'src> {
         mut span: Span,
         wrapper: impl FnOnce(NodeBox<'src>, NodeBox<'src>, Option<NodeBox<'src>>) -> Node<'src>,
     ) -> NodeBox<'src> {
+        tokens.consume();
         let condition = self.pop_expr(tokens, var_table, binding_pow::PATH);
         var_table.open_branch();
         let then_body = self.pop_expr(tokens, var_table, binding_pow::PATH);
@@ -92,6 +93,7 @@ impl<'src> Parser<'src> {
         var_table: &mut impl LabelTable<'src>,
         span: Span,
     ) -> NodeBox<'src> {
+        tokens.consume();
         let val = self.pop_expr(tokens, var_table, binding_pow::PATH);
         self.make_node(NodeWrapper::new(span - val.span).with_node(Node::Return { val }))
     }
@@ -102,6 +104,7 @@ impl<'src> Parser<'src> {
         var_table: &mut impl LabelTable<'src>,
         span: Span,
     ) -> NodeBox<'src> {
+        tokens.consume();
         let mut end = span.end;
         let layers = tokens
             .consume_while(|tok| tok.kind == TokenKind::Keyword(Keyword::Break))
@@ -116,6 +119,7 @@ impl<'src> Parser<'src> {
         tokens: &mut impl TokenStream<'src>,
         span: Span,
     ) -> NodeBox<'src> {
+        tokens.consume();
         let mut end = span.end;
         let layers = tokens
             .consume_while(|tok| tok.kind == TokenKind::Keyword(Keyword::Continue))
@@ -130,6 +134,7 @@ impl<'src> Parser<'src> {
         _: &mut impl LabelTable<'src>,
         span: Span,
     ) -> NodeBox<'src> {
+        tokens.consume();
         let convention = if tokens.match_and_consume(|tok| tok.kind == TokenKind::DashDash) {
             let mut var_table = ScopedSymTable::new();
             let content = self.pop_expr(tokens, &mut var_table, binding_pow::CALL_CONVENTION);

@@ -137,9 +137,9 @@ fn _print_communism() {
 
 static ABOUT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     format!("\n{}\n| {}\n|  {}\t{}\n",
-    "The Thyn programming language.\n•--------------------------------------------------------------------------------".bold(),
+    "The Flou programming language.\n•--------------------------------------------------------------------------------".bold(),
     "Usage:",
-    "thyn build \tpath_to_your_project",
+    "flou build \tpath_to_your_project",
     "to build an executable from your project"
 )
 });

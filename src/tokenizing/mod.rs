@@ -8,7 +8,7 @@ pub mod token;
 
 use crate::{
     error::{ErrorCode, Errors, Position, Span},
-    parser::typing::TypeParser,
+    parser::{keyword::Keyword, typing::TypeParser},
     tokenizing::token::{
         Token,
         TokenKind::{self, *},
@@ -197,12 +197,22 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
                         || TokenKind::new(self.next_text[0]).is_some()
                     {
                         self.next_pos = span.end;
+                        let src =
+                            unsafe { str::from_utf8_unchecked(slice::from_raw_parts(ptr, len)) };
                         return self.cache_tok(Token {
                             span,
                             src: unsafe {
                                 str::from_utf8_unchecked(slice::from_raw_parts(ptr, len))
                             },
-                            kind: Ident,
+                            kind: match src {
+                                "." => TokenKind::Dot,
+                                _ if src.trim_start_matches('_').is_empty() => {
+                                    TokenKind::Placeholder
+                                }
+                                _ => Keyword::from_str(src)
+                                    .map(TokenKind::Keyword)
+                                    .unwrap_or(TokenKind::Ident),
+                            },
                         });
                     }
 

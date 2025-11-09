@@ -2,54 +2,55 @@ use crate::{
     comp,
     parser::{
         binary_op::BinaryOp,
-        binding_pow::{self},
+        binding_pow,
         tree::{Bracket, Node, NodeBox},
         unary_op::UnaryOp,
         vars::LabelTable,
         NodeWrapper, Parser,
     },
-    tokenizing::{
-        token::{Token, TokenKind::*},
-        TokenStream,
-    },
+    tokenizing::{token::TokenKind::*, TokenStream},
 };
 
-impl<'src> Token<'src> {
+impl<'src> Parser<'src> {
     pub(super) fn led(
-        self,
+        &mut self,
         lhs: NodeBox<'src>,
-        state: &mut Parser<'src>,
         tokens: &mut impl TokenStream<'src>,
         var_table: &mut impl LabelTable<'src>,
     ) -> Result<NodeBox<'src>, NodeBox<'src>> {
-        Ok(match self.kind {
+        let first_tok = tokens.peek();
+        Ok(match first_tok.kind {
             Open(bracket) if matches!(bracket, Bracket::Round | Bracket::Squared) => {
-                state.open_brackets += 1;
+                tokens.consume();
+                self.open_brackets += 1;
                 let op = match bracket {
                     Bracket::Round => BinaryOp::App,
                     Bracket::Squared => BinaryOp::Index,
                     _ => unreachable!(),
                 };
-                let content = state.parse_expr(tokens, var_table, 0).unwrap_or_else(|| {
-                    state.make_node(NodeWrapper::new(self.span.end() + 1).with_node(Node::Unit))
+                let content = self.parse_expr(tokens, var_table, 0).unwrap_or_else(|| {
+                    self.make_node(NodeWrapper::new(first_tok.span.end() + 1).with_node(Node::Unit))
                 });
 
-                let content = state.parse_list(tokens, var_table, content);
-                let end = state.handle_closed_bracket(tokens, bracket);
-                state.make_node(NodeWrapper::new(self.span - end).with_node(Node::Binary {
-                    op,
-                    lhs,
-                    rhs: content,
-                }))
+                let content = self.parse_list(tokens, var_table, content);
+                let end = self.handle_closed_bracket(tokens, bracket);
+                self.make_node(
+                    NodeWrapper::new(first_tok.span - end).with_node(Node::Binary {
+                        op,
+                        lhs,
+                        rhs: content,
+                    }),
+                )
             }
             Tick => {
-                let (ident_span, sym) = state.pop_identifier(tokens);
-                state.make_node(
+                tokens.consume();
+                let (ident_span, sym) = self.pop_identifier(tokens);
+                self.make_node(
                     NodeWrapper::new(lhs.span - ident_span)
                         .with_node(Node::Lifetimed { sym, val: lhs }),
                 )
             }
-            ColonColon => state.parse_dynamic_arg_op(
+            ColonColon => self.parse_dynamic_arg_op(
                 tokens,
                 var_table,
                 lhs,
@@ -57,7 +58,7 @@ impl<'src> Token<'src> {
                 binding_pow::WRITE_RIGHT,
                 |exprs| Node::Binding { exprs },
             ),
-            Colon => state.parse_dynamic_arg_op(
+            Colon => self.parse_dynamic_arg_op(
                 tokens,
                 var_table,
                 lhs,
@@ -66,13 +67,14 @@ impl<'src> Token<'src> {
                 |exprs| Node::Iterator { exprs },
             ),
             Dot => {
+                tokens.consume();
                 let tok = tokens.peek();
                 if tok.binding_pow() == 0 && !tok.kind.is_terminator() {
                     tokens.consume();
-                    if self.span.end == tok.span.start {
+                    if first_tok.span.end == tok.span.start {
                         let op = BinaryOp::FieldAccess;
-                        let rhs = state.pop_expr(tokens, var_table, op.binding_pow());
-                        return Ok(state.make_node(
+                        let rhs = self.pop_expr(tokens, var_table, op.binding_pow());
+                        return Ok(self.make_node(
                             NodeWrapper::new(lhs.span - rhs.span).with_node(Node::Binary {
                                 op,
                                 lhs,
@@ -81,40 +83,42 @@ impl<'src> Token<'src> {
                         ));
                     }
                 }
-                state.make_node(
-                    NodeWrapper::new(lhs.span - self.span).with_node(Node::Unary {
+                self.make_node(
+                    NodeWrapper::new(lhs.span - first_tok.span).with_node(Node::Unary {
                         op: UnaryOp::Deref,
                         val: lhs,
                     }),
                 )
             }
             _ => {
-                if let Some(op) = self.as_postfix() {
-                    state.make_node(
-                        NodeWrapper::new(lhs.span - self.span)
+                if let Some(op) = first_tok.as_postfix() {
+                    tokens.consume();
+                    self.make_node(
+                        NodeWrapper::new(lhs.span - first_tok.span)
                             .with_node(Node::Unary { op, val: lhs }),
                     )
-                } else if let Some(op) = self.as_infix() {
-                    let rhs = state.pop_expr(tokens, var_table, op.binding_pow());
+                } else if let Some(op) = first_tok.as_infix() {
+                    tokens.consume();
+                    let rhs = self.pop_expr(tokens, var_table, op.binding_pow());
                     if op.is_chained() {
                         let mut chain = comp::Vec::new([(op, rhs)]);
                         while let Some(op) = tokens.peek().as_infix() {
                             if op.is_chained() {
                                 tokens.consume();
-                                let rhs = state.pop_expr(tokens, var_table, op.binding_pow());
+                                let rhs = self.pop_expr(tokens, var_table, op.binding_pow());
                                 chain.push((op, rhs));
                                 continue;
                             }
                             break;
                         }
-                        state.make_node(NodeWrapper::new(lhs.span - chain.last().1.span).with_node(
+                        self.make_node(NodeWrapper::new(lhs.span - chain.last().1.span).with_node(
                             Node::Chain {
                                 first: lhs,
                                 additions: chain,
                             },
                         ))
                     } else {
-                        state.make_node(
+                        self.make_node(
                             NodeWrapper::new(lhs.span - rhs.span).with_node(Node::Binary {
                                 op,
                                 lhs,
