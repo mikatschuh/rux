@@ -1,11 +1,3 @@
-pub mod num;
-pub mod slicing;
-#[cfg(test)]
-#[allow(dead_code)]
-pub mod test;
-#[allow(dead_code)]
-pub mod token;
-
 use crate::{
     error::{ErrorCode, Errors, Position, Span},
     parser::{keyword::Keyword, typing::TypeParser},
@@ -16,6 +8,14 @@ use crate::{
     utilities::Rc,
 };
 use std::{mem::MaybeUninit, slice, vec::IntoIter};
+
+pub mod num;
+pub mod slicing;
+#[cfg(test)]
+#[allow(dead_code)]
+pub mod test;
+#[allow(dead_code)]
+pub mod token;
 
 pub trait TokenStream<'src> {
     fn current_pos(&self) -> Position;
