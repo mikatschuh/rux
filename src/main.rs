@@ -21,6 +21,7 @@ mod comp;
 mod bench;
 // mod interpreter;
 mod codegen;
+mod grapher;
 #[allow(dead_code)]
 mod vms;
 /*

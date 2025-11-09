@@ -2,13 +2,15 @@
 
 ## Project Goals
 - This is a work in progress compiler for the not existing Flou (working name) programming language. (file ending ".rx")
-- The goal for Flou is to be a statically typed low level imperative programming language with a strong emphasis on meta-
-  programming and compile time safety
+- The goal for Flou is to be a statically typed low level imperative programming language with a strong emphasis on metaprogramming and compile time safety
 - The compiler should be a tree less multithreaded "Sea of Nodes" compiler
 
 ## Project Structure & Module Organization
-- `src/` hosts the Rust compiler/interpreter:  tokenizing work in `tokenizing/`, parsing in `parser/`,
-  `codegen/`, `vms/`    and `interpreter/` are yet to be filled with content in future sessions
+- `src/` hosts the Rust compiler
+- tokenizing work in `tokenizing/`,
+- Dependency Injection is used via the `TokenStream` trait found in tokenizing
+- a function needing a tokenstream should just use the `tokens: &mut impl TokenStream` pattern
+- parsing work in `parser/`, `codegen/`, `vms/` and `interpreter/` are yet to be filled with content in future sessions
 - `my_project/` is the sample Flou workspace (`main.rx`, `module/inter.rx`) used by integration tests and quick demos.
 - `docs/` contains design references on Flou but is partially outdated and should be ignored.
 
