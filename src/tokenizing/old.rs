@@ -1,25 +1,16 @@
-pub mod num;
-pub mod slicing;
-#[cfg(test)]
-pub mod test;
-#[allow(dead_code)]
-pub mod token;
-
-use std::{collections::VecDeque, fmt::Debug, iter::FusedIterator, vec::IntoIter};
-use token::Token;
-use TokenKind::*;
-
 use crate::{
     error::{ErrorCode, Errors, Position, Span},
-    parser::{
-        keyword::Keyword,
-        tokenizing::{num::Literal, slicing::TokenBuffer, token::TokenKind},
-        typing::TypeParser,
-    },
+    parser::{keyword::Keyword, typing::TypeParser},
     utilities::Rc,
 };
+use num::Literal;
+use slicing::TokenBuffer;
+use std::{collections::VecDeque, fmt::Debug, vec::IntoIter};
+use token::Token;
+use token::TokenKind;
+use TokenKind::*;
 
-pub trait TokenStream<'src>: Iterator<Item = Token<'src>> + FusedIterator + Debug {
+pub trait TokenStream<'src>: Iterator<Item = Token<'src>> {
     fn peek(&mut self) -> Option<&Token<'src>>;
     fn current_pos(&mut self) -> Position;
     fn next_is(&mut self, predicate: impl FnOnce(&Token<'src>) -> bool) -> bool {
@@ -140,7 +131,6 @@ impl<'src> Iterator for Tokenizer<'src> {
         })
     }
 }
-impl<'src> FusedIterator for Tokenizer<'src> {}
 
 impl<'src> TokenStream<'src> for Tokenizer<'src> {
     fn peek(&mut self) -> Option<&Token<'src>> {
@@ -326,12 +316,7 @@ impl<'src> Tokenizer<'src> {
                 return;
             } // quote ends
         }
-        self.errors.push(
-            self.span,
-            ErrorCode::NoClosingQuotes {
-                quote: to_str(self.text, start_i, self.next_i),
-            },
-        );
+        self.errors.push(self.span, ErrorCode::NoClosingQuotes);
         self.buffer.push_back(Token {
             span: self.span,
             src: to_str(self.text, start_i, self.next_i),

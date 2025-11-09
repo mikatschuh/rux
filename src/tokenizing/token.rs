@@ -53,12 +53,13 @@ pub enum TokenKind {
     Percent,      // %
     PercentEqual, // %=
 
-    CenterDot,  // ·
-    DotEqual,   // ·=
-    Cross,      // ><
-    CrossEqual, // ><=
-    Up,         // (^)+
-    UpEqual,    // (^)+=
+    HalfCenterDot, // ·
+    CenterDot,     // ·
+    DotEqual,      // ·=
+    Cross,         // ><
+    CrossEqual,    // ><=
+    Up,            // (^)+
+    UpEqual,       // (^)+=
 
     Pipe,         // |
     PipePipe,     // ||
@@ -96,9 +97,14 @@ pub enum TokenKind {
 
     Open(Bracket),   // ( / [ / {
     Closed(Bracket), // ) / ] / }
+
+    EOF,
 }
 use Bracket::*;
 use TokenKind::*;
+
+const FIRST_CENTER_DOT_CHARACTER: u8 = "·".as_bytes()[0];
+const SECOND_CENTER_DOT_CHARACTER: u8 = "·".as_bytes()[1];
 
 impl Display for Token<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -118,105 +124,106 @@ impl<'a> Token<'a> {
 }
 
 impl TokenKind {
-    pub const fn new(c: char) -> Option<TokenKind> {
+    pub const fn new(c: u8) -> Option<TokenKind> {
         Some(match c {
-            '!' => Not,
-            '\'' => Tick,
-            '.' => Dot,
-            '=' => Equal,
-            '+' => Plus,
-            '-' => Dash,
-            '*' => Star,
-            '/' => Slash,
-            '%' => Percent,
-            '·' => CenterDot,
-            '^' => Up,
-            '|' => Pipe,
-            '&' => And,
-            '<' => Left,
-            '>' => Right,
-            ':' => Colon,
-            ';' => Semicolon,
-            ',' => Comma,
-            '(' => Open(Round),
-            '[' => Open(Squared),
-            '{' => Open(Curly),
-            ')' => Closed(Round),
-            ']' => Closed(Squared),
-            '}' => Closed(Curly),
+            b'!' => Not,
+            b'\'' => Tick,
+            b'.' => Dot,
+            b'=' => Equal,
+            b'+' => Plus,
+            b'-' => Dash,
+            b'*' => Star,
+            b'/' => Slash,
+            b'%' => Percent,
+            FIRST_CENTER_DOT_CHARACTER => CenterDot,
+            b'^' => Up,
+            b'|' => Pipe,
+            b'&' => And,
+            b'<' => Left,
+            b'>' => Right,
+            b':' => Colon,
+            b';' => Semicolon,
+            b',' => Comma,
+            b'(' => Open(Round),
+            b'[' => Open(Squared),
+            b'{' => Open(Curly),
+            b')' => Closed(Round),
+            b']' => Closed(Squared),
+            b'}' => Closed(Curly),
             _ => return None,
         })
     }
-    pub const fn add(self, c: char) -> Option<TokenKind> {
+    pub const fn add(self, c: u8) -> Option<TokenKind> {
         // transformation table to make tokens out of their char components
         Some(match self {
-            Not if c == '=' => NotEqual,
-            NotEqual if c == '=' => NotEqual,
+            Not if c == b'=' => NotEqual,
+            NotEqual if c == b'=' => NotEqual,
 
-            Not if c == '|' => NotPipe,
-            NotPipe if c == '|' => NotPipePipe,
-            NotPipe if c == '=' => NotPipeEqual,
+            Not if c == b'|' => NotPipe,
+            NotPipe if c == b'|' => NotPipePipe,
+            NotPipe if c == b'=' => NotPipeEqual,
 
-            Not if c == '&' => NotAnd,
-            NotAnd if c == '&' => NotAndAnd,
-            NotAnd if c == '=' => NotAndEqual,
+            Not if c == b'&' => NotAnd,
+            NotAnd if c == b'&' => NotAndAnd,
+            NotAnd if c == b'=' => NotAndEqual,
 
-            Not if c == '<' => NotLeft,
-            NotLeft if c == '=' => NotLeftEqual,
-            NotLeftEqual if c == '=' => NotLeftEqual,
+            Not if c == b'<' => NotLeft,
+            NotLeft if c == b'=' => NotLeftEqual,
+            NotLeftEqual if c == b'=' => NotLeftEqual,
 
-            Not if c == '>' => NotRight,
-            NotRight if c == '|' => NotRightPipe,
-            NotRightPipe if c == '|' => NotRightPipePipe,
-            NotRightPipe if c == '=' => NotRightPipeEqual,
-            NotRight if c == '=' => NotRightEqual,
-            NotRightEqual if c == '=' => NotRightEqual,
+            Not if c == b'>' => NotRight,
+            NotRight if c == b'|' => NotRightPipe,
+            NotRightPipe if c == b'|' => NotRightPipePipe,
+            NotRightPipe if c == b'=' => NotRightPipeEqual,
+            NotRight if c == b'=' => NotRightEqual,
+            NotRightEqual if c == b'=' => NotRightEqual,
 
-            Equal if c == '=' => EqualEqual,
-            EqualEqual if c == '=' => EqualEqual,
+            Equal if c == b'=' => EqualEqual,
+            EqualEqual if c == b'=' => EqualEqual,
 
-            Left if c == '<' => LeftLeft,
-            LeftLeft if c == '=' => LeftLeftEqual,
-            Left if c == '=' => LeftEqual,
-            LeftEqual if c == '=' => LeftEqual,
-            Left if c == '-' => LeftArrow,
+            Left if c == b'<' => LeftLeft,
+            LeftLeft if c == b'=' => LeftLeftEqual,
+            Left if c == b'=' => LeftEqual,
+            LeftEqual if c == b'=' => LeftEqual,
+            Left if c == b'-' => LeftArrow,
 
-            Right if c == '>' => RightRight,
-            RightRight if c == '=' => RightRightEqual,
-            Right if c == '=' => RightEqual,
-            Right if c == '|' => RightPipe,
-            RightPipe if c == '|' => RightPipePipe,
-            RightPipe if c == '=' => RightPipeEqual,
-            Right if c == '<' => Cross,
-            RightEqual if c == '=' => RightEqual,
+            Right if c == b'>' => RightRight,
+            RightRight if c == b'=' => RightRightEqual,
+            Right if c == b'=' => RightEqual,
+            Right if c == b'|' => RightPipe,
+            RightPipe if c == b'|' => RightPipePipe,
+            RightPipe if c == b'=' => RightPipeEqual,
+            Right if c == b'<' => Cross,
+            RightEqual if c == b'=' => RightEqual,
 
-            Plus if c == '+' => PlusPlus,
-            Plus if c == '=' => PlusEqual,
+            Plus if c == b'+' => PlusPlus,
+            Plus if c == b'=' => PlusEqual,
 
-            Dash if c == '-' => DashDash,
-            Dash if c == '=' => DashEqual,
-            Dash if c == '>' => RightArrow,
+            Dash if c == b'-' => DashDash,
+            Dash if c == b'=' => DashEqual,
+            Dash if c == b'>' => RightArrow,
 
-            Star if c == '=' => StarEqual,
+            Star if c == b'=' => StarEqual,
 
-            Slash if c == '=' => SlashEqual,
+            Slash if c == b'=' => SlashEqual,
 
-            Percent if c == '=' => PercentEqual,
+            Percent if c == b'=' => PercentEqual,
 
-            CenterDot if c == '=' => DotEqual,
+            HalfCenterDot if c == SECOND_CENTER_DOT_CHARACTER => CenterDot,
+            CenterDot if c == b'=' => DotEqual,
 
-            Cross if c == '=' => CrossEqual,
+            Cross if c == b'=' => CrossEqual,
 
-            Up if c == '^' => Up,
-            Up if c == '=' => UpEqual,
+            Up if c == b'^' => Up,
+            Up if c == b'=' => UpEqual,
 
-            Pipe if c == '|' => PipePipe,
-            Pipe if c == '=' => PipeEqual,
+            Pipe if c == b'|' => PipePipe,
+            Pipe if c == b'=' => PipeEqual,
 
-            And if c == '&' => AndAnd,
-            And if c == '=' => AndEqual,
+            And if c == b'&' => AndAnd,
+            And if c == b'=' => AndEqual,
 
-            Colon if c == ':' => ColonColon,
+            Colon if c == b':' => ColonColon,
 
             _ => return None,
         })

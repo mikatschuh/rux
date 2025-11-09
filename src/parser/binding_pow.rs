@@ -1,8 +1,6 @@
-use crate::parser::{
-    binary_op::BinaryOp,
+use crate::{
+    parser::{binary_op::BinaryOp, tree::Bracket, unary_op::UnaryOp},
     tokenizing::token::{Token, TokenKind},
-    tree::Bracket,
-    unary_op::UnaryOp,
 };
 
 use TokenKind::*;
@@ -59,8 +57,8 @@ pub(super) const ACCESSOR_RIGHT: u8 = 151;
 impl<'src> Token<'src> {
     pub const fn binding_pow(self) -> u8 {
         match self.kind {
-            Comma | Closed(..) | RightArrow | Placeholder | Ident | Literal | Quote
-            | Keyword(..) | Open(Bracket::Curly) | Semicolon => 0,
+            Comma | Closed(..) | EOF | HalfCenterDot | RightArrow | Placeholder | Ident
+            | Literal | Quote | Keyword(..) | Open(Bracket::Curly) | Semicolon => 0,
 
             TokenKind::Colon => COLON,
 

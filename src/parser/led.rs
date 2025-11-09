@@ -3,14 +3,14 @@ use crate::{
     parser::{
         binary_op::BinaryOp,
         binding_pow::{self},
-        tokenizing::{
-            token::{Token, TokenKind::*},
-            TokenStream,
-        },
         tree::{Bracket, Node, NodeBox},
         unary_op::UnaryOp,
         vars::LabelTable,
         NodeWrapper, Parser,
+    },
+    tokenizing::{
+        token::{Token, TokenKind::*},
+        TokenStream,
     },
 };
 
@@ -66,9 +66,10 @@ impl<'src> Token<'src> {
                 |exprs| Node::Iterator { exprs },
             ),
             Dot => {
-                if tokens.next_is(|tok| tok.binding_pow() == 0 && !tok.kind.is_terminator()) {
-                    let Token { span, .. } = tokens.peek().unwrap();
-                    if self.span.end == span.start {
+                let tok = tokens.peek();
+                if tok.binding_pow() == 0 && !tok.kind.is_terminator() {
+                    tokens.consume();
+                    if self.span.end == tok.span.start {
                         let op = BinaryOp::FieldAccess;
                         let rhs = state.pop_expr(tokens, var_table, op.binding_pow());
                         return Ok(state.make_node(
@@ -97,9 +98,9 @@ impl<'src> Token<'src> {
                     let rhs = state.pop_expr(tokens, var_table, op.binding_pow());
                     if op.is_chained() {
                         let mut chain = comp::Vec::new([(op, rhs)]);
-                        while let Some(op) = tokens.peek().and_then(|op| op.as_infix()) {
+                        while let Some(op) = tokens.peek().as_infix() {
                             if op.is_chained() {
-                                _ = tokens.next().unwrap();
+                                tokens.consume();
                                 let rhs = state.pop_expr(tokens, var_table, op.binding_pow());
                                 chain.push((op, rhs));
                                 continue;

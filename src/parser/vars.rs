@@ -10,12 +10,7 @@ use std::{collections::HashMap, fmt, marker::PhantomData, ops::Index};
 
 pub trait LabelTable<'src> {
     const IS_SCOPED: bool;
-    fn new_label(
-        &mut self,
-        span: Span,
-        sym: Symbol<'src>,
-        ty: NodeBox<'src>,
-    ) -> Result<(), Error<'src>>;
+    fn new_label(&mut self, span: Span, sym: Symbol<'src>, ty: NodeBox<'src>) -> Result<(), Error>;
     fn label_used(&mut self, sym: Symbol<'src>) -> Option<Var<'src>>;
     fn open_branch(&mut self);
     fn close_branch(&mut self);
@@ -93,12 +88,7 @@ impl<'src> ScopedSymTable<'src> {
 
 impl<'src> LabelTable<'src> for ScopedSymTable<'src> {
     const IS_SCOPED: bool = true;
-    fn new_label(
-        &mut self,
-        _: Span,
-        sym: Symbol<'src>,
-        ty: NodeBox<'src>,
-    ) -> Result<(), Error<'src>> {
+    fn new_label(&mut self, _: Span, sym: Symbol<'src>, ty: NodeBox<'src>) -> Result<(), Error> {
         let var = Var::new(self.table.len());
 
         self.table.push(ty);
@@ -160,12 +150,7 @@ impl<'src> ParamTable<'src> {
 impl<'src> LabelTable<'src> for ParamTable<'src> {
     const IS_SCOPED: bool = false;
 
-    fn new_label(
-        &mut self,
-        span: Span,
-        sym: Symbol<'src>,
-        ty: NodeBox<'src>,
-    ) -> Result<(), Error<'src>> {
+    fn new_label(&mut self, span: Span, sym: Symbol<'src>, ty: NodeBox<'src>) -> Result<(), Error> {
         let new_param = Var::new(self.parameters.len());
         let span = span - ty.span;
         self.parameters.push(ty);
@@ -191,7 +176,7 @@ pub struct VarTableMoc;
 impl<'src> LabelTable<'src> for VarTableMoc {
     const IS_SCOPED: bool = true;
     #[inline]
-    fn new_label(&mut self, _: Span, _: Symbol<'src>, _: NodeBox<'src>) -> Result<(), Error<'src>> {
+    fn new_label(&mut self, _: Span, _: Symbol<'src>, _: NodeBox<'src>) -> Result<(), Error> {
         Ok(())
     }
     #[inline]
@@ -210,7 +195,7 @@ pub struct GlobalScope;
 impl<'src> LabelTable<'src> for GlobalScope {
     const IS_SCOPED: bool = false;
     #[inline]
-    fn new_label(&mut self, _: Span, _: Symbol<'src>, _: NodeBox<'src>) -> Result<(), Error<'src>> {
+    fn new_label(&mut self, _: Span, _: Symbol<'src>, _: NodeBox<'src>) -> Result<(), Error> {
         Ok(())
     }
     #[inline]

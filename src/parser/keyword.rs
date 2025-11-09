@@ -2,13 +2,13 @@ use crate::{
     error::{ErrorCode, Span},
     parser::{
         binding_pow,
-        tokenizing::{
-            token::{Token, TokenKind},
-            TokenStream,
-        },
         tree::{Bracket, Branch, FunctionInterface, Node, NodeBox, NodeWrapper},
         vars::{LabelTable, ParamTable, ScopedSymTable},
         Parser,
+    },
+    tokenizing::{
+        token::{Token, TokenKind},
+        TokenStream,
     },
 };
 
@@ -73,7 +73,7 @@ impl<'src> Parser<'src> {
 
         span = span - then_body.span;
 
-        let else_body = if let Some(..) = tokens.next_if(|x| x.kind == TokenKind::Keyword(Else)) {
+        let else_body = if tokens.match_and_consume(|x| x.kind == TokenKind::Keyword(Else)) {
             var_table.open_branch();
             let body = self.pop_expr(tokens, var_table, binding_pow::PATH);
             var_table.close_branch();
@@ -130,10 +130,7 @@ impl<'src> Parser<'src> {
         _: &mut impl LabelTable<'src>,
         span: Span,
     ) -> NodeBox<'src> {
-        let convention = if tokens
-            .next_if(|tok| tok.kind == TokenKind::DashDash)
-            .is_some()
-        {
+        let convention = if tokens.match_and_consume(|tok| tok.kind == TokenKind::DashDash) {
             let mut var_table = ScopedSymTable::new();
             let content = self.pop_expr(tokens, &mut var_table, binding_pow::CALL_CONVENTION);
             let var_table = var_table.output_table();
@@ -152,15 +149,15 @@ impl<'src> Parser<'src> {
         let mut param_table = ParamTable::new();
 
         match tokens.peek() {
-            Some(Token {
+            Token {
                 kind: TokenKind::Open(Bracket::Round),
                 ..
-            }) => {
-                _ = tokens.next();
+            } => {
+                tokens.consume();
                 self.open_brackets += 1;
 
                 loop {
-                    if tokens.next_is(|tok| tok.kind == TokenKind::Closed(Bracket::Round)) {
+                    if tokens.peek().kind == TokenKind::Closed(Bracket::Round) {
                         break;
                     }
 
@@ -170,8 +167,8 @@ impl<'src> Parser<'src> {
                         .new_label(span, ident, ty)
                         .unwrap_or_else(|e| self.errors.push_err(e));
 
-                    let Some(..) = tokens.next_if(|tok| tok.kind == TokenKind::Comma) else {
-                        if !tokens.next_is(|tok| matches!(tok.kind, TokenKind::Closed(..))) {
+                    if !tokens.match_and_consume(|tok| tok.kind == TokenKind::Comma) {
+                        if !matches!(tokens.peek().kind, TokenKind::Closed(..)) {
                             self.errors
                                 .push(tokens.current_pos().into(), ErrorCode::ExpectedComma);
                         }
@@ -200,6 +197,7 @@ impl<'src> Parser<'src> {
         };
         let (parameters, mut var_table) = param_table.make_scoped();
         let body = self.pop_expr(tokens, &mut var_table, binding_pow::PATH);
+
         self.make_node(NodeWrapper::new(span - body.span).with_node(Node::Proc {
             interface: FunctionInterface {
                 parameters: parameters,

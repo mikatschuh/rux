@@ -2,7 +2,8 @@ use super::files::*;
 use crate::{
     error::{CliError, Errors},
     format_time,
-    parser::{tokenizing::Tokenizer, tree::TreeDisplay, typing::TypeParser, Parser},
+    parser::{tree::TreeDisplay, typing::TypeParser, Parser},
+    tokenizing::Tokenizer,
     utilities::Rc,
 };
 use std::{
@@ -125,7 +126,9 @@ impl Task {
                     )
                 }
                 println!("\n{}", *parsing_errors);
-                println!("\n\n{}", format_time(time))
+                println!("\n\n{}", format_time(time));
+
+                if path.file_name() == Some(&OsString::from("main.rx")) {}
             }
         }
         Ok(())

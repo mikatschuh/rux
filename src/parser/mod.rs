@@ -7,12 +7,12 @@ use crate::{
         binary_op::BinaryOp,
         const_res::{Const, ConstTable},
         intern::{Internalizer, Symbol},
-        tokenizing::{
-            token::{Token, TokenKind},
-            TokenStream,
-        },
         tree::{Bracket, Node, NodeBox, NodeWrapper, Scope},
         vars::{GlobalScope, LabelTable},
+    },
+    tokenizing::{
+        token::{Token, TokenKind},
+        TokenStream,
     },
     utilities::Rc,
 };
@@ -26,7 +26,6 @@ pub mod intern;
 pub mod keyword;
 mod led;
 mod nud;
-pub mod tokenizing;
 pub mod tree;
 #[allow(dead_code)]
 pub mod typing;
@@ -68,13 +67,14 @@ impl<'src> Parser<'src> {
         let mut sym_const_table: HashMap<Symbol<'src>, Const<'src>> = HashMap::new();
         let mut consts: ConstTable = vec![];
 
-        while !tokens.is_empty() {
+        loop {
+            let tok = tokens.peek();
+            if tok.kind == TokenKind::EOF {
+                break;
+            }
             let (_, id) = self.pop_identifier(tokens);
 
-            if !tokens
-                .next_if(|tok| tok.kind == TokenKind::ColonColon)
-                .is_some()
-            {
+            if !tokens.match_and_consume(|tok| tok.kind == TokenKind::ColonColon) {
                 self.errors.push(
                     tokens.current_pos().into(),
                     ErrorCode::ExpectedItemDeclaration,
@@ -109,14 +109,19 @@ impl<'src> Parser<'src> {
         var_table: &mut impl LabelTable<'src>,
         min_bp: u8,
     ) -> Option<NodeBox<'src>> {
-        let mut lhs = tokens.next()?.nud(self, min_bp, tokens, var_table)?;
+        let mut lhs = tokens.peek().nud(self, min_bp, tokens, var_table)?;
 
-        while let Some(tok) = tokens.peek() {
+        loop {
+            let tok = tokens.peek();
+            if tokens.peek().kind == TokenKind::EOF {
+                break;
+            }
+
             if self.open_brackets == 0 {
                 if let TokenKind::Closed(closed) = tok.kind {
-                    let Token { span, .. } = tokens.next().unwrap();
                     self.errors
-                        .push(span, ErrorCode::NoOpenedBracket { closed });
+                        .push(tok.span, ErrorCode::NoOpenedBracket { closed });
+                    tokens.consume();
                     continue;
                 }
             } // Generate missing opening bracket error
@@ -128,7 +133,7 @@ impl<'src> Parser<'src> {
                 return Some(lhs);
             }
 
-            let tok = tokens.next().expect("the token-stream was peeked before");
+            let tok = tokens.peek();
             lhs = match tok.led(lhs, self, tokens, var_table) {
                 Ok(new_lhs) => new_lhs,
                 Err(old_lhs) => {
@@ -163,7 +168,7 @@ impl<'src> Parser<'src> {
         let mut statements = vec![];
         loop {
             let _ = tokens.consume_while(|tok| tok.kind == TokenKind::Semicolon); // { ; <--
-            if tokens.is_empty() {
+            if tokens.peek().kind == TokenKind::EOF {
                 let last = statements.pop().unwrap_or_else(|| {
                     self.make_node(NodeWrapper::new(tokens.current_pos().into()))
                 });
@@ -173,15 +178,12 @@ impl<'src> Parser<'src> {
                 };
             }
             let stmt = self.pop_expr(tokens, var_table, binding_pow::STATEMENT);
-            if tokens
-                .next_if(|tok| tok.kind == TokenKind::Semicolon)
-                .is_some()
-            {
+            if tokens.match_and_consume(|tok| tok.kind == TokenKind::Semicolon) {
                 statements.push(stmt);
                 continue;
             }
 
-            if tokens.next_is(|tok| tok.kind.is_terminator()) {
+            if tokens.peek().kind.is_terminator() {
                 return Scope {
                     statements,
                     expr: stmt,
@@ -199,13 +201,14 @@ impl<'src> Parser<'src> {
     ) -> Span {
         use TokenKind::*;
         loop {
-            if let Some(Token {
+            if let Token {
                 kind: Closed(closed_bracket),
+                span,
                 ..
-            }) = tokens.peek()
+            } = tokens.peek()
             {
-                let found = *closed_bracket;
-                let span = tokens.next().unwrap().span;
+                let found = closed_bracket;
+                tokens.consume();
                 self.open_brackets -= 1;
                 if found != open_bracket {
                     self.errors.push(
@@ -228,7 +231,7 @@ impl<'src> Parser<'src> {
                     tokens_span.end = span.end
                 }
 
-                if tokens.is_empty() {
+                if tokens.peek().kind == TokenKind::EOF {
                     self.errors.push(
                         tokens_span,
                         ErrorCode::NoClosedBracket {
@@ -251,10 +254,10 @@ impl<'src> Parser<'src> {
     /// Pops an identifier if the next token is one. If not it generates the correct error message
     /// and leaves the token there. The position indicates were the identifier is expected to go.
     fn pop_identifier(&mut self, tokens: &mut impl TokenStream<'src>) -> (Span, Symbol<'src>) {
-        if let Some(tok) = tokens.next_if(|tok| matches!(tok.kind, TokenKind::Ident)) {
+        let tok = tokens.peek();
+        if tokens.match_and_consume(|tok| tok.kind == TokenKind::Ident) {
             (tok.span, self.internalizer.get(tok.src))
-        } else if let Some(tok) = tokens.next_if(|tok| matches!(tok.kind, TokenKind::Literal)) {
-            _ = tokens.pop_literal();
+        } else if tokens.match_and_consume(|tok| matches!(tok.kind, TokenKind::Literal)) {
             (tok.span, self.internalizer.get(tok.src))
         } else {
             let pos = tokens.current_pos();
@@ -269,7 +272,7 @@ impl<'src> Parser<'src> {
         var_table: &mut impl LabelTable<'src>,
         lhs: NodeBox<'src>,
     ) -> NodeBox<'src> {
-        let Some(..) = tokens.next_if(|tok| tok.kind == TokenKind::Comma) else {
+        if !tokens.match_and_consume(|tok| tok.kind == TokenKind::Comma) {
             return lhs;
         };
         self.parse_dynamic_arg_op(tokens, var_table, lhs, TokenKind::Comma, 0, |exprs| {
@@ -289,7 +292,7 @@ impl<'src> Parser<'src> {
         let rhs = self.pop_expr(tokens, var_table, right_bp);
         let mut exprs = comp::Vec::new([lhs, rhs]);
 
-        while let Some(..) = tokens.next_if(|tok| tok.kind == own_tok) {
+        while tokens.match_and_consume(|tok| tok.kind == own_tok) {
             let next = self.pop_expr(tokens, var_table, right_bp);
             exprs.push(next)
         }

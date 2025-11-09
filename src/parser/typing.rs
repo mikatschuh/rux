@@ -1,9 +1,11 @@
 use std::fmt::Display;
 
-use crate::parser::{
-    intern::Internalizer,
+use crate::{
+    parser::{
+        intern::Internalizer,
+        tree::{NodeBox, TreeDisplay},
+    },
     tokenizing::num,
-    tree::{NodeBox, TreeDisplay},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

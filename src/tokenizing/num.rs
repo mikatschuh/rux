@@ -1,7 +1,5 @@
-use crate::parser::{
-    tokenizing::{token::TokenKind, Tokenizer},
-    typing::{NumberType, TypeParser},
-};
+use super::{token::TokenKind, Tokenizer};
+use crate::parser::typing::{NumberType, TypeParser};
 #[allow(unused)]
 use crate::{
     error::*,
@@ -96,7 +94,9 @@ impl<'src> Tokenizer<'src> {
 
         if ident.starts_with("\"")
             || ident.starts_with(|first: char| first.is_whitespace())
-            || ident.starts_with(|first: char| TokenKind::new(first).is_some())
+            || ident.starts_with(|first: char| {
+                TokenKind::new(first.to_string().as_bytes()[0]).is_some()
+            })
             || ident.is_empty()
         {
             (

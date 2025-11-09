@@ -11,6 +11,7 @@ mod error;
 // mod number;
 mod parser;
 mod threader;
+mod tokenizing;
 #[macro_use]
 #[allow(dead_code)]
 mod utilities;
@@ -19,6 +20,7 @@ mod comp;
 #[allow(dead_code)]
 mod bench;
 // mod interpreter;
+mod codegen;
 #[allow(dead_code)]
 mod vms;
 /*

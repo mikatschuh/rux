@@ -6,11 +6,11 @@ use crate::{
     parser::{
         binary_op::BinaryOp,
         intern::{Internalizer, Symbol},
-        tokenizing::{num::Literal, with_written_out_escape_sequences, EscapeSequenceConfusion},
         typing::Type,
         unary_op::UnaryOp,
         vars::{Var, VarTable},
     },
+    tokenizing::{num::Literal, with_written_out_escape_sequences, EscapeSequenceConfusion},
 };
 use std::{
     collections::HashMap,

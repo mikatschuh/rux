@@ -10,11 +10,11 @@ use std::ops::SubAssign;
 #[derive(Clone, Debug, PartialEq)]
 pub struct Errors<'src> {
     file: &'src Path,
-    errors: Vec<Error<'src>>,
+    errors: Vec<Error>,
 }
 
 impl<'src> Errors<'src> {
-    pub fn new(path: &'src Path, pos: Span, error: ErrorCode<'src>) -> Self {
+    pub fn new(path: &'src Path, pos: Span, error: ErrorCode) -> Self {
         Self {
             file: path,
             errors: vec![Error::new(pos, error)],
@@ -26,13 +26,13 @@ impl<'src> Errors<'src> {
             errors: Vec::new(),
         }
     }
-    pub fn push(&mut self, pos: Span, error: ErrorCode<'src>) {
+    pub fn push(&mut self, pos: Span, error: ErrorCode) {
         self.errors.push(Error::new(pos, error))
     }
-    pub fn push_err(&mut self, err: Error<'src>) {
+    pub fn push_err(&mut self, err: Error) {
         self.errors.push(err)
     }
-    pub fn concat(&mut self, other: Errors<'src>) {
+    pub fn concat(&mut self, other: Errors) {
         self.errors.extend(other.errors.iter().cloned());
     }
 }
@@ -46,12 +46,12 @@ impl fmt::Display for Errors<'_> {
     }
 }
 #[derive(Clone, Debug, PartialEq)]
-pub struct Error<'src> {
+pub struct Error {
     section: Span,
-    error: ErrorCode<'src>,
+    error: ErrorCode,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ErrorCode<'src> {
+pub enum ErrorCode {
     ExpectedExpr,
     ExpectedIdent,
     ExpectedInterface,
@@ -65,7 +65,7 @@ pub enum ErrorCode<'src> {
 
     UnexpectedToken,
 
-    NoClosingQuotes { quote: &'src str },
+    NoClosingQuotes,
 
     // control structure mistakes
     LonelyElse,
@@ -79,8 +79,8 @@ pub enum ErrorCode<'src> {
 
     InvalidUTF8,
 }
-impl<'a> Error<'a> {
-    pub fn new(pos: Span, error: ErrorCode<'a>) -> Self {
+impl Error {
+    pub fn new(pos: Span, error: ErrorCode) -> Self {
         Self {
             section: pos,
             error,
@@ -195,7 +195,7 @@ macro_rules! format_error_arg {
         format!(" {} ", concat_display!{ $($es),+ })
     }};
 }
-impl Error<'_> {
+impl Error {
     fn to_string(&self, path: &Path) -> String {
         use ErrorCode::*;
         (match &self.error {
@@ -213,10 +213,9 @@ impl Error<'_> {
                 self.section.to_string(path),
                 "found shadowing of parameters, which is illegal"
             ),
-            NoClosingQuotes { quote } => format_error!(
+            NoClosingQuotes => format_error!(
                 self.section.to_string(path),
-                "the ending quotes of the quote {} were missing",
-                [format!("{}{}{}", "\"", quote, "\"".red().underline())]
+                "the ending quotes of the quote were missing"
             ),
             ExpectedTerminator => format_error!(
                 self.section.to_string(path),
@@ -314,8 +313,9 @@ impl fmt::Display for CliError {
     }
 }
 
-use crate::parser::tree::Bracket;
 use std::path::Path;
+
+use crate::parser::tree::Bracket;
 
 fn remove_quotes(path: &Path) -> String {
     String::from(

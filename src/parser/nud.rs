@@ -1,17 +1,20 @@
+use std::collections::VecDeque;
+
 use crate::{
     error::ErrorCode,
     parser::{
         binding_pow::{self},
         keyword::Keyword,
-        tokenizing::{
-            resolve_escape_sequences,
-            token::{Token, TokenKind::*},
-            TokenStream,
-        },
         tree::{Bracket, Branch, Node, NodeBox, Note},
         unary_op::UnaryOp,
         vars::{LabelTable, ParamTable, ScopedSymTable, VarTableMoc},
         NodeWrapper, Parser,
+    },
+    tokenizing::{
+        resolve_escape_sequences,
+        slicing::TokenBuffer,
+        token::{Token, TokenKind::*},
+        TokenStream,
     },
 };
 
@@ -29,8 +32,7 @@ impl<'src> Token<'src> {
             }
             Ident => {
                 let sym = state.internalizer.get(self.src);
-                if min_bp <= binding_pow::STATEMENT && tokens.next_is(|tok| tok.binding_pow() == 0)
-                {
+                if min_bp <= binding_pow::STATEMENT && tokens.peek().binding_pow() == 0 {
                     if let Some(ty) = state.parse_expr(
                         tokens,
                         var_table,
@@ -53,14 +55,6 @@ impl<'src> Token<'src> {
                         NodeWrapper::new(self.span).with_node(Node::Ident { sym, literal: None }),
                     ),
                 }
-            }
-            Literal => {
-                let sym = state.internalizer.get(self.src);
-                let literal = tokens.pop_literal();
-                state.make_node(NodeWrapper::new(self.span).with_node(Node::Ident {
-                    sym,
-                    literal: Some(literal),
-                }))
             }
             Quote => {
                 let (string, confusions) = resolve_escape_sequences(self.src);
@@ -121,10 +115,44 @@ impl<'src> Token<'src> {
             Open(Bracket::Curly) => {
                 state.open_brackets += 1;
 
-                let mut parts = tokens.split_at_comma();
+                let mut parts = vec![];
+                let mut open_brackets = 0;
+
+                'outer: loop {
+                    let mut token_buffer = TokenBuffer {
+                        last_outputted_pos: tokens.current_pos(),
+                        tokens: VecDeque::new(),
+                    };
+                    loop {
+                        let tok = tokens.peek();
+
+                        if tok.kind == EOF {
+                            parts.push(token_buffer);
+                            break 'outer;
+                        };
+
+                        if let Open(..) = tok.kind {
+                            open_brackets += 1;
+                        } else if open_brackets == 0 {
+                            if let Closed(..) = tok.kind {
+                                parts.push(token_buffer);
+                                break 'outer;
+                            } else if let Comma = tok.kind {
+                                tokens.consume();
+                                parts.push(token_buffer);
+                                break;
+                            }
+                        } else if let Closed(..) = tok.kind {
+                            open_brackets -= 1;
+                        }
+
+                        tokens.consume();
+                        token_buffer.tokens.push_back(tok);
+                    }
+                }
 
                 if parts.len() == 1 {
-                    if parts[0].is_empty() {
+                    if parts[0].peek().kind == EOF {
                         let end = state.handle_closed_bracket(tokens, Bracket::Curly);
 
                         state.make_node(NodeWrapper::new(self.span - end).with_node(Node::Unit))
@@ -154,9 +182,14 @@ impl<'src> Token<'src> {
                     }
                 } else {
                     let mut last = parts.pop().unwrap();
-                    if !last.is_empty() {
-                        let mut span = last.next().unwrap().span;
-                        while let Some(tok) = last.next() {
+                    let tok = last.peek();
+                    if tok.kind != EOF {
+                        let mut span = tok.span;
+                        loop {
+                            let tok = last.peek();
+                            if tok.kind == EOF {
+                                break;
+                            }
                             span.end = tok.span.end
                         }
                         state.errors.push(
@@ -210,7 +243,6 @@ impl<'src> Token<'src> {
                     state.make_node(NodeWrapper::new(self.span).with_node(Node::Unary { op, val }))
                 }
                 _ => {
-                    tokens.buffer(self);
                     return None;
                 }
             },
