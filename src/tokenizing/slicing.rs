@@ -1,11 +1,15 @@
 use super::{token::Token, TokenStream};
-use crate::{error::Position, tokenizing::token::TokenKind::*};
+use crate::{
+    error::Position,
+    tokenizing::{num::Literal, token::TokenKind::*},
+};
 use std::collections::VecDeque;
 
 #[derive(Debug)]
 pub struct TokenBuffer<'src> {
     pub last_outputted_pos: Position,
     pub tokens: VecDeque<Token<'src>>,
+    pub literals: VecDeque<Literal<'src>>,
 }
 
 impl<'src> TokenStream<'src> for TokenBuffer<'src> {
@@ -21,6 +25,10 @@ impl<'src> TokenStream<'src> for TokenBuffer<'src> {
             kind: EOF,
         })
     }
+    fn get_literal(&mut self) -> Literal<'src> {
+        unsafe { self.literals.pop_front().unwrap_unchecked() }
+    }
+
     fn consume(&mut self) {
         if let Some(Token { span, .. }) = self.tokens.pop_front() {
             self.last_outputted_pos = span.end

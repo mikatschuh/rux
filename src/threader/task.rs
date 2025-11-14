@@ -2,7 +2,7 @@ use super::files::*;
 use crate::{
     error::{CliError, Errors},
     format_time,
-    parser::{tree::TreeDisplay, typing::TypeParser, Parser},
+    parser::{tree::TreeDisplay, Parser},
     tokenizing::Tokenizer,
     utilities::Rc,
 };
@@ -103,8 +103,7 @@ impl Task {
                 let parsing_errors = Rc::new(Errors::empty(path));
 
                 // lazy tokenizing
-                let type_parser = TypeParser::new();
-                let mut tokenizer = Tokenizer::new(&content, parsing_errors.clone(), type_parser);
+                let mut tokenizer = Tokenizer::new(&content, parsing_errors.clone());
 
                 let ast = Parser::new(parsing_errors.clone()).parse(&mut tokenizer);
 

@@ -124,6 +124,7 @@ impl<'src> Parser<'src> {
                     let mut token_buffer = TokenBuffer {
                         last_outputted_pos: tokens.current_pos(),
                         tokens: VecDeque::new(),
+                        literals: VecDeque::new(),
                     };
                     loop {
                         let tok = tokens.peek();
@@ -146,6 +147,8 @@ impl<'src> Parser<'src> {
                             }
                         } else if let Closed(..) = tok.kind {
                             open_brackets -= 1;
+                        } else if let Literal = tok.kind {
+                            token_buffer.literals.push_back(tokens.get_literal())
                         }
 
                         tokens.consume();

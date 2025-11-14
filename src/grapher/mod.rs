@@ -13,8 +13,7 @@ pub type GraphResult<'src, T> = Result<T, GraphError<'src>>;
 pub struct NodeId(usize);
 
 impl NodeId {
-    #[allow(dead_code)]
-    pub fn index(self) -> usize {
+    pub fn new(self) -> usize {
         self.0
     }
 }
@@ -95,7 +94,7 @@ impl<'src> Graph<'src> {
 
     #[allow(dead_code)]
     pub fn node(&self, id: NodeId) -> Option<&Node<'src>> {
-        self.nodes.get(id.index())
+        self.nodes.get(id.new())
     }
 
     pub fn symbol(&self, name: &str) -> Option<&Symbol<'src>> {
@@ -259,7 +258,7 @@ impl<'src, 'tokens, T: TokenStream<'src>> GraphBuilder<'src, 'tokens, T> {
             match token.kind {
                 TokenKind::EOF => break,
                 TokenKind::Semicolon => {
-                    self.advance();
+                    _ = self.advance();
                 }
                 TokenKind::Ident => self.parse_statement()?,
                 _ => {

@@ -1,9 +1,12 @@
 use crate::{
     error::{ErrorCode, Errors, Position, Span},
-    parser::{keyword::Keyword, typing::TypeParser},
-    tokenizing::token::{
-        Token,
-        TokenKind::{self, *},
+    parser::keyword::Keyword,
+    tokenizing::{
+        num::{parse_literal, Literal},
+        token::{
+            Token,
+            TokenKind::{self, *},
+        },
     },
     utilities::Rc,
 };
@@ -21,6 +24,7 @@ pub trait TokenStream<'src> {
     fn current_pos(&self) -> Position;
 
     fn peek(&mut self) -> Token<'src>;
+    fn get_literal(&mut self) -> Literal<'src>;
     fn consume(&mut self);
 
     /// Consumes a token if it matches a predicate. If a token got consumed true is outputted.
@@ -54,28 +58,29 @@ pub struct Tokenizer<'src> {
 
     already_processed: bool,
     token: MaybeUninit<Token<'src>>, // cached token
+    literal: Option<Literal<'src>>,
 
     // get only used when already_processed == false:
     next_text: &'src [u8],
     next_pos: Position,
 
     errors: Rc<Errors<'src>>,
-    type_parser: TypeParser,
 }
 
 impl<'src> Tokenizer<'src> {
-    pub fn new(text: &'src str, errors: Rc<Errors<'src>>, type_parser: TypeParser) -> Self {
+    pub fn new(text: &'src str, errors: Rc<Errors<'src>>) -> Self {
         Self {
             text: text.as_bytes(),
             pos: Position::beginning(),
 
             already_processed: false,
             token: MaybeUninit::uninit(),
+            literal: None,
+
             next_text: text.as_bytes(),
             next_pos: Position::beginning(),
 
             errors,
-            type_parser,
         }
     }
 }
@@ -153,7 +158,9 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
                 let ptr = self.next_text.as_ptr();
                 let mut len = 1;
                 let mut span: Span = self.next_pos.into();
-                span.end += 1; // add the first character
+                if self.next_text[0] & 0b1100_0000 != 0b1000_0000 {
+                    span.end += 1
+                }
 
                 if let Some(mut state) = TokenKind::new(self.next_text[0]) {
                     loop {
@@ -190,10 +197,25 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
                     }
                 }
 
+                if let Some((used_bytes, literal)) = parse_literal(self.next_text) {
+                    self.literal = Some(literal);
+
+                    self.next_text = &self.next_text[used_bytes..];
+                    self.next_pos += used_bytes;
+                    span.end += used_bytes - 1; // one did we already add
+                    len = used_bytes;
+
+                    return self.cache_tok(Token {
+                        span,
+                        src: unsafe { str::from_utf8_unchecked(slice::from_raw_parts(ptr, len)) },
+                        kind: Literal,
+                    });
+                }
+
                 loop {
                     self.next_text = &self.next_text[1..];
 
-                    if self.whitespace_at_pos_or_empty()
+                    if whitespace_at_start_or_empty(&self.next_text)
                         || TokenKind::new(self.next_text[0]).is_some()
                     {
                         self.next_pos = span.end;
@@ -205,7 +227,6 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
                                 str::from_utf8_unchecked(slice::from_raw_parts(ptr, len))
                             },
                             kind: match src {
-                                "." => TokenKind::Dot,
                                 _ if src.trim_start_matches('_').is_empty() => {
                                     TokenKind::Placeholder
                                 }
@@ -225,6 +246,11 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
             }
         }
     }
+
+    fn get_literal(&mut self) -> Literal<'src> {
+        unsafe { self.literal.take().unwrap_unchecked() }
+    }
+
     fn consume(&mut self) {
         self.text = self.next_text;
         self.pos = self.next_pos;
@@ -238,61 +264,6 @@ impl<'src> Tokenizer<'src> {
         self.already_processed = true;
 
         tok
-    }
-
-    #[inline]
-    fn whitespace_at_pos_or_empty(&self) -> bool {
-        if self.next_text.is_empty() {
-            return true;
-        }
-
-        match self.next_text[0] {
-            0x09..=0x0D | 0x20 => return true,
-
-            0xC2 => {
-                if self.next_text.len() < 2 {
-                    return true;
-                }
-                match self.next_text[1] {
-                    0x85 | 0xA0 => true,
-                    _ => false,
-                }
-            }
-            0xE1 => {
-                if self.next_text.len() < 3 {
-                    return true;
-                }
-                if self.next_text[1] == 0x9A && self.next_text[2] == 0x80 {
-                    true
-                } else {
-                    false
-                }
-            }
-            0xE2 => {
-                if self.next_text.len() < 3 {
-                    return true;
-                }
-                if (self.next_text[1] == 0x80
-                    && matches!(self.next_text[2], 0x80..=0x8A | 0xA8 | 0xA9 | 0xAF))
-                    || (self.next_text[1] == 0x81 && self.next_text[2] == 0x9F)
-                {
-                    true
-                } else {
-                    false
-                }
-            }
-            0xE3 => {
-                if self.next_text.len() < 3 {
-                    return true;
-                }
-                if self.next_text[1] == 0x80 && self.next_text[2] == 0x80 {
-                    true
-                } else {
-                    false
-                }
-            }
-            _ => return false,
-        }
     }
 
     #[inline]
@@ -389,6 +360,59 @@ impl<'src> Tokenizer<'src> {
             }
             self.next_pos += 1;
         }
+    }
+}
+
+fn whitespace_at_start_or_empty(slice: &[u8]) -> bool {
+    if slice.is_empty() {
+        return true;
+    }
+
+    match slice[0] {
+        0x09..=0x0D | 0x20 => return true,
+
+        0xC2 => {
+            if slice.len() < 2 {
+                return true;
+            }
+            match slice[1] {
+                0x85 | 0xA0 => true,
+                _ => false,
+            }
+        }
+        0xE1 => {
+            if slice.len() < 3 {
+                return true;
+            }
+            if slice[1] == 0x9A && slice[2] == 0x80 {
+                true
+            } else {
+                false
+            }
+        }
+        0xE2 => {
+            if slice.len() < 3 {
+                return true;
+            }
+            if (slice[1] == 0x80 && matches!(slice[2], 0x80..=0x8A | 0xA8 | 0xA9 | 0xAF))
+                || (slice[1] == 0x81 && slice[2] == 0x9F)
+            {
+                true
+            } else {
+                false
+            }
+        }
+        0xE3 => {
+            if slice.len() < 3 {
+                return true;
+            }
+            if slice[1] == 0x80 && slice[2] == 0x80 {
+                true
+            } else {
+                false
+            }
+        }
+        _ => return false,
     }
 }
 

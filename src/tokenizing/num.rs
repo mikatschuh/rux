@@ -1,5 +1,6 @@
-use super::{token::TokenKind, Tokenizer};
-use crate::parser::typing::{NumberType, TypeParser};
+use std::slice;
+
+use crate::tokenizing::{token::TokenKind, whitespace_at_start_or_empty};
 #[allow(unused)]
 use crate::{
     error::*,
@@ -12,58 +13,53 @@ use crate::{
 use num::{bigint::Sign, BigInt, BigUint};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Literal {
-    pub digits: BigUint,
+pub struct Literal<'src> {
     pub base: Base,
-    pub digits_after_dot: usize,
+    pub digits: BigUint,
+    pub num_digits_after_dot: usize,
     pub exponent: Option<BigInt>,
-    pub type_suffix: Option<NumberType>,
+    pub suffix: &'src str,
 }
 
-impl<'src> Tokenizer<'src> {
-    /// Function to parse any literal into an AST-Node.
-    /// Format:
-    /// - whitespaces are only for formatting and precedence
-    /// - content in brackets is optional
-    /// ```
-    /// N = (0  b/s/o/d/x) DIGITS
-    ///
-    /// numbers = N  .DIGITS  ((u/i/f N) / e / p)
-    /// ```
-    /// Meaning of prefixes:
-    /// ```
-    /// b => Binary
-    /// s => Seximal
-    /// o => Octal
-    /// d => Dozenal
-    /// x => Hexadecimal
-    /// ```
-    /// If instead of a base specifier, a digit is given, its assumed that the leading zero
-    /// was just a typo. The number will be continued regulary.
-    pub(super) fn try_to_parse_literal(
-        &mut self,
-        mut ident: &'src [u8],
-        type_parser: TypeParser,
-    ) -> (usize, Option<Literal>) {
-        let original_len = ident.len();
-        let (base, mut digits) = parse_number(&mut ident);
+/// N = (0  b/s/o/d/x) DIGITS
+///
+/// numbers = N  .DIGITS  ((u/i/f N) / e / p)
+/// ```
+/// Meaning of prefixes:
+/// ```
+/// b => Binary
+/// s => Seximal
+/// o => Octal
+/// d => Dozenal
+/// x => Hexadecimal
+/// ```
+/// If instead of a base specifier, a digit is given, its assumed that the leading zero
+/// was just a typo. The number will be continued regulary.
+pub(super) fn parse_literal<'src>(mut ident: &'src [u8]) -> Option<(usize, Literal<'src>)> {
+    let original_len = ident.len();
+    let (base, mut digits) = parse_number(&mut ident);
 
-        let digits_after_dot = if !ident.is_empty() && ident[0] == b'.' {
-            ident = &ident[1..];
-            parse_digits(&mut digits, base as u8, &mut ident)
-        } else {
-            0
-        };
+    let num_digits_after_dot = if !ident.is_empty() && ident[0] == b'.' {
+        ident = &ident[1..];
+        parse_digits(&mut digits, base as u8, &mut ident)
+    } else {
+        0
+    };
 
-        let Some(digits) = digits else {
-            return (original_len - ident.len(), None);
-        };
+    let Some(digits) = digits else {
+        return None;
+    };
 
-        let exponent = if !ident.is_empty() && (ident[0] == b'e' || ident[0] == b'p') {
+    let exponent = 'blk: {
+        // parse exponent
+        if !ident.is_empty() && (ident[0] == b'e' || ident[0] == b'p') {
+            let original_slice = ident;
+
             ident = &ident[1..];
 
             if ident.is_empty() {
-                return (original_len - ident.len(), None);
+                ident = original_slice;
+                break 'blk None;
             }
 
             let sign = match ident[0] {
@@ -80,39 +76,42 @@ impl<'src> Tokenizer<'src> {
             let (_, number) = parse_number(&mut ident);
 
             let Some(number) = number else {
-                return (original_len - ident.len(), None);
+                ident = original_slice;
+                break 'blk None;
             };
 
             Some(BigInt::new(sign, number.to_u32_digits()))
         } else {
             None
-        };
-
-        let type_suffix = type_parser.parse_type_suffix(&mut ident);
-
-        let ident = unsafe { str::from_utf8_unchecked(ident) };
-
-        if ident.starts_with("\"")
-            || ident.starts_with(|first: char| first.is_whitespace())
-            || ident.starts_with(|first: char| {
-                TokenKind::new(first.to_string().as_bytes()[0]).is_some()
-            })
-            || ident.is_empty()
-        {
-            (
-                original_len - ident.len(),
-                Some(Literal {
-                    digits,
-                    base,
-                    digits_after_dot,
-                    exponent,
-                    type_suffix,
-                }),
-            )
-        } else {
-            (original_len - ident.len(), None)
         }
+    };
+
+    let suffix_start = ident.as_ptr();
+    let mut suffix_len = 0_usize;
+    while !ident.is_empty() {
+        if ident[0] == b'\"'
+            || whitespace_at_start_or_empty(ident)
+            || TokenKind::new(ident[0]).is_some()
+        {
+            break;
+        }
+
+        ident = &ident[1..];
+        suffix_len += 1;
     }
+
+    Some((
+        original_len - ident.len(),
+        Literal {
+            digits,
+            base,
+            num_digits_after_dot,
+            exponent,
+            suffix: unsafe {
+                str::from_utf8_unchecked(slice::from_raw_parts(suffix_start, suffix_len))
+            },
+        },
+    ))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

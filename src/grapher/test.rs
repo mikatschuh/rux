@@ -1,12 +1,12 @@
 use super::{BinaryOp, Graph, NodeId, NodeKind};
-use crate::{error::Errors, parser::typing::TypeParser, tokenizing::Tokenizer, utilities::Rc};
+use crate::{error::Errors, tokenizing::Tokenizer, utilities::Rc};
 use std::path::Path;
 
 const EXAMPLE_SOURCE: &str = include_str!("example.rx");
 
 fn tokenizer_for(source: &'static str) -> Tokenizer<'static> {
     let errors = Rc::new(Errors::empty(Path::new("example.rx")));
-    Tokenizer::new(source, errors, TypeParser::new())
+    Tokenizer::new(source, errors)
 }
 
 #[test]
@@ -81,7 +81,7 @@ fn builds_graph_for_example_program() {
 fn assignment_updates_variable_versions() {
     const PROGRAM: &str = "x i32 = 1\nx = x + 1\n";
     let errors = Rc::new(Errors::empty(Path::new("assign.rx")));
-    let mut tokenizer = Tokenizer::new(PROGRAM, errors, TypeParser::new());
+    let mut tokenizer = Tokenizer::new(PROGRAM, errors);
     let graph = Graph::from_stream(&mut tokenizer).expect("graph");
 
     assert_eq!(graph.nodes().len(), 6);

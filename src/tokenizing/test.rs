@@ -2,7 +2,6 @@ use std::path::Path;
 
 use crate::{
     error::{Errors, Span},
-    parser::typing::TypeParser,
     tokenizing::{
         token::{Token, TokenKind::*},
         TokenStream, Tokenizer,
@@ -128,10 +127,9 @@ fn test() {
         ),
     ];
 
-    let type_parser = TypeParser::new();
     for seq in sequences {
         let errors = Rc::new(Errors::empty(Path::new("example.rx")));
-        let mut tokenizer = Tokenizer::new(seq.0, errors, type_parser);
+        let mut tokenizer = Tokenizer::new(seq.0, errors);
 
         let mut tokens = vec![];
         loop {

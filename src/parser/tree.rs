@@ -255,15 +255,15 @@ impl<'src> TreeDisplay<'src> for NodeWrapper<'src> {
                             {indentation}| digits-after-dot = {}{}{}",
                             literal.digits,
                             literal.base,
-                            literal.digits_after_dot,
+                            literal.num_digits_after_dot,
                             literal.exponent.as_ref().map_or_else(
                                 || "".to_owned(),
                                 |exp| format!("\n{indentation}| exponent = {exp}")
                             ),
-                            literal.type_suffix.as_ref().map_or_else(
-                                || "".to_owned(),
-                                |ty| format!("\n{indentation}| type-suffix = {ty}")
-                            )
+                            match literal.suffix {
+                                "" => "".to_owned(),
+                                suffix => format!("\n{indentation}| suffix = {suffix}"),
+                            }
                         )
                     )
                 )
@@ -489,7 +489,7 @@ pub enum Node<'src> {
     // identifiers
     Ident {
         sym: Symbol<'src>,
-        literal: Option<Literal>,
+        literal: Option<Literal<'src>>,
     }, // x / (0(b/s/o/d/x))N(.N)((u/i/f/c)(0(b/s/o/d/x))N)(i)
     Lifetime(Symbol<'src>), // 'x
 
