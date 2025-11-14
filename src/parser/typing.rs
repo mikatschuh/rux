@@ -1,10 +1,8 @@
 use std::fmt::Display;
 
 use crate::{
-    parser::{
-        intern::Internalizer,
-        tree::{NodeBox, TreeDisplay},
-    },
+    grapher::intern::Internalizer,
+    parser::tree::{NodeBox, TreeDisplay},
     tokenizing::num,
 };
 

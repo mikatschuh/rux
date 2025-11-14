@@ -1,10 +1,10 @@
 use crate::{
     comp,
     error::{ErrorCode, Errors, Position, Span},
+    grapher::intern::{Internalizer, Symbol},
     parser::{
         binary_op::BinaryOp,
         const_res::{Const, ConstTable},
-        intern::{Internalizer, Symbol},
         tree::{Bracket, Node, NodeBox, NodeWrapper, Scope},
         vars::{GlobalScope, LabelTable},
     },
@@ -20,7 +20,6 @@ use std::collections::HashMap;
 pub mod binary_op;
 mod binding_pow;
 pub mod const_res;
-pub mod intern;
 #[allow(dead_code)]
 pub mod keyword;
 mod led;

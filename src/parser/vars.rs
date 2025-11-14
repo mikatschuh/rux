@@ -1,10 +1,8 @@
 use crate::{
     comp,
     error::{Error, ErrorCode, Span},
-    parser::{
-        intern::Symbol,
-        tree::{NodeBox, TreeDisplay},
-    },
+    grapher::intern::{Internalizer, Symbol},
+    parser::tree::{NodeBox, TreeDisplay},
 };
 use std::{collections::HashMap, fmt, marker::PhantomData, ops::Index};
 
@@ -47,11 +45,7 @@ impl<'src> Index<Var<'src>> for VarTable<'src> {
 }
 
 impl<'src> TreeDisplay<'src> for VarTable<'src> {
-    fn display(
-        &self,
-        internalizer: &super::intern::Internalizer<'src>,
-        indentation: &String,
-    ) -> String {
+    fn display(&self, internalizer: &Internalizer<'src>, indentation: &String) -> String {
         let mut output = "VarTable".to_owned();
         for (idx, var) in self.iter().enumerate() {
             let new_indentation = format!("{indentation}   ",);

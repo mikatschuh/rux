@@ -1,10 +1,9 @@
 use crate::{
     error::{ErrorCode, Errors, Position, Span},
-    parser::keyword::Keyword,
     tokenizing::{
         num::{parse_literal, Literal},
         token::{
-            Token,
+            Keyword, Token,
             TokenKind::{self, *},
         },
     },

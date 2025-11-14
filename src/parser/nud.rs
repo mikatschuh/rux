@@ -4,14 +4,16 @@ use crate::{
     error::ErrorCode,
     parser::{
         binding_pow,
-        keyword::Keyword,
         tree::{Bracket, Branch, Node, NodeBox, Note},
         unary_op::UnaryOp,
         vars::{LabelTable, ParamTable, ScopedSymTable, VarTableMoc},
         NodeWrapper, Parser,
     },
     tokenizing::{
-        resolve_escape_sequences, slicing::TokenBuffer, token::TokenKind::*, TokenStream,
+        resolve_escape_sequences,
+        slicing::TokenBuffer,
+        token::{Keyword, TokenKind::*},
+        TokenStream,
     },
 };
 

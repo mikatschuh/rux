@@ -1,6 +1,6 @@
 use crate::{
     error::Span,
-    parser::{binary_op::BinaryOp, keyword::Keyword, tree::Bracket, unary_op::UnaryOp},
+    parser::{binary_op::BinaryOp, tree::Bracket, unary_op::UnaryOp},
 };
 use colored::{ColoredString, Colorize};
 use std::fmt::Display;
@@ -100,6 +100,52 @@ pub enum TokenKind {
 
     EOF,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Keyword {
+    Proc,
+    Loop,
+    If,
+    Else,
+    Continue,
+    Break,
+    Return,
+}
+
+impl Keyword {
+    pub fn display(&self) -> &'static str {
+        match self {
+            Proc => "proc",
+            Loop => "loop",
+            If => "if",
+            Else => "else",
+            Continue => "continue",
+            Break => "break",
+            Return => "return",
+        }
+    }
+    pub fn from_str(string: &str) -> Option<Self> {
+        Some(match string {
+            "proc" => Proc,
+            "prozedur" => Proc,
+            "loop" => Loop,
+            "wiederhole" => Loop,
+            "if" => If,
+            "wenn" => If,
+            "else" => Else,
+            "sonst" => Else,
+            "continue" => Continue,
+            "nächste" => Continue,
+            "break" => Break,
+            "verlasse" => Break,
+            "return" => Return,
+            "zurückgeben" => Return,
+            _ => return None,
+        })
+    }
+}
+
+use super::token::Keyword::*;
 use Bracket::*;
 use TokenKind::*;
 

@@ -7,55 +7,13 @@ use crate::{
         Parser,
     },
     tokenizing::{
-        token::{Token, TokenKind},
+        token::{
+            Keyword::{self, *},
+            Token, TokenKind,
+        },
         TokenStream,
     },
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Keyword {
-    Proc,
-    Loop,
-    If,
-    Else,
-    Continue,
-    Break,
-    Return,
-}
-use Keyword::*;
-
-impl Keyword {
-    pub fn display(&self) -> &'static str {
-        match self {
-            Proc => "proc",
-            Loop => "loop",
-            If => "if",
-            Else => "else",
-            Continue => "continue",
-            Break => "break",
-            Return => "return",
-        }
-    }
-    pub fn from_str(string: &str) -> Option<Self> {
-        Some(match string {
-            "proc" => Proc,
-            "prozedur" => Proc,
-            "loop" => Loop,
-            "wiederhole" => Loop,
-            "if" => If,
-            "wenn" => If,
-            "else" => Else,
-            "sonst" => Else,
-            "continue" => Continue,
-            "nächste" => Continue,
-            "break" => Break,
-            "verlasse" => Break,
-            "return" => Return,
-            "zurückgeben" => Return,
-            _ => return None,
-        })
-    }
-}
 
 impl<'src> Parser<'src> {
     #[inline]

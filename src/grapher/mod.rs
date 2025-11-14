@@ -4,6 +4,7 @@ use crate::tokenizing::{
 };
 use std::{collections::HashMap, fmt};
 
+pub mod intern;
 #[cfg(test)]
 mod test;
 
@@ -13,7 +14,7 @@ pub type GraphResult<'src, T> = Result<T, GraphError<'src>>;
 pub struct NodeId(usize);
 
 impl NodeId {
-    pub fn new(self) -> usize {
+    fn new(self) -> usize {
         self.0
     }
 }

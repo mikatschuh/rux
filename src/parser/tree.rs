@@ -3,9 +3,9 @@ use bumpalo::boxed::Box as BumpBox;
 use crate::{
     comp,
     error::Span,
+    grapher::intern::{Internalizer, Symbol},
     parser::{
         binary_op::BinaryOp,
-        intern::{Internalizer, Symbol},
         typing::Type,
         unary_op::UnaryOp,
         vars::{Var, VarTable},
