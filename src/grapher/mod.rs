@@ -66,10 +66,8 @@ pub enum NodeKind<'src> {
     },
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct Symbol<'src> {
-    pub name: &'src str,
     pub ty: &'src str,
     pub decl: NodeId<'src>,
     pub last_value: NodeId<'src>,
@@ -134,7 +132,6 @@ impl<'src> Graph<'src> {
         let stack = self.symbols.entry(name.src).or_default();
         let version = stack.len();
         stack.push(Symbol {
-            name: name.src,
             ty: ty.src,
             decl: decl.clone(),
             last_value,

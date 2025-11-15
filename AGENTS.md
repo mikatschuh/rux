@@ -10,8 +10,10 @@
 - tokenizing work in `tokenizing/`,
 - Dependency Injection is used via the `TokenStream` trait found in tokenizing
 - a function needing a tokenstream should just use the `tokens: &mut impl TokenStream` pattern
-- to understand the tokenizing api a look at `src/tokenizing/mod.rs` and `src/tokenizing/test.rs` can be taken
-- parsing work in `parser/`, `codegen/`, `vms/` and `interpreter/` are yet to be filled with content in future sessions
+- to understand the tokenizing api a look at `src/tokenizing/test.rs` and the `TokenStream` trait in 
+`src/tokenizing/mod.rs` can be taken
+- `src/parser` is deprecated and should be stayed independent from
+- `codegen/`, `vms/` and `interpreter/` are yet to be filled with content in future sessions
 - `my_project/` is the sample Flou workspace (`main.rx`, `module/inter.rx`) used by integration tests and quick demos.
 - `docs/` contains design references on Flou but is partially outdated and should be ignored.
 
