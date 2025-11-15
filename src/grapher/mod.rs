@@ -1,11 +1,13 @@
 use crate::{
     tokenizing::{
+        num::Literal,
         token::{Token, TokenKind},
         TokenStream,
     },
     utilities::{MocAllocator, Rc},
 };
 use bumpalo::Bump;
+use num::ToPrimitive;
 use std::{collections::HashMap, fmt};
 
 pub mod intern;
@@ -77,17 +79,12 @@ pub struct Symbol<'src> {
 #[derive(Debug, Default)]
 pub struct Graph<'src> {
     arena: Bump,
-    nodes: Vec<Node<'src>>,
     symbols: HashMap<&'src str, Vec<Symbol<'src>>>,
 }
 
 impl<'src> Graph<'src> {
     pub fn from_stream(tokens: &mut impl TokenStream<'src>) -> GraphResult<'src, Graph<'src>> {
         GraphBuilder::new(tokens).build()
-    }
-
-    pub fn nodes(&self) -> &[Node<'src>] {
-        &self.nodes
     }
 
     pub fn symbol(&self, name: &str) -> Option<&Symbol<'src>> {
@@ -356,33 +353,53 @@ impl<'src, 'tokens, T: TokenStream<'src>> GraphBuilder<'src, 'tokens, T> {
     }
 
     fn parse_primary(&mut self) -> GraphResult<'src, NodeId<'src>> {
-        let token = self.advance();
-        match token.kind {
-            TokenKind::Literal => self.emit_literal(token),
-            TokenKind::Ident if token.src.chars().all(|c| c.is_ascii_digit()) => {
-                self.emit_literal(token)
+        match self.peek().kind {
+            TokenKind::Literal => {
+                let token = self.peek();
+                let literal = self.tokens.get_literal();
+                self.tokens.consume();
+                self.emit_literal(token, literal)
             }
-            TokenKind::Ident => self.graph.read_variable(token),
-            TokenKind::Open(open) => {
-                let expr = self.parse_expression()?;
-                let closer = self.advance();
-                match closer.kind {
-                    TokenKind::Closed(closed) if closed == open => Ok(expr),
-                    _ => Err(GraphError::MismatchedBracket {
-                        opener: token,
-                        closer,
-                    }),
+            _ => {
+                let token = self.advance();
+                match token.kind {
+                    TokenKind::Ident => self.graph.read_variable(token),
+                    TokenKind::Open(open) => {
+                        let expr = self.parse_expression()?;
+                        let closer = self.advance();
+                        match closer.kind {
+                            TokenKind::Closed(closed) if closed == open => Ok(expr),
+                            _ => Err(GraphError::MismatchedBracket {
+                                opener: token,
+                                closer,
+                            }),
+                        }
+                    }
+                    _ => Err(GraphError::ExpectedExpression { found: token }),
                 }
             }
-            _ => Err(GraphError::ExpectedExpression { found: token }),
         }
     }
 
-    fn emit_literal(&mut self, token: Token<'src>) -> GraphResult<'src, NodeId<'src>> {
-        let value = token
-            .src
-            .parse::<i64>()
-            .map_err(|_| GraphError::InvalidLiteral { token })?;
+    fn emit_literal(
+        &mut self,
+        token: Token<'src>,
+        literal: Literal<'src>,
+    ) -> GraphResult<'src, NodeId<'src>> {
+        if literal.num_digits_after_dot != 0
+            || literal.exponent.is_some()
+            || !literal.suffix.is_empty()
+        {
+            return Err(GraphError::InvalidLiteral { token });
+        }
+        let value_u64 = literal
+            .digits
+            .to_u64()
+            .ok_or(GraphError::InvalidLiteral { token })?;
+        if value_u64 > i64::MAX as u64 {
+            return Err(GraphError::InvalidLiteral { token });
+        }
+        let value = value_u64 as i64;
         Ok(self.graph.add_constant(token.src, value))
     }
 
