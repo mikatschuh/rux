@@ -1,12 +1,12 @@
 use std::alloc::{alloc, dealloc, Layout};
 use std::marker::PhantomData;
-use std::mem::MaybeUninit;
+use std::mem::{self, MaybeUninit};
 use std::ops::{Deref, DerefMut, Index, IndexMut};
-use std::ptr::NonNull;
+use std::ptr::{null_mut, NonNull};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 // Die innere Struktur, die gezählt wird
-struct RcBoxInner<T> {
+pub struct RcBoxInner<T> {
     // Anzahl der starken Referenzen
     strong: AtomicUsize,
     // Der eigentliche Wert
@@ -24,13 +24,29 @@ pub trait CustomAllocator {
 pub struct GlobalAllocator;
 
 impl CustomAllocator for GlobalAllocator {
+    #[inline]
     unsafe fn allocate(&self, layout: Layout) -> *mut u8 {
         alloc(layout)
     }
 
+    #[inline]
     unsafe fn deallocate(&self, ptr: *mut u8, layout: Layout) {
         dealloc(ptr, layout)
     }
+}
+
+// Implementierung des Standard-Allocators
+#[derive(Clone, Copy)]
+pub struct MocAllocator;
+
+impl CustomAllocator for MocAllocator {
+    #[inline]
+    unsafe fn allocate(&self, _: Layout) -> *mut u8 {
+        null_mut()
+    }
+
+    #[inline]
+    unsafe fn deallocate(&self, _: *mut u8, _: Layout) {}
 }
 
 // Unser öffentlicher Rc-Typ
@@ -74,6 +90,28 @@ impl<T, A: CustomAllocator> Rc<T, A> {
         };
 
         Self { ptr, allocator }
+    }
+
+    pub fn new_in_bump(value: T, arena: &Bump) -> Rc<T, MocAllocator> {
+        let layout = Layout::new::<RcBoxInner<T>>();
+
+        let ptr = unsafe {
+            let mem = arena.alloc_layout(layout);
+
+            let ptr = mem::transmute::<_, *mut RcBoxInner<T>>(mem);
+
+            ptr.write(RcBoxInner {
+                strong: AtomicUsize::new(1),
+                value,
+            });
+
+            NonNull::new_unchecked(ptr)
+        };
+
+        Rc {
+            ptr,
+            allocator: MocAllocator {},
+        }
     }
     // Aktuelle Anzahl der starken Referenzen
     #[allow(dead_code)]
@@ -120,11 +158,11 @@ impl<T, A: CustomAllocator> Drop for Rc<T, A> {
 
             // Wenn dies die letzte Referenz war, gebe den Speicher frei
             if strong == 1 {
-                // Layout berechnen (muss dem Allokationslayout entsprechen)
-                let layout = Layout::new::<RcBoxInner<T>>();
-
                 // Manuell den Destruktor für den inneren Wert aufrufen
                 std::ptr::drop_in_place(&mut (*self.ptr.as_ptr()).value);
+
+                // Layout berechnen (muss dem Allokationslayout entsprechen)
+                let layout = Layout::new::<RcBoxInner<T>>();
 
                 // Speicher freigeben mit dem gespeicherten Allocator
                 self.allocator
@@ -138,7 +176,10 @@ impl<T: PartialEq, A: CustomAllocator> PartialEq for Rc<T, A> {
         unsafe { self.ptr.as_ref().value == other.ptr.as_ref().value }
     }
 }
+impl<T: PartialEq + Eq, A: CustomAllocator> Eq for Rc<T, A> {}
 use std::fmt::{self, Debug};
+
+use bumpalo::Bump;
 impl<T: fmt::Debug, A: CustomAllocator> fmt::Debug for Rc<T, A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", unsafe { &self.ptr.as_ref().value })

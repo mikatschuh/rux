@@ -1,7 +1,11 @@
-use crate::tokenizing::{
-    token::{Token, TokenKind},
-    TokenStream,
+use crate::{
+    tokenizing::{
+        token::{Token, TokenKind},
+        TokenStream,
+    },
+    utilities::{MocAllocator, Rc},
 };
+use bumpalo::Bump;
 use std::{collections::HashMap, fmt};
 
 pub mod intern;
@@ -10,18 +14,10 @@ mod test;
 
 pub type GraphResult<'src, T> = Result<T, GraphError<'src>>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct NodeId(usize);
+pub type NodeId<'src> = Rc<Node<'src>, MocAllocator>;
 
-impl NodeId {
-    fn new(self) -> usize {
-        self.0
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Node<'src> {
-    pub id: NodeId,
     pub kind: NodeKind<'src>,
 }
 
@@ -38,7 +34,7 @@ pub enum UnaryOp {
     Neg,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum NodeKind<'src> {
     Constant {
         literal: &'src str,
@@ -46,40 +42,41 @@ pub enum NodeKind<'src> {
     },
     Unary {
         op: UnaryOp,
-        input: NodeId,
+        input: NodeId<'src>,
     },
     Binary {
         op: BinaryOp,
-        lhs: NodeId,
-        rhs: NodeId,
+        lhs: NodeId<'src>,
+        rhs: NodeId<'src>,
     },
     VariableDecl {
         name: &'src str,
         ty: &'src str,
-        initializer: Option<NodeId>,
+        initializer: Option<NodeId<'src>>,
     },
     Assign {
         name: &'src str,
-        value: NodeId,
+        value: NodeId<'src>,
     },
     Read {
         name: &'src str,
-        source: NodeId,
+        source: NodeId<'src>,
     },
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Symbol<'src> {
     pub name: &'src str,
     pub ty: &'src str,
-    pub decl: NodeId,
-    pub last_value: NodeId,
+    pub decl: NodeId<'src>,
+    pub last_value: NodeId<'src>,
     pub version: usize,
 }
 
 #[derive(Debug, Default)]
 pub struct Graph<'src> {
+    arena: Bump,
     nodes: Vec<Node<'src>>,
     symbols: HashMap<&'src str, Vec<Symbol<'src>>>,
 }
@@ -91,11 +88,6 @@ impl<'src> Graph<'src> {
 
     pub fn nodes(&self) -> &[Node<'src>] {
         &self.nodes
-    }
-
-    #[allow(dead_code)]
-    pub fn node(&self, id: NodeId) -> Option<&Node<'src>> {
-        self.nodes.get(id.new())
     }
 
     pub fn symbol(&self, name: &str) -> Option<&Symbol<'src>> {
@@ -112,21 +104,20 @@ impl<'src> Graph<'src> {
         self.symbols.values().flat_map(|stack| stack.iter())
     }
 
-    fn push_node(&mut self, kind: NodeKind<'src>) -> NodeId {
-        let id = NodeId(self.nodes.len());
-        self.nodes.push(Node { id, kind });
-        id
+    fn push_node(&mut self, kind: NodeKind<'src>) -> NodeId<'src> {
+        let node: Node<'src> = Node { kind };
+        Rc::<Node<'src>, MocAllocator>::new_in_bump(node, &self.arena)
     }
 
-    fn add_constant(&mut self, literal: &'src str, value: i64) -> NodeId {
+    fn add_constant(&mut self, literal: &'src str, value: i64) -> NodeId<'src> {
         self.push_node(NodeKind::Constant { literal, value })
     }
 
-    fn add_unary(&mut self, op: UnaryOp, input: NodeId) -> NodeId {
+    fn add_unary(&mut self, op: UnaryOp, input: NodeId<'src>) -> NodeId<'src> {
         self.push_node(NodeKind::Unary { op, input })
     }
 
-    fn add_binary(&mut self, op: BinaryOp, lhs: NodeId, rhs: NodeId) -> NodeId {
+    fn add_binary(&mut self, op: BinaryOp, lhs: NodeId<'src>, rhs: NodeId<'src>) -> NodeId<'src> {
         self.push_node(NodeKind::Binary { op, lhs, rhs })
     }
 
@@ -134,28 +125,32 @@ impl<'src> Graph<'src> {
         &mut self,
         name: Token<'src>,
         ty: Token<'src>,
-        initializer: Option<NodeId>,
-    ) -> NodeId {
+        initializer: Option<NodeId<'src>>,
+    ) -> NodeId<'src> {
         let decl = self.push_node(NodeKind::VariableDecl {
             name: name.src,
             ty: ty.src,
-            initializer,
+            initializer: initializer.clone(),
         });
-        let last_value = initializer.unwrap_or(decl);
+        let last_value = initializer.unwrap_or(decl.clone());
 
         let stack = self.symbols.entry(name.src).or_default();
         let version = stack.len();
         stack.push(Symbol {
             name: name.src,
             ty: ty.src,
-            decl,
+            decl: decl.clone(),
             last_value,
             version,
         });
         decl
     }
 
-    fn assign_variable(&mut self, name: Token<'src>, value: NodeId) -> GraphResult<'src, NodeId> {
+    fn assign_variable(
+        &mut self,
+        name: Token<'src>,
+        value: NodeId<'src>,
+    ) -> GraphResult<'src, NodeId<'src>> {
         let has_symbol = matches!(
             self.symbols.get(name.src),
             Some(stack) if !stack.is_empty()
@@ -173,12 +168,12 @@ impl<'src> Graph<'src> {
             .get_mut(name.src)
             .and_then(|stack| stack.last_mut())
         {
-            symbol.last_value = assignment;
+            symbol.last_value = assignment.clone();
         }
         Ok(assignment)
     }
 
-    fn read_variable(&mut self, ident: Token<'src>) -> GraphResult<'src, NodeId> {
+    fn read_variable(&mut self, ident: Token<'src>) -> GraphResult<'src, NodeId<'src>> {
         let Some(stack) = self.symbols.get(ident.src) else {
             return Err(GraphError::UnknownVariable { token: ident });
         };
@@ -187,7 +182,7 @@ impl<'src> Graph<'src> {
         };
         Ok(self.push_node(NodeKind::Read {
             name: ident.src,
-            source: symbol.last_value,
+            source: symbol.last_value.clone(),
         }))
     }
 }
@@ -301,12 +296,12 @@ impl<'src, 'tokens, T: TokenStream<'src>> GraphBuilder<'src, 'tokens, T> {
         Ok(())
     }
 
-    fn parse_expression(&mut self) -> GraphResult<'src, NodeId> {
+    fn parse_expression(&mut self) -> GraphResult<'src, NodeId<'src>> {
         let lhs = self.parse_term()?;
         self.parse_additive_rhs(lhs)
     }
 
-    fn parse_additive_rhs(&mut self, mut lhs: NodeId) -> GraphResult<'src, NodeId> {
+    fn parse_additive_rhs(&mut self, mut lhs: NodeId<'src>) -> GraphResult<'src, NodeId<'src>> {
         loop {
             lhs = match self.peek().kind {
                 TokenKind::Plus => {
@@ -325,7 +320,7 @@ impl<'src, 'tokens, T: TokenStream<'src>> GraphBuilder<'src, 'tokens, T> {
         Ok(lhs)
     }
 
-    fn parse_term(&mut self) -> GraphResult<'src, NodeId> {
+    fn parse_term(&mut self) -> GraphResult<'src, NodeId<'src>> {
         let mut node = self.parse_unary()?;
         loop {
             node = match self.peek().kind {
@@ -345,7 +340,7 @@ impl<'src, 'tokens, T: TokenStream<'src>> GraphBuilder<'src, 'tokens, T> {
         Ok(node)
     }
 
-    fn parse_unary(&mut self) -> GraphResult<'src, NodeId> {
+    fn parse_unary(&mut self) -> GraphResult<'src, NodeId<'src>> {
         match self.peek().kind {
             TokenKind::Plus => {
                 self.advance();
@@ -360,7 +355,7 @@ impl<'src, 'tokens, T: TokenStream<'src>> GraphBuilder<'src, 'tokens, T> {
         }
     }
 
-    fn parse_primary(&mut self) -> GraphResult<'src, NodeId> {
+    fn parse_primary(&mut self) -> GraphResult<'src, NodeId<'src>> {
         let token = self.advance();
         match token.kind {
             TokenKind::Literal => self.emit_literal(token),
@@ -383,7 +378,7 @@ impl<'src, 'tokens, T: TokenStream<'src>> GraphBuilder<'src, 'tokens, T> {
         }
     }
 
-    fn emit_literal(&mut self, token: Token<'src>) -> GraphResult<'src, NodeId> {
+    fn emit_literal(&mut self, token: Token<'src>) -> GraphResult<'src, NodeId<'src>> {
         let value = token
             .src
             .parse::<i64>()
