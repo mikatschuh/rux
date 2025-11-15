@@ -3,3 +3,9 @@ a i32 = 10
 x = (a + 10) * 20
 
 y i32 = 11 a u32 // also possible to have on the same line
+
+// variables have to be declared before they can be used
+
+// variable declaration is defined by having a statement
+// starting with an identifier followed by something that cant connect
+// to the identifier like an operator would do
