@@ -1,8 +1,11 @@
 use std::path::Path;
 
+use num::BigUint;
+
 use crate::{
     error::{Errors, Span},
     tokenizing::{
+        num::{Base, Literal},
         token::{Token, TokenKind::*},
         TokenStream, Tokenizer,
     },
@@ -144,6 +147,82 @@ fn test() {
 
         assert_eq!(tokens, seq.1)
     }
+    // testing literal behavior:
+
+    let errors = Rc::new(Errors::empty(Path::new("example.rx")));
+    let mut tokenizer = Tokenizer::new("-1.3 + 0x345", errors);
+
+    assert_eq!(
+        tokenizer.peek(),
+        Token {
+            span: Span::at(1, 1, 2, 1),
+            src: "-",
+            kind: Dash
+        }
+    );
+    tokenizer.consume();
+
+    assert_eq!(
+        tokenizer.peek(),
+        Token {
+            span: Span::at(2, 1, 5, 1),
+            src: "1.3",
+            kind: Literal
+        }
+    );
+    assert_eq!(
+        tokenizer.get_literal(),
+        Literal {
+            base: Base::Decimal,
+            digits: BigUint::from(13_u8),
+            num_digits_after_dot: 1,
+            exponent: None,
+            suffix: "",
+        }
+    );
+    tokenizer.consume();
+
+    // calling .get_literal() now is undefined behavior
+    // what is too is calling .get_literal() before .peek()
+
+    assert_eq!(
+        tokenizer.peek(),
+        Token {
+            span: Span::at(6, 1, 7, 1),
+            src: "+",
+            kind: Plus
+        }
+    );
+    tokenizer.consume();
+
+    assert_eq!(
+        tokenizer.peek(),
+        Token {
+            span: Span::at(8, 1, 13, 1),
+            src: "0x345",
+            kind: Literal
+        }
+    );
+    assert_eq!(
+        tokenizer.get_literal(),
+        Literal {
+            base: Base::Hexadecimal,
+            digits: BigUint::from(0x345_u32),
+            num_digits_after_dot: 0,
+            exponent: None,
+            suffix: ""
+        }
+    );
+    tokenizer.consume();
+
+    assert_eq!(
+        tokenizer.peek(),
+        Token {
+            span: Span::at(13, 1, 13, 1),
+            src: "",
+            kind: EOF
+        }
+    )
 
     /*let tokenizer = Tokenizer::new(EXAMPLE, errors);
     let tokens = tokenizer.clone().count() as f64;

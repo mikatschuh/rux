@@ -253,6 +253,7 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
     fn consume(&mut self) {
         self.text = self.next_text;
         self.pos = self.next_pos;
+        self.literal = None;
         self.already_processed = false;
     }
 }
