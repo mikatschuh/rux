@@ -1,29 +1,5 @@
 #[derive(Clone, PartialEq, Eq, Debug, Copy)]
 pub enum BinaryOp {
-    Write, // a := b
-
-    LshAssign, // a <<= b
-    RshAssign, // a >>= b
-
-    OrAssign,   // a |= b
-    NorAssign,  // a !|= b
-    XorAssign,  // a >|= b
-    XnorAssign, // a !>|= b
-    AndAssign,  // a &= b
-    NandAssign, // a !&= b
-
-    AddAssign, // a += b
-    SubAssign, // a -= b
-
-    MulAssign, // a *= b
-    DivAssign, // a /= b
-    ModAssign, // a %= b
-
-    DotAssign,   // a ·= b
-    CrossAssign, // a ><= b
-
-    PowAssign { grade: u8 }, // a ^= b
-
     Or,   // a || b
     Nor,  // a !|| b
     Xor,  // a >|| b
@@ -58,8 +34,6 @@ pub enum BinaryOp {
     Dot,   // a · b
     Cross, // a >< b
 
-    Pow { grade: u8 }, // a (^)+ b
-
     Index, // a[b]
     App,   // a(b)
 
@@ -74,30 +48,6 @@ impl Display for BinaryOp {
             f,
             "{}",
             match self {
-                Write => "=",
-
-                LshAssign => "<<=",
-                RshAssign => ">>=",
-
-                OrAssign => "|=",
-                NorAssign => "!|=",
-                XorAssign => ">|=",
-                XnorAssign => "!>|=",
-                AndAssign => "&=",
-                NandAssign => "!&=",
-
-                AddAssign => "+=",
-                SubAssign => "-=",
-
-                MulAssign => "*=",
-                DivAssign => "/=",
-                ModAssign => "%=",
-
-                DotAssign => "·=",
-                CrossAssign => "><=",
-                PowAssign { grade } =>
-                    return write!(f, "^{}", (0..*grade).map(|_| "^").collect::<String>()),
-
                 Or => "||",
                 Nor => "!||",
                 Xor => ">||",
@@ -131,8 +81,6 @@ impl Display for BinaryOp {
 
                 Dot => "·",
                 Cross => "><",
-                Pow { grade } =>
-                    return write!(f, "^{}", (0..*grade).map(|_| "^").collect::<String>()),
 
                 Index => "[",
                 App => "(",
@@ -140,11 +88,5 @@ impl Display for BinaryOp {
                 FieldAccess => ".",
             }
         )
-    }
-}
-
-impl BinaryOp {
-    pub const fn is_chained(self) -> bool {
-        matches!(self, Eq | Ne | Smaller | SmallerEq | Greater | GreaterEq,)
     }
 }

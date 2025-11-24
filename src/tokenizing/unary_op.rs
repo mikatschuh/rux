@@ -11,8 +11,6 @@ pub enum UnaryOp {
     Inc, // a++
     Dec, // b--
 
-    Fac, // a!
-
     Ptr,   // -> a
     Deref, // a.
 }
@@ -28,8 +26,6 @@ impl fmt::Display for UnaryOp {
 
             Inc => "++",
             Dec => "--",
-
-            Fac => "_!",
 
             Ptr => "->",
             Deref => ".",

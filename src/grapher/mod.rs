@@ -1,7 +1,10 @@
 use crate::{
     tokenizing::{
+        binary_op::BinaryOp,
+        binding_pow,
         num::Literal,
         token::{Token, TokenKind},
+        unary_op::UnaryOp,
         TokenStream,
     },
     utilities::{MocAllocator, Rc},
@@ -23,19 +26,6 @@ pub struct Node<'src> {
     pub kind: NodeKind<'src>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BinaryOp {
-    Add,
-    Sub,
-    Mul,
-    Div,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UnaryOp {
-    Neg,
-}
-
 #[derive(Debug, PartialEq, Eq)]
 pub enum NodeKind<'src> {
     Constant {
@@ -53,8 +43,7 @@ pub enum NodeKind<'src> {
     },
     VariableDecl {
         name: &'src str,
-        ty: &'src str,
-        initializer: Option<NodeId<'src>>,
+        ty: NodeId<'src>,
     },
     Assign {
         name: &'src str,
@@ -68,7 +57,7 @@ pub enum NodeKind<'src> {
 
 #[derive(Debug)]
 pub struct Symbol<'src> {
-    pub ty: &'src str,
+    pub ty: NodeId<'src>,
     pub decl: NodeId<'src>,
     pub last_value: NodeId<'src>,
     pub version: usize,
@@ -116,35 +105,23 @@ impl<'src> Graph<'src> {
         self.push_node(NodeKind::Binary { op, lhs, rhs })
     }
 
-    fn declare_variable(
-        &mut self,
-        name: Token<'src>,
-        ty: Token<'src>,
-        initializer: Option<NodeId<'src>>,
-    ) -> NodeId<'src> {
+    fn declare_variable(&mut self, name: Token<'src>, ty: NodeId<'src>) -> NodeId<'src> {
         let decl = self.push_node(NodeKind::VariableDecl {
             name: name.src,
-            ty: ty.src,
-            initializer: initializer.clone(),
+            ty: ty.clone(),
         });
-        let last_value = initializer.unwrap_or(decl.clone());
-
         let stack = self.symbols.entry(name.src).or_default();
         let version = stack.len();
         stack.push(Symbol {
-            ty: ty.src,
+            ty,
             decl: decl.clone(),
-            last_value,
+            last_value: decl.clone(),
             version,
         });
         decl
     }
 
-    fn assign_variable(
-        &mut self,
-        name: Token<'src>,
-        value: NodeId<'src>,
-    ) -> GraphResult<'src, NodeId<'src>> {
+    fn assign_variable(&mut self, name: Token<'src>, value: NodeId<'src>) -> GraphResult<'src, ()> {
         let has_symbol = matches!(
             self.symbols.get(name.src),
             Some(stack) if !stack.is_empty()
@@ -164,7 +141,7 @@ impl<'src> Graph<'src> {
         {
             symbol.last_value = assignment.clone();
         }
-        Ok(assignment)
+        Ok(())
     }
 
     fn read_variable(&mut self, ident: Token<'src>) -> GraphResult<'src, NodeId<'src>> {
@@ -248,9 +225,12 @@ impl<'src, 'tokens, T: TokenStream<'src>> GraphBuilder<'src, 'tokens, T> {
             match token.kind {
                 TokenKind::EOF => break,
                 TokenKind::Semicolon => {
-                    _ = self.advance();
+                    self.advance();
                 }
-                TokenKind::Ident => self.parse_statement()?,
+                TokenKind::Ident => {
+                    let name = self.advance();
+                    self.parse_variable_tail(name, 1)?
+                }
                 _ => {
                     return Err(GraphError::UnexpectedToken {
                         expected: "identifier",
@@ -262,119 +242,97 @@ impl<'src, 'tokens, T: TokenStream<'src>> GraphBuilder<'src, 'tokens, T> {
         Ok(self.graph)
     }
 
-    fn parse_statement(&mut self) -> GraphResult<'src, ()> {
-        let name = self.advance();
-        match self.peek().kind {
-            TokenKind::Equal => {
-                self.advance();
-                let value = self.parse_expression()?;
-                self.graph.assign_variable(name, value)?;
-            }
-            TokenKind::Ident | TokenKind::Keyword(_) => {
-                let ty = self.advance();
-                let initializer = if matches!(self.peek().kind, TokenKind::Equal) {
-                    self.advance();
-                    Some(self.parse_expression()?)
-                } else {
-                    None
-                };
-                self.graph.declare_variable(name, ty, initializer);
-            }
-            _ => {
-                return Err(GraphError::UnexpectedToken {
-                    expected: "type name or '='",
-                    found: self.peek(),
-                })
-            }
-        }
-        Ok(())
-    }
+    fn parse_expr(&mut self, min_bp: u8) -> GraphResult<'src, NodeId<'src>> {
+        let mut lhs = self.parse_primary(min_bp)?;
 
-    fn parse_expression(&mut self) -> GraphResult<'src, NodeId<'src>> {
-        let lhs = self.parse_term()?;
-        self.parse_additive_rhs(lhs)
-    }
-
-    fn parse_additive_rhs(&mut self, mut lhs: NodeId<'src>) -> GraphResult<'src, NodeId<'src>> {
+        // connect tokens to this one
         loop {
-            lhs = match self.peek().kind {
-                TokenKind::Plus => {
-                    self.advance();
-                    let rhs = self.parse_term()?;
-                    self.graph.add_binary(BinaryOp::Add, lhs, rhs)
-                }
-                TokenKind::Dash => {
-                    self.advance();
-                    let rhs = self.parse_term()?;
-                    self.graph.add_binary(BinaryOp::Sub, lhs, rhs)
-                }
-                _ => break,
-            };
+            let tok = self.peek();
+            if tok.binding_pow() < min_bp {
+                break;
+            }
+
+            if let Some(op) = tok.as_infix() {
+                self.advance();
+                let rhs = self.parse_expr(op.binding_pow())?;
+
+                lhs = self.graph.add_binary(op, lhs, rhs);
+            } else if let Some(op) = tok.as_postfix() {
+                self.advance();
+                lhs = self.graph.add_unary(op, lhs)
+            }
         }
+
         Ok(lhs)
     }
 
-    fn parse_term(&mut self) -> GraphResult<'src, NodeId<'src>> {
-        let mut node = self.parse_unary()?;
-        loop {
-            node = match self.peek().kind {
-                TokenKind::Star => {
-                    self.advance();
-                    let rhs = self.parse_unary()?;
-                    self.graph.add_binary(BinaryOp::Mul, node, rhs)
-                }
-                TokenKind::Slash => {
-                    self.advance();
-                    let rhs = self.parse_unary()?;
-                    self.graph.add_binary(BinaryOp::Div, node, rhs)
-                }
-                _ => break,
-            };
-        }
-        Ok(node)
-    }
-
-    fn parse_unary(&mut self) -> GraphResult<'src, NodeId<'src>> {
-        match self.peek().kind {
-            TokenKind::Plus => {
-                self.advance();
-                self.parse_unary()
-            }
-            TokenKind::Dash => {
-                self.advance();
-                let node = self.parse_unary()?;
-                Ok(self.graph.add_unary(UnaryOp::Neg, node))
-            }
-            _ => self.parse_primary(),
-        }
-    }
-
-    fn parse_primary(&mut self) -> GraphResult<'src, NodeId<'src>> {
-        match self.peek().kind {
+    fn parse_primary(&mut self, min_bp: u8) -> GraphResult<'src, NodeId<'src>> {
+        let tok = self.peek();
+        match tok.kind {
             TokenKind::Literal => {
-                let token = self.peek();
                 let literal = self.tokens.get_literal();
-                self.tokens.consume();
-                self.emit_literal(token, literal)
+                self.advance();
+                self.emit_literal(tok, literal)
             }
-            _ => {
-                let token = self.advance();
-                match token.kind {
-                    TokenKind::Ident => self.graph.read_variable(token),
-                    TokenKind::Open(open) => {
-                        let expr = self.parse_expression()?;
-                        let closer = self.advance();
-                        match closer.kind {
-                            TokenKind::Closed(closed) if closed == open => Ok(expr),
-                            _ => Err(GraphError::MismatchedBracket {
-                                opener: token,
-                                closer,
-                            }),
-                        }
-                    }
-                    _ => Err(GraphError::ExpectedExpression { found: token }),
+            TokenKind::Ident => {
+                let name = self.advance();
+                self.parse_variable_tail(name, min_bp)?;
+                self.graph.read_variable(name)
+            }
+            TokenKind::Open(open) => {
+                self.advance();
+                let expr = self.parse_expr(0)?;
+                let closer = self.advance();
+                match closer.kind {
+                    TokenKind::Closed(closed) if closed == open => Ok(expr),
+                    _ => Err(GraphError::MismatchedBracket {
+                        opener: tok,
+                        closer,
+                    }),
                 }
             }
+            _ => match tok.as_prefix() {
+                Some(op) => {
+                    self.advance();
+                    let node = self.parse_primary(op.binding_pow())?;
+                    Ok(self.graph.add_unary(UnaryOp::Neg, node))
+                }
+                None => {
+                    self.advance();
+                    Err(GraphError::ExpectedExpression { found: tok })
+                }
+            },
+        }
+    }
+
+    fn parse_variable_tail(&mut self, name: Token<'src>, min_bp: u8) -> GraphResult<'src, ()> {
+        if binding_pow::WRITE < min_bp {
+            return Ok(());
+        }
+
+        if min_bp <= 1 && self.peek().binding_pow() == 0 {
+            let ty = self.parse_expr(if min_bp == 0 { 0 } else { binding_pow::LABEL })?;
+
+            self.graph.declare_variable(name, ty);
+        }
+
+        loop {
+            let next_tok = self.peek();
+            if next_tok.kind == TokenKind::Equal {
+                self.advance();
+                let rhs = self.parse_expr(binding_pow::WRITE_RIGHT)?;
+
+                self.graph.assign_variable(name, rhs)?;
+            } else if let Some(op) = next_tok.as_assign() {
+                self.advance();
+                let rhs = self.parse_expr(binding_pow::WRITE_RIGHT)?;
+                let lhs = self.graph.read_variable(name)?;
+
+                let new_val = self.graph.add_binary(op, lhs, rhs);
+                self.graph.assign_variable(name, new_val);
+            }
+
+            return Ok(());
         }
     }
 

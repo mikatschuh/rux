@@ -3,12 +3,12 @@ use crate::{
     error::{ErrorCode, Errors, Position, Span},
     grapher::intern::{Internalizer, Symbol},
     parser::{
-        binary_op::BinaryOp,
         const_res::{Const, ConstTable},
         tree::{Bracket, Node, NodeBox, NodeWrapper, Scope},
         vars::{GlobalScope, LabelTable},
     },
     tokenizing::{
+        binding_pow,
         token::{Token, TokenKind},
         TokenStream,
     },
@@ -17,8 +17,6 @@ use crate::{
 use bumpalo::{boxed::Box as BumpBox, Bump};
 use std::collections::HashMap;
 
-pub mod binary_op;
-mod binding_pow;
 pub mod const_res;
 #[allow(dead_code)]
 pub mod keyword;
@@ -27,7 +25,6 @@ mod nud;
 pub mod tree;
 #[allow(dead_code)]
 pub mod typing;
-pub mod unary_op;
 pub mod vars;
 
 pub struct Ast<'src> {
@@ -79,7 +76,7 @@ impl<'src> Parser<'src> {
                 );
             }
 
-            let expr = self.pop_expr(tokens, &mut GlobalScope, BinaryOp::Write.binding_pow());
+            let expr = self.pop_expr(tokens, &mut GlobalScope, binding_pow::WRITE);
 
             _ = tokens.consume_while(|tok| tok.kind == TokenKind::Semicolon);
 

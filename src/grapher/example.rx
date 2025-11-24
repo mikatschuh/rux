@@ -4,6 +4,8 @@ x = (a + 10) * 20
 
 y i32 = 11 a u32 // also possible to have on the same line
 
+abc ux =
+
 // variables have to be declared before they can be used
 
 // variable declaration is defined by having a statement

@@ -1,14 +1,11 @@
 use crate::{
-    comp,
     parser::{
-        binary_op::BinaryOp,
         binding_pow,
         tree::{Bracket, Node, NodeBox},
-        unary_op::UnaryOp,
         vars::LabelTable,
         NodeWrapper, Parser,
     },
-    tokenizing::{token::TokenKind::*, TokenStream},
+    tokenizing::{binary_op::BinaryOp, token::TokenKind::*, unary_op::UnaryOp, TokenStream},
 };
 
 impl<'src> Parser<'src> {
@@ -100,32 +97,14 @@ impl<'src> Parser<'src> {
                 } else if let Some(op) = first_tok.as_infix() {
                     tokens.consume();
                     let rhs = self.pop_expr(tokens, var_table, op.binding_pow());
-                    if op.is_chained() {
-                        let mut chain = comp::Vec::new([(op, rhs)]);
-                        while let Some(op) = tokens.peek().as_infix() {
-                            if op.is_chained() {
-                                tokens.consume();
-                                let rhs = self.pop_expr(tokens, var_table, op.binding_pow());
-                                chain.push((op, rhs));
-                                continue;
-                            }
-                            break;
-                        }
-                        self.make_node(NodeWrapper::new(lhs.span - chain.last().1.span).with_node(
-                            Node::Chain {
-                                first: lhs,
-                                additions: chain,
-                            },
-                        ))
-                    } else {
-                        self.make_node(
-                            NodeWrapper::new(lhs.span - rhs.span).with_node(Node::Binary {
-                                op,
-                                lhs,
-                                rhs,
-                            }),
-                        )
-                    }
+
+                    self.make_node(
+                        NodeWrapper::new(lhs.span - rhs.span).with_node(Node::Binary {
+                            op,
+                            lhs,
+                            rhs,
+                        }),
+                    )
                 } else {
                     return Err(lhs);
                 }

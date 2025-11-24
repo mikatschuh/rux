@@ -5,12 +5,13 @@ use crate::{
     error::Span,
     grapher::intern::{Internalizer, Symbol},
     parser::{
-        binary_op::BinaryOp,
         typing::Type,
-        unary_op::UnaryOp,
         vars::{Var, VarTable},
     },
-    tokenizing::{num::Literal, with_written_out_escape_sequences, EscapeSequenceConfusion},
+    tokenizing::{
+        binary_op::BinaryOp, num::Literal, unary_op::UnaryOp, with_written_out_escape_sequences,
+        EscapeSequenceConfusion,
+    },
 };
 use std::{
     collections::HashMap,
@@ -287,16 +288,6 @@ impl<'src> TreeDisplay<'src> for NodeWrapper<'src> {
             ),
             Scope(scope) => scope.display(internalizer, indentation),
             Branch(branch) => branch.display(internalizer, indentation),
-            Chain { first, additions } => tree!(
-                first.display(internalizer, indentation),
-                vec additions,
-                |node: &(BinaryOp, NodeBox<'src>), indent| format!(
-                    "{} {}",
-                    node.0,
-                    node.1.display(
-                        internalizer,
-                        &(indent + format!("{} ", node.0.to_string().chars().map(|_| " ").collect::<String>()).as_ref())))
-            ),
             Loop {
                 condition,
                 then_body,
@@ -508,10 +499,6 @@ pub enum Node<'src> {
         lhs: NodeBox<'src>,
         rhs: NodeBox<'src>,
     }, // left op right
-    Chain {
-        first: NodeBox<'src>,
-        additions: comp::Vec<(BinaryOp, NodeBox<'src>), 1>,
-    }, // first op additions[0].0 additions[0].1
     Unary {
         op: UnaryOp,
         val: NodeBox<'src>,
