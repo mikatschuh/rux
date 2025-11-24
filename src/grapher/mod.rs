@@ -32,6 +32,9 @@ pub enum NodeKind<'src> {
         literal: &'src str,
         value: i64,
     },
+    Quote {
+        quote: String,
+    },
     Unary {
         op: UnaryOp,
         input: NodeId<'src>,
@@ -103,6 +106,10 @@ impl<'src> Graph<'src> {
 
     fn add_binary(&mut self, op: BinaryOp, lhs: NodeId<'src>, rhs: NodeId<'src>) -> NodeId<'src> {
         self.push_node(NodeKind::Binary { op, lhs, rhs })
+    }
+
+    fn add_quote(&mut self, quote: String) -> NodeId<'src> {
+        self.push_node(NodeKind::Quote { quote })
     }
 
     fn declare_variable(&mut self, name: Token<'src>, ty: NodeId<'src>) -> NodeId<'src> {
@@ -223,7 +230,7 @@ impl<'src, 'tokens, T: TokenStream<'src>> GraphBuilder<'src, 'tokens, T> {
         loop {
             let token = self.peek();
             match token.kind {
-                TokenKind::EOF => break,
+                TokenKind::EOF => return Ok(self.graph),
                 TokenKind::Semicolon => {
                     self.advance();
                 }
@@ -239,7 +246,6 @@ impl<'src, 'tokens, T: TokenStream<'src>> GraphBuilder<'src, 'tokens, T> {
                 }
             }
         }
-        Ok(self.graph)
     }
 
     fn parse_expr(&mut self, min_bp: u8) -> GraphResult<'src, NodeId<'src>> {
@@ -249,7 +255,7 @@ impl<'src, 'tokens, T: TokenStream<'src>> GraphBuilder<'src, 'tokens, T> {
         loop {
             let tok = self.peek();
             if tok.binding_pow() < min_bp {
-                break;
+                return Ok(lhs);
             }
 
             if let Some(op) = tok.as_infix() {
@@ -262,8 +268,6 @@ impl<'src, 'tokens, T: TokenStream<'src>> GraphBuilder<'src, 'tokens, T> {
                 lhs = self.graph.add_unary(op, lhs)
             }
         }
-
-        Ok(lhs)
     }
 
     fn parse_primary(&mut self, min_bp: u8) -> GraphResult<'src, NodeId<'src>> {
@@ -273,6 +277,11 @@ impl<'src, 'tokens, T: TokenStream<'src>> GraphBuilder<'src, 'tokens, T> {
                 let literal = self.tokens.get_literal();
                 self.advance();
                 self.emit_literal(tok, literal)
+            }
+            TokenKind::Quote => {
+                let quote = self.tokens.get_quote();
+                self.advance();
+                Ok(self.graph.add_quote(quote))
             }
             TokenKind::Ident => {
                 let name = self.advance();
