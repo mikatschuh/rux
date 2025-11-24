@@ -4,7 +4,11 @@ x = (a + 10) * 20
 
 y i32 = 11 a u32 // also possible to have on the same line
 
-abc ux =
+abc str = "abc"
+
+complex ux = 10 ++ // complex == 11
+
+complex = (x = 3) // complex == x == 3
 
 // variables have to be declared before they can be used
 
