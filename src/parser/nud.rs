@@ -4,15 +4,14 @@ use crate::{
     error::ErrorCode,
     parser::{
         binding_pow,
-        tree::{Bracket, Branch, Node, NodeBox, Note},
-        unary_op::UnaryOp,
+        tree::{Bracket, Branch, Node, NodeBox},
         vars::{LabelTable, ParamTable, ScopedSymTable, VarTableMoc},
         NodeWrapper, Parser,
     },
     tokenizing::{
-        resolve_escape_sequences,
         slicing::TokenBuffer,
         token::{Keyword, TokenKind::*},
+        unary_op::UnaryOp,
         TokenStream,
     },
 };
@@ -58,18 +57,10 @@ impl<'src> Parser<'src> {
                 }
             }
             Quote => {
+                let quote = tokens.get_quote();
+
                 tokens.consume();
-                let (string, confusions) = resolve_escape_sequences(first_tok.src);
-                self.make_node(
-                    NodeWrapper::new(first_tok.span)
-                        .with_node(Node::Quote(string))
-                        .with_notes(
-                            confusions
-                                .into_iter()
-                                .map(Note::EscapeSequenceConfusion)
-                                .collect(),
-                        ),
-                )
+                self.make_node(NodeWrapper::new(first_tok.span).with_node(Node::Quote(quote)))
             }
             Keyword(keyword) => {
                 use Keyword::*;
@@ -127,6 +118,7 @@ impl<'src> Parser<'src> {
                         last_outputted_pos: tokens.current_pos(),
                         tokens: VecDeque::new(),
                         literals: VecDeque::new(),
+                        quotes: VecDeque::new(),
                     };
                     loop {
                         let tok = tokens.peek();
@@ -151,6 +143,8 @@ impl<'src> Parser<'src> {
                             open_brackets -= 1;
                         } else if let Literal = tok.kind {
                             token_buffer.literals.push_back(tokens.get_literal())
+                        } else if let Quote = tok.kind {
+                            token_buffer.quotes.push_back(tokens.get_quote());
                         }
 
                         tokens.consume();

@@ -10,6 +10,7 @@ pub struct TokenBuffer<'src> {
     pub last_outputted_pos: Position,
     pub tokens: VecDeque<Token<'src>>,
     pub literals: VecDeque<Literal<'src>>,
+    pub quotes: VecDeque<String>,
 }
 
 impl<'src> TokenStream<'src> for TokenBuffer<'src> {
@@ -27,6 +28,9 @@ impl<'src> TokenStream<'src> for TokenBuffer<'src> {
     }
     fn get_literal(&mut self) -> Literal<'src> {
         unsafe { self.literals.pop_front().unwrap_unchecked() }
+    }
+    fn get_quote(&mut self) -> String {
+        unsafe { self.quotes.pop_front().unwrap_unchecked() }
     }
 
     fn consume(&mut self) {

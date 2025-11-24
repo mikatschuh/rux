@@ -9,8 +9,14 @@ use crate::{
     },
     utilities::Rc,
 };
-use std::{mem::MaybeUninit, slice, vec::IntoIter};
+use std::{
+    mem::{self, MaybeUninit},
+    slice,
+    vec::IntoIter,
+};
 
+pub mod binary_op;
+pub mod binding_pow;
 pub mod num;
 pub mod slicing;
 #[cfg(test)]
@@ -18,12 +24,14 @@ pub mod slicing;
 pub mod test;
 #[allow(dead_code)]
 pub mod token;
+pub mod unary_op;
 
 pub trait TokenStream<'src> {
     fn current_pos(&self) -> Position;
 
     fn peek(&mut self) -> Token<'src>;
     fn get_literal(&mut self) -> Literal<'src>;
+    fn get_quote(&mut self) -> String;
     fn consume(&mut self);
 
     /// Consumes a token if it matches a predicate. If a token got consumed true is outputted.
@@ -57,13 +65,21 @@ pub struct Tokenizer<'src> {
 
     already_processed: bool,
     token: MaybeUninit<Token<'src>>, // cached token
-    literal: Option<Literal<'src>>,
+    data: Data<'src>,
 
     // get only used when already_processed == false:
     next_text: &'src [u8],
     next_pos: Position,
 
     errors: Rc<Errors<'src>>,
+}
+
+#[derive(Default)]
+enum Data<'src> {
+    #[default]
+    None,
+    Literal(Literal<'src>),
+    Quote(String),
 }
 
 impl<'src> Tokenizer<'src> {
@@ -74,7 +90,7 @@ impl<'src> Tokenizer<'src> {
 
             already_processed: false,
             token: MaybeUninit::uninit(),
-            literal: None,
+            data: Data::None,
 
             next_text: text.as_bytes(),
             next_pos: Position::beginning(),
@@ -104,53 +120,7 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
 
         match self.next_text[0] {
             // quotes:
-            b'\"' => {
-                let ptr = self.next_text.as_ptr();
-                let mut len = 1;
-                let mut span: Span = self.next_pos.into();
-                span.end += 1; // add the quote
-
-                loop {
-                    self.next_text = &self.next_text[1..];
-                    len += 1;
-
-                    if self.next_text.is_empty() {
-                        self.errors.push(span, ErrorCode::NoClosingQuotes);
-
-                        self.next_pos = span.end;
-                        return self.cache_tok(Token {
-                            span,
-                            src: unsafe {
-                                str::from_utf8_unchecked(slice::from_raw_parts(ptr, len))
-                            },
-                            kind: Quote,
-                        });
-                    }
-
-                    if self.next_text[0] & 0b1100_0000 == 0b1000_0000 {
-                        continue;
-                    }
-
-                    if self.next_text[0] == b'\n' {
-                        span.end.next_line();
-                        continue;
-                    }
-                    span.end += 1;
-
-                    if self.next_text[0] == b'\"' {
-                        self.next_text = &self.next_text[1..]; // remove the closing quotes
-
-                        self.next_pos = span.end;
-                        return self.cache_tok(Token {
-                            span,
-                            src: unsafe {
-                                str::from_utf8_unchecked(slice::from_raw_parts(ptr, len))
-                            },
-                            kind: Quote,
-                        });
-                    }
-                }
-            }
+            b'\"' => return self.parse_quote(),
 
             // identifiers
             _ => {
@@ -197,7 +167,7 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
                 }
 
                 if let Some((used_bytes, literal)) = parse_literal(self.next_text) {
-                    self.literal = Some(literal);
+                    self.data = Data::Literal(literal);
 
                     self.next_text = &self.next_text[used_bytes..];
                     self.next_pos += used_bytes;
@@ -247,13 +217,25 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
     }
 
     fn get_literal(&mut self) -> Literal<'src> {
-        unsafe { self.literal.take().unwrap_unchecked() }
+        if let Data::Literal(lit) = mem::take(&mut self.data) {
+            lit
+        } else {
+            unreachable!()
+        }
+    }
+
+    fn get_quote(&mut self) -> String {
+        if let Data::Quote(quote) = mem::take(&mut self.data) {
+            quote
+        } else {
+            unreachable!()
+        }
     }
 
     fn consume(&mut self) {
         self.text = self.next_text;
         self.pos = self.next_pos;
-        self.literal = None;
+        self.data = Data::None;
         self.already_processed = false;
     }
 }
@@ -361,6 +343,74 @@ impl<'src> Tokenizer<'src> {
             self.next_pos += 1;
         }
     }
+
+    fn parse_quote(&mut self) -> Token<'src> {
+        let mut quote = String::new();
+        let quote_ptr = unsafe { quote.as_mut_vec() };
+
+        let ptr = self.next_text.as_ptr();
+        let mut len = 1; // beginning quote
+
+        let mut span: Span = self.next_pos.into();
+        span.end += 1; // add the quote
+
+        self.next_text = &self.next_text[1..];
+
+        loop {
+            if self.next_text.is_empty() {
+                self.errors.push(span, ErrorCode::NoClosingQuotes);
+
+                self.next_pos = span.end;
+                self.data = Data::Quote(quote);
+                return self.cache_tok(Token {
+                    span,
+                    src: unsafe { str::from_utf8_unchecked(slice::from_raw_parts(ptr, len)) },
+                    kind: Quote,
+                });
+            }
+
+            if self.next_text[0] == b'\\' {
+                self.next_text = &self.next_text[1..];
+                span.end += 1;
+                len += 1;
+
+                let c = match self.next_text[0] {
+                    b'0' => 0,
+                    b'n' => b'\n',
+                    b't' => b'\t',
+
+                    _ => todo!("add error message"),
+                };
+                quote_ptr.push(c);
+
+                self.next_text = &self.next_text[1..];
+                span.end += 1;
+                len += 1;
+
+                continue;
+            } else if self.next_text[0] == b'\"' {
+                self.next_text = &self.next_text[1..];
+                len += 1;
+                span.end += 1; // add the closing quotes
+
+                self.next_pos = span.end;
+                self.data = Data::Quote(quote);
+                return self.cache_tok(Token {
+                    span,
+                    src: unsafe { str::from_utf8_unchecked(slice::from_raw_parts(ptr, len)) },
+                    kind: Quote,
+                });
+            } else if self.next_text[0] == b'\n' {
+                span.end.next_line();
+            } else if self.next_text[0] & 0b1100_0000 != 0b1000_0000 {
+                span.end += 1;
+            }
+            quote_ptr.push(self.next_text[0]);
+
+            self.next_text = &self.next_text[1..];
+            len += 1;
+        }
+    }
 }
 
 fn whitespace_at_start_or_empty(slice: &[u8]) -> bool {
@@ -420,67 +470,6 @@ fn whitespace_at_start_or_empty(slice: &[u8]) -> bool {
 pub struct EscapeSequenceConfusion {
     pos: Span,
     sequence: String,
-}
-
-pub fn resolve_escape_sequences(quote: &str) -> (String, Vec<EscapeSequenceConfusion>) {
-    #[derive(PartialEq)]
-    enum ParsingEscapeSequence {
-        False,
-        True,
-        Whitespace,
-    }
-    let mut output_string = String::new();
-    let mut escape_sequence = ParsingEscapeSequence::False;
-    let mut confusions: Vec<EscapeSequenceConfusion> = vec![];
-    let mut relative_position = Position::at(1, 0);
-    for c in quote.chars().skip(1) {
-        use ParsingEscapeSequence::*;
-        if let True = escape_sequence {
-            match c {
-                'n' => output_string.push('\n'),
-                't' => output_string.push('\t'),
-                'b' => output_string.push('\u{0008}'),
-                'f' => output_string.push('\u{000C}'),
-                '\\' => output_string.push('\\'),
-                '"' => output_string.push('"'),
-                '\n' => {
-                    escape_sequence = Whitespace;
-                    output_string.push('\n');
-                    continue;
-                }
-                _ => {
-                    output_string += "\\";
-                    output_string.push(c);
-                    confusions.push(EscapeSequenceConfusion {
-                        pos: relative_position - 1 - relative_position,
-                        sequence: format!("\\{c}"),
-                    })
-                }
-            }
-            escape_sequence = False; // setting the escape_sequence to false if it was true previously
-        } else {
-            if escape_sequence == Whitespace {
-                if c == '\t' || c == ' ' {
-                    continue;
-                } else {
-                    escape_sequence = False;
-                }
-            }
-            match c {
-                '\\' => escape_sequence = True,
-                '\n' => {
-                    output_string.push('\n');
-                    relative_position.next_line();
-                }
-                _ => {
-                    output_string.push(c);
-                    relative_position += 1
-                }
-            }
-        }
-    }
-    output_string.pop();
-    (output_string, confusions)
 }
 
 pub fn with_written_out_escape_sequences(string: &str) -> String {

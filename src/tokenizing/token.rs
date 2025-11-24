@@ -1,7 +1,5 @@
-use crate::{
-    error::Span,
-    parser::{binary_op::BinaryOp, tree::Bracket, unary_op::UnaryOp},
-};
+use super::binary_op::BinaryOp;
+use crate::{error::Span, parser::tree::Bracket, tokenizing::unary_op::UnaryOp};
 use colored::{ColoredString, Colorize};
 use std::fmt::Display;
 
@@ -58,29 +56,33 @@ pub enum TokenKind {
     DotEqual,      // ·=
     Cross,         // ><
     CrossEqual,    // ><=
-    Up,            // (^)+
-    UpEqual,       // (^)+=
 
-    Pipe,         // |
-    PipePipe,     // ||
-    NotPipe,      // !|
-    NotPipePipe,  // !||
-    PipeEqual,    // |=
-    NotPipeEqual, // !|=
+    Pipe,             // |
+    PipePipe,         // ||
+    NotPipe,          // !|
+    NotPipePipe,      // !||
+    PipeEqual,        // |=
+    NotPipeEqual,     // !|=
+    PipePipeEqual,    // ||=
+    NotPipePipeEqual, // !||=
 
-    RightPipe,         // >|
-    RightPipePipe,     // >||
-    NotRightPipe,      // !>|
-    NotRightPipePipe,  // !>||
-    RightPipeEqual,    // >|=
-    NotRightPipeEqual, // !>|=
+    RightPipe,             // >|
+    RightPipePipe,         // >||
+    NotRightPipe,          // !>|
+    NotRightPipePipe,      // !>||
+    RightPipeEqual,        // >|=
+    NotRightPipeEqual,     // !>|=
+    RightPipePipeEqual,    // >||=
+    NotRightPipePipeEqual, // !>||=
 
-    And,         // &
-    AndAnd,      // &&
-    NotAnd,      // !&
-    NotAndAnd,   // !&&
-    AndEqual,    // &=
-    NotAndEqual, // !&=
+    And,            // &
+    AndAnd,         // &&
+    NotAnd,         // !&
+    NotAndAnd,      // !&&
+    AndEqual,       // &=
+    NotAndEqual,    // !&=
+    AndAndEqual,    // &&=
+    NotAndAndEqual, // !&&=
 
     Colon,      // :
     ColonColon, // ::
@@ -182,7 +184,6 @@ impl TokenKind {
             b'/' => Slash,
             b'%' => Percent,
             FIRST_CENTER_DOT_CHARACTER => CenterDot,
-            b'^' => Up,
             b'|' => Pipe,
             b'&' => And,
             b'<' => Left,
@@ -207,10 +208,12 @@ impl TokenKind {
 
             Not if c == b'|' => NotPipe,
             NotPipe if c == b'|' => NotPipePipe,
+            NotPipePipe if c == b'=' => NotPipePipeEqual,
             NotPipe if c == b'=' => NotPipeEqual,
 
             Not if c == b'&' => NotAnd,
             NotAnd if c == b'&' => NotAndAnd,
+            NotAndAnd if c == b'=' => NotAndAndEqual,
             NotAnd if c == b'=' => NotAndEqual,
 
             Not if c == b'<' => NotLeft,
@@ -220,6 +223,7 @@ impl TokenKind {
             Not if c == b'>' => NotRight,
             NotRight if c == b'|' => NotRightPipe,
             NotRightPipe if c == b'|' => NotRightPipePipe,
+            NotRightPipePipe if c == b'=' => NotRightPipePipeEqual,
             NotRightPipe if c == b'=' => NotRightPipeEqual,
             NotRight if c == b'=' => NotRightEqual,
             NotRightEqual if c == b'=' => NotRightEqual,
@@ -238,6 +242,7 @@ impl TokenKind {
             Right if c == b'=' => RightEqual,
             Right if c == b'|' => RightPipe,
             RightPipe if c == b'|' => RightPipePipe,
+            RightPipePipe if c == b'=' => RightPipePipeEqual,
             RightPipe if c == b'=' => RightPipeEqual,
             Right if c == b'<' => Cross,
             RightEqual if c == b'=' => RightEqual,
@@ -260,13 +265,12 @@ impl TokenKind {
 
             Cross if c == b'=' => CrossEqual,
 
-            Up if c == b'^' => Up,
-            Up if c == b'=' => UpEqual,
-
             Pipe if c == b'|' => PipePipe,
+            PipePipe if c == b'=' => PipePipeEqual,
             Pipe if c == b'=' => PipeEqual,
 
             And if c == b'&' => AndAnd,
+            AndAnd if c == b'=' => AndAndEqual,
             And if c == b'=' => AndEqual,
 
             Colon if c == b':' => ColonColon,
@@ -289,7 +293,6 @@ impl TokenKind {
                     | PercentEqual
                     | DotEqual
                     | CrossEqual
-                    | UpEqual
                     | PipeEqual
                     | NotPipeEqual
                     | RightPipeEqual
@@ -311,7 +314,6 @@ impl TokenKind {
             '%' => self == Percent,
             '·' => self == CenterDot,
             '<' => matches!(self, Cross | Left | LeftLeft | NotLeft),
-            '^' => self == Up,
             '|' => matches!(
                 self,
                 Pipe | NotPipe
@@ -355,75 +357,79 @@ impl<'src> Token<'src> {
         use BinaryOp::*;
         Some(match self.kind {
             TokenKind::Dot => FieldAccess,
-            Equal => Write,
             EqualEqual => Eq,
             NotEqual => Ne,
 
             Left => Smaller,
             LeftLeft => Lsh,
-            LeftLeftEqual => LshAssign,
             NotLeft => GreaterEq,
             LeftEqual => SmallerEq,
             NotLeftEqual => Greater,
 
             Right => Greater,
             RightRight => Rsh,
-            RightRightEqual => RshAssign,
             NotRight => SmallerEq,
             RightEqual => GreaterEq,
             NotRightEqual => Smaller,
 
             Plus => Add,
-            PlusEqual => AddAssign,
             Dash => Sub,
-            DashEqual => SubAssign,
 
             Star => Mul,
-            StarEqual => MulAssign,
             Slash => Div,
-            SlashEqual => DivAssign,
             Percent => Mod,
-            PercentEqual => ModAssign,
 
             TokenKind::CenterDot => Dot,
-            DotEqual => DotAssign,
             TokenKind::Cross => Cross,
-            CrossEqual => CrossAssign,
-            Up => Pow {
-                grade: if self.src.len() < 5 {
-                    self.src.len() as u8 - 1
-                } else {
-                    return None;
-                },
-            },
-            UpEqual => PowAssign {
-                grade: if self.src.len() < 6 {
-                    self.src.len() as u8 - 2
-                } else {
-                    return None;
-                },
-            }, // -2 to account for the equal sign
 
             Pipe => BitOr,
             PipePipe => Or,
             NotPipe => BitNor,
             NotPipePipe => Nor,
-            PipeEqual => OrAssign,
-            NotPipeEqual => NorAssign,
 
             RightPipe => BitXor,
             RightPipePipe => Xor,
             NotRightPipe => BitXnor,
             NotRightPipePipe => Xnor,
-            RightPipeEqual => XorAssign,
-            NotRightPipeEqual => XnorAssign,
 
             TokenKind::And => BitAnd,
             AndAnd => And,
             NotAnd => BitNand,
             NotAndAnd => Nand,
-            AndEqual => AndAssign,
-            NotAndEqual => NandAssign,
+
+            _ => return None,
+        })
+    }
+
+    pub fn as_assign(self) -> Option<BinaryOp> {
+        use BinaryOp::*;
+        Some(match self.kind {
+            PipePipeEqual => Or,
+            NotPipePipeEqual => Nor,
+            RightPipePipeEqual => Xor,
+            NotRightPipePipeEqual => Xnor,
+            AndAndEqual => And,
+            NotAndAndEqual => Nand,
+
+            LeftLeftEqual => Lsh,
+            RightRightEqual => Rsh,
+
+            PipeEqual => BitOr,
+            NotPipeEqual => BitNor,
+            RightPipeEqual => BitXor,
+            NotRightPipeEqual => BitXnor,
+            AndEqual => BitAnd,
+            NotAndEqual => BitNand,
+
+            PlusEqual => Add,
+            DashEqual => Sub,
+
+            StarEqual => Mul,
+            SlashEqual => Div,
+            PercentEqual => Mod,
+
+            DotEqual => Dot,
+            CrossEqual => Cross,
 
             _ => return None,
         })
@@ -434,7 +440,6 @@ impl<'src> Token<'src> {
         Some(match self.kind {
             PlusPlus => Inc,
             DashDash => Dec,
-            TokenKind::Not => Fac,
             LeftArrow => Ptr,
             _ => return None,
         })

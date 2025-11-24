@@ -5,10 +5,7 @@ use crate::tokenizing::{token::TokenKind, whitespace_at_start_or_empty};
 use crate::{
     error::*,
     format_error_quote_arg,
-    parser::{
-        binary_op::BinaryOp,
-        tree::{Node, NodeBox, NodeWrapper, Note},
-    },
+    parser::tree::{Node, NodeBox, NodeWrapper, Note},
 };
 use num::{bigint::Sign, BigInt, BigUint};
 
