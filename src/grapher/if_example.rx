@@ -1,0 +1,10 @@
+i ux = 0
+
+x i32 = 3000
+if i < 10 {
+    x = 10
+} else {
+    x = 11
+}
+
+y i32 = if i > 10 x else 1 // without curlys is also possible

@@ -42,6 +42,13 @@ pub enum NodeKind<'src> {
         lhs: NodeId<'src>,
         rhs: NodeId<'src>,
     },
+
+    Phi {
+        condition: NodeId<'src>,
+        when_true: NodeId<'src>,
+        when_false: NodeId<'src>,
+    },
+
     UnknownIdent {
         name: &'src str,
     },

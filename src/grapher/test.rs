@@ -12,7 +12,6 @@ use crate::{
 };
 use std::{panic, path::Path};
 
-const EXAMPLE_SOURCE: &str = include_str!("example.rx");
 const TARGET_PTR_SIZE: usize = 64;
 
 fn tokenizer_for(source: &'static str) -> Tokenizer<'static> {
@@ -20,9 +19,11 @@ fn tokenizer_for(source: &'static str) -> Tokenizer<'static> {
     Tokenizer::new(source, errors, TARGET_PTR_SIZE)
 }
 
+const ARITHMETIC_EXAMPLE: &str = include_str!("arithmetic_example.rx");
+
 #[test]
 fn builds_graph_for_example_program() {
-    let mut tokenizer = tokenizer_for(EXAMPLE_SOURCE);
+    let mut tokenizer = tokenizer_for(ARITHMETIC_EXAMPLE);
     let graph = Graph::from_stream(&mut tokenizer).expect("graph");
 
     let x_symbol = graph.symbol("x").expect("x symbol");
@@ -30,15 +31,15 @@ fn builds_graph_for_example_program() {
 
     let x_value = x_symbol.last_value.as_ref().expect("x's last_value");
     let (mul_lhs, mul_rhs) = expect_binary(x_value, BinaryOp::Mul);
-    expect_constant(&mul_rhs, Literal::from(20_u8));
+    expect_literal(&mul_rhs, Literal::from(20_u8));
 
     let (add_lhs, add_rhs) = expect_binary(&mul_lhs, BinaryOp::Add);
-    expect_constant(&add_lhs, Literal::from(10_u8));
-    expect_constant(&add_rhs, Literal::from(10_u8));
+    expect_literal(&add_lhs, Literal::from(10_u8));
+    expect_literal(&add_rhs, Literal::from(10_u8));
 
     let y_symbol = graph.symbol("y").expect("y symbol");
     expect_primitive_type(&y_symbol.ty, Type::Signed { size: 32 });
-    expect_constant(
+    expect_literal(
         y_symbol.last_value.as_ref().expect("y's last value"),
         Literal::from(11_u8),
     );
@@ -70,7 +71,7 @@ fn builds_graph_for_example_program() {
     );
 
     assert!(x_value.ptr_cmp(&lhs));
-    expect_constant(&rhs, Literal::from(1_u8));
+    expect_literal(&rhs, Literal::from(1_u8));
 }
 
 #[test]
@@ -87,8 +88,8 @@ fn assignment_updates_variable_versions() {
         BinaryOp::Add,
     );
 
-    expect_constant(&lhs, Literal::from(1_u8));
-    expect_constant(&rhs, Literal::from(1_u8));
+    expect_literal(&lhs, Literal::from(1_u8));
+    expect_literal(&rhs, Literal::from(1_u8));
 }
 
 #[test]
@@ -99,7 +100,7 @@ fn parses_non_decimal_literals() {
 
     let symbol = graph.symbol("value").expect("value symbol");
     expect_primitive_type(&symbol.ty, Type::Signed { size: 32 });
-    expect_constant(
+    expect_literal(
         &symbol.last_value.as_ref().expect("value's last value"),
         Literal {
             base: Base::Hexadecimal,
@@ -126,7 +127,7 @@ fn deduplicates_types_and_literal_nodes() {
     let y_value = y_symbol.last_value.as_ref().expect("y value");
     assert!(x_value.ptr_cmp(y_value));
 
-    expect_constant(x_value, Literal::from(1_u8));
+    expect_literal(x_value, Literal::from(1_u8));
 
     drop(graph);
     drop(tokenizer);
@@ -159,12 +160,57 @@ fn deduplicates_binary_nodes_for_identical_expressions() {
     assert!(x_add_lhs.ptr_cmp(&y_add_lhs));
     assert!(x_add_rhs.ptr_cmp(&y_add_rhs));
 
-    expect_constant(&x_mul_rhs, Literal::from(3_u8));
-    expect_constant(&x_add_lhs, Literal::from(10_u8));
-    expect_constant(&x_add_rhs, Literal::from(2_u8));
+    expect_literal(&x_mul_rhs, Literal::from(3_u8));
+    expect_literal(&x_add_lhs, Literal::from(10_u8));
+    expect_literal(&x_add_rhs, Literal::from(2_u8));
 }
 
-fn expect_constant(node: &NodeId<'_>, literal: Literal<'_>) {
+const IF_EXAMPLE: &str = include_str!("arithmetic_example.rx");
+
+#[test]
+fn basic_phi_works() {
+    let mut tokenizer = tokenizer_for(IF_EXAMPLE);
+    let graph = Graph::from_stream(&mut tokenizer).expect("graph");
+
+    let i_symbol = graph.symbol("i").expect("i symbol");
+    expect_primitive_type(
+        &i_symbol.ty,
+        Type::Unsigned {
+            size: TARGET_PTR_SIZE,
+        },
+    );
+    let i_value = i_symbol.last_value.as_ref().expect("i' last value");
+
+    expect_literal(i_value, Literal::from(0_u8));
+
+    let x_symbol = graph.symbol("x").expect("x symbol");
+    expect_primitive_type(&x_symbol.ty, Type::Signed { size: 32 });
+    let x_value = x_symbol.last_value.as_ref().expect("x's last value");
+
+    let (condition, when_true, when_false) = expect_phi(&x_value);
+    let (lhs, rhs) = expect_binary(&condition, BinaryOp::Smaller);
+
+    expect_literal(&lhs, Literal::from(0_u8));
+    expect_literal(&rhs, Literal::from(10_u8));
+
+    expect_literal(&when_true, Literal::from(10_u8));
+    expect_literal(&when_false, Literal::from(11_u8));
+
+    let y_symbol = graph.symbol("y").expect("y symbol");
+    expect_primitive_type(&y_symbol.ty, Type::Signed { size: 32 });
+    let y_value = y_symbol.last_value.as_ref().expect("y's last value");
+
+    let (condition, when_true, when_false) = expect_phi(&y_value);
+    let (lhs, rhs) = expect_binary(&condition, BinaryOp::Greater);
+
+    expect_literal(&lhs, Literal::from(0_u8));
+    expect_literal(&rhs, Literal::from(10_u8));
+
+    assert!(when_true.ptr_cmp(x_value));
+    expect_literal(&when_false, Literal::from(1_u8));
+}
+
+fn expect_literal(node: &NodeId<'_>, literal: Literal<'_>) {
     match &node.kind {
         NodeKind::Literal {
             literal: actual_literal,
@@ -202,6 +248,18 @@ fn expect_binary<'src>(node: &NodeId<'src>, op: BinaryOp) -> (NodeId<'src>, Node
             (lhs.clone(), rhs.clone())
         }
         other => panic!("expected binary {op:?}, got {other:?}"),
+    }
+}
+
+// returns: condition - when_true - when_false
+fn expect_phi<'src>(node: &NodeId<'src>) -> (NodeId<'src>, NodeId<'src>, NodeId<'src>) {
+    match &node.kind {
+        NodeKind::Phi {
+            condition,
+            when_true,
+            when_false,
+        } => (condition.clone(), when_true.clone(), when_false.clone()),
+        other => panic!("expected phi-node, got {other:?}"),
     }
 }
 
