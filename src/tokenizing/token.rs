@@ -1,5 +1,5 @@
 use super::binary_op::BinaryOp;
-use crate::{error::Span, parser::tree::Bracket, tokenizing::unary_op::UnaryOp};
+use crate::{error::Span, tokenizing::unary_op::UnaryOp};
 use colored::{ColoredString, Colorize};
 use std::fmt::Display;
 
@@ -96,11 +96,35 @@ pub enum TokenKind {
     Literal,          // 1001010101
     Quote,            // "_"
     Keyword(Keyword), // if / loop / ..
+    Type,             // i32
 
     Open(Bracket),   // ( / [ / {
     Closed(Bracket), // ) / ] / }
 
     EOF,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Bracket {
+    Round,
+    Squared,
+    Curly,
+}
+impl Bracket {
+    pub fn display_open(self) -> &'static str {
+        match self {
+            Bracket::Round => "(",
+            Bracket::Squared => "[",
+            Bracket::Curly => "{",
+        }
+    }
+    pub fn display_closed(self) -> &'static str {
+        match self {
+            Bracket::Round => ")",
+            Bracket::Squared => "]",
+            Bracket::Curly => "}",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -435,11 +459,18 @@ impl<'src> Token<'src> {
         })
     }
 
+    pub fn as_inc_or_dec(self) -> Option<BinaryOp> {
+        use BinaryOp::*;
+        Some(match self.kind {
+            PlusPlus => Add,
+            DashDash => Sub,
+            _ => return None,
+        })
+    }
+
     pub fn as_postfix(self) -> Option<UnaryOp> {
         use UnaryOp::*;
         Some(match self.kind {
-            PlusPlus => Inc,
-            DashDash => Dec,
             LeftArrow => Ptr,
             _ => return None,
         })

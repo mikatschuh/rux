@@ -315,7 +315,7 @@ impl fmt::Display for CliError {
 
 use std::path::Path;
 
-use crate::parser::tree::Bracket;
+use crate::tokenizing::token::Bracket;
 
 fn remove_quotes(path: &Path) -> String {
     String::from(
@@ -481,7 +481,7 @@ impl Sub<Position> for Span {
 }
 
 impl Span {
-    fn to_string(self, path: &Path) -> String {
+    pub fn to_string(self, path: &Path) -> String {
         match self.start.line == self.end.line {
             true => match self.start.collum == self.end.collum {
                 true => format!(

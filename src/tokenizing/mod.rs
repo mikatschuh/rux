@@ -6,6 +6,7 @@ use crate::{
             Keyword, Token,
             TokenKind::{self, *},
         },
+        ty::{parse_type, Type},
     },
     utilities::Rc,
 };
@@ -24,6 +25,7 @@ pub mod slicing;
 pub mod test;
 #[allow(dead_code)]
 pub mod token;
+pub mod ty;
 pub mod unary_op;
 
 pub trait TokenStream<'src> {
@@ -32,6 +34,7 @@ pub trait TokenStream<'src> {
     fn peek(&mut self) -> Token<'src>;
     fn get_literal(&mut self) -> Literal<'src>;
     fn get_quote(&mut self) -> String;
+    fn get_type(&mut self) -> Type;
     fn consume(&mut self);
 
     /// Consumes a token if it matches a predicate. If a token got consumed true is outputted.
@@ -72,18 +75,20 @@ pub struct Tokenizer<'src> {
     next_pos: Position,
 
     errors: Rc<Errors<'src>>,
+    target_ptr_size: usize,
 }
 
 #[derive(Default)]
 enum Data<'src> {
     #[default]
     None,
-    Literal(Literal<'src>),
+    Lit(Literal<'src>),
     Quote(String),
+    Type(Type),
 }
 
 impl<'src> Tokenizer<'src> {
-    pub fn new(text: &'src str, errors: Rc<Errors<'src>>) -> Self {
+    pub fn new(text: &'src str, errors: Rc<Errors<'src>>, target_ptr_size: usize) -> Self {
         Self {
             text: text.as_bytes(),
             pos: Position::beginning(),
@@ -96,6 +101,7 @@ impl<'src> Tokenizer<'src> {
             next_pos: Position::beginning(),
 
             errors,
+            target_ptr_size,
         }
     }
 }
@@ -125,16 +131,15 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
             // identifiers
             _ => {
                 let ptr = self.next_text.as_ptr();
-                let mut len = 1;
+                let mut len = 0;
                 let mut span: Span = self.next_pos.into();
-                if self.next_text[0] & 0b1100_0000 != 0b1000_0000 {
-                    span.end += 1
-                }
 
                 if let Some(mut state) = TokenKind::new(self.next_text[0]) {
-                    loop {
-                        self.next_text = &self.next_text[1..];
+                    len = 1;
+                    self.next_text = &self.next_text[1..];
+                    span.end += 1;
 
+                    loop {
                         if self.next_text.is_empty() {
                             self.next_pos = span.end;
                             return self.cache_tok(Token {
@@ -147,12 +152,13 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
                         }
 
                         if let Some(next_state) = state.add(self.next_text[0]) {
-                            state = next_state;
-
                             len += 1;
                             if self.next_text[0] & 0b1100_0000 != 0b1000_0000 {
                                 span.end += 1
                             }
+                            self.next_text = &self.next_text[1..];
+
+                            state = next_state;
                         } else {
                             self.next_pos = span.end;
                             return self.cache_tok(Token {
@@ -167,12 +173,12 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
                 }
 
                 if let Some((used_bytes, literal)) = parse_literal(self.next_text) {
-                    self.data = Data::Literal(literal);
+                    self.data = Data::Lit(literal);
 
-                    self.next_text = &self.next_text[used_bytes..];
-                    self.next_pos += used_bytes;
-                    span.end += used_bytes - 1; // one did we already add
                     len = used_bytes;
+                    self.next_text = &self.next_text[used_bytes..];
+                    span.end += used_bytes;
+                    self.next_pos += used_bytes;
 
                     return self.cache_tok(Token {
                         span,
@@ -181,9 +187,22 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
                     });
                 }
 
-                loop {
-                    self.next_text = &self.next_text[1..];
+                if let Some((used_bytes, ty)) = parse_type(self.next_text, self.target_ptr_size) {
+                    self.data = Data::Type(ty);
 
+                    len = used_bytes;
+                    self.next_text = &self.next_text[used_bytes..];
+                    span.end += used_bytes;
+                    self.next_pos += used_bytes;
+
+                    return self.cache_tok(Token {
+                        span,
+                        src: unsafe { str::from_utf8_unchecked(slice::from_raw_parts(ptr, len)) },
+                        kind: Type,
+                    });
+                }
+
+                loop {
                     if whitespace_at_start_or_empty(&self.next_text)
                         || TokenKind::new(self.next_text[0]).is_some()
                     {
@@ -211,24 +230,30 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
                     if self.next_text[0] & 0b1100_0000 != 0b1000_0000 {
                         span.end += 1;
                     }
+                    self.next_text = &self.next_text[1..];
                 }
             }
         }
     }
 
     fn get_literal(&mut self) -> Literal<'src> {
-        if let Data::Literal(lit) = mem::take(&mut self.data) {
-            lit
-        } else {
-            unreachable!()
+        match mem::take(&mut self.data) {
+            Data::Lit(lit) => lit,
+            _ => unreachable!(),
         }
     }
 
     fn get_quote(&mut self) -> String {
-        if let Data::Quote(quote) = mem::take(&mut self.data) {
-            quote
-        } else {
-            unreachable!()
+        match mem::take(&mut self.data) {
+            Data::Quote(quote) => quote,
+            _ => unreachable!(),
+        }
+    }
+
+    fn get_type(&mut self) -> Type {
+        match mem::take(&mut self.data) {
+            Data::Type(ty) => ty,
+            _ => unreachable!(),
         }
     }
 

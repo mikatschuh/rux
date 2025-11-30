@@ -7,10 +7,6 @@ pub enum UnaryOp {
 
     Neg, // -a
 
-    // after one argument // unary - postfix - ops
-    Inc, // a++
-    Dec, // b--
-
     Ptr,   // -> a
     Deref, // a.
 }
@@ -23,9 +19,6 @@ impl fmt::Display for UnaryOp {
             Not => "!",
 
             Neg => "-",
-
-            Inc => "++",
-            Dec => "--",
 
             Ptr => "->",
             Deref => ".",

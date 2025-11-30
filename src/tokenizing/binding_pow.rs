@@ -1,12 +1,8 @@
 use super::{binary_op::BinaryOp, unary_op::UnaryOp};
-use crate::{
-    parser::tree::Bracket,
-    tokenizing::token::{Token, TokenKind},
-};
+use crate::tokenizing::token::{Bracket, Token, TokenKind};
 
 use TokenKind::*;
 
-pub const STATEMENT: u8 = 1;
 pub const PATH: u8 = 2;
 pub const COLON: u8 = 8;
 
@@ -54,7 +50,7 @@ impl<'src> Token<'src> {
     pub const fn binding_pow(self) -> u8 {
         match self.kind {
             Comma | Closed(..) | EOF | HalfCenterDot | RightArrow | Placeholder | Ident | Not
-            | Literal | Quote | Keyword(..) | Open(Bracket::Curly) | Semicolon => 0,
+            | Literal | Quote | Keyword(..) | Type | Open(Bracket::Curly) | Semicolon => 0,
 
             TokenKind::Colon => COLON,
 
@@ -114,7 +110,7 @@ impl UnaryOp {
     pub const fn binding_pow(self) -> u8 {
         use UnaryOp::*;
         match self {
-            Inc | Dec | Deref => panic!("These don't have right binding power!"),
+            Deref => panic!("These don't have right binding power!"),
 
             Neg => NEGATION_RIGHT,
             Not => PREFIX,

@@ -1,13 +1,6 @@
-use std::slice;
-
 use crate::tokenizing::{token::TokenKind, whitespace_at_start_or_empty};
-#[allow(unused)]
-use crate::{
-    error::*,
-    format_error_quote_arg,
-    parser::tree::{Node, NodeBox, NodeWrapper, Note},
-};
-use num::{bigint::Sign, BigInt, BigUint};
+use num::{bigint::Sign, BigInt, BigUint, FromPrimitive};
+use std::slice;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Literal<'src> {
@@ -16,6 +9,18 @@ pub struct Literal<'src> {
     pub num_digits_after_dot: usize,
     pub exponent: Option<BigInt>,
     pub suffix: &'src str,
+}
+
+impl<'src, N: Into<u64>> From<N> for Literal<'src> {
+    fn from(num: N) -> Self {
+        Self {
+            base: Base::Decimal,
+            digits: BigUint::from_u64(num.into()).expect("BigUint"),
+            num_digits_after_dot: 0,
+            exponent: None,
+            suffix: "",
+        }
+    }
 }
 
 /// N = (0  b/s/o/d/x) DIGITS

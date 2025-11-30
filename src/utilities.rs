@@ -118,6 +118,11 @@ impl<T, A: CustomAllocator> Rc<T, A> {
     pub fn strong_count(&self) -> usize {
         unsafe { (*self.ptr.as_ptr()).strong.load(Ordering::SeqCst) }
     }
+
+    #[allow(dead_code)]
+    pub fn ptr_cmp(&self, other: &Self) -> bool {
+        self.ptr == other.ptr
+    }
 }
 
 // Eine einzige Clone-Implementierung für MyRc mit Copy-Trait-Bound

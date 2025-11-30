@@ -1,12 +1,23 @@
+use num::{BigUint, FromPrimitive};
+
 use super::{BinaryOp, Graph, NodeId, NodeKind};
-use crate::{error::Errors, tokenizing::Tokenizer, utilities::Rc};
-use std::{path::Path, ptr};
+use crate::{
+    error::Errors,
+    tokenizing::{
+        num::{Base, Literal},
+        ty::Type,
+        Tokenizer,
+    },
+    utilities::Rc,
+};
+use std::{panic, path::Path};
 
 const EXAMPLE_SOURCE: &str = include_str!("example.rx");
+const TARGET_PTR_SIZE: usize = 64;
 
 fn tokenizer_for(source: &'static str) -> Tokenizer<'static> {
     let errors = Rc::new(Errors::empty(Path::new("example.rx")));
-    Tokenizer::new(source, errors)
+    Tokenizer::new(source, errors, TARGET_PTR_SIZE)
 }
 
 #[test]
@@ -15,111 +26,115 @@ fn builds_graph_for_example_program() {
     let graph = Graph::from_stream(&mut tokenizer).expect("graph");
 
     let x_symbol = graph.symbol("x").expect("x symbol");
-    assert_eq!(x_symbol.ty, "i32");
-    let x_value = expect_assign(&x_symbol.last_value, "x");
-    let (mul_lhs, mul_rhs) = expect_binary(&x_value, BinaryOp::Mul);
-    expect_constant(&mul_rhs, "20", 20);
+    expect_primitive_type(&x_symbol.ty, Type::Signed { size: 32 });
+
+    let x_value = x_symbol.last_value.as_ref().expect("x's last_value");
+    let (mul_lhs, mul_rhs) = expect_binary(x_value, BinaryOp::Mul);
+    expect_constant(&mul_rhs, Literal::from(20_u8));
 
     let (add_lhs, add_rhs) = expect_binary(&mul_lhs, BinaryOp::Add);
-    expect_constant(&add_rhs, "10", 10);
-    let read_source = expect_read(&add_lhs, "a");
-    expect_constant(&read_source, "10", 10);
-
-    let a_versions = graph.symbol_versions("a").expect("a versions");
-    assert_eq!(a_versions.len(), 2);
-
-    let first_a = &a_versions[0];
-    assert_eq!(first_a.version, 0);
-    assert_eq!(first_a.ty, "i32");
-    let first_initializer = expect_decl(&first_a.decl, "a", "i32").expect("initializer for a");
-    expect_constant(&first_initializer, "10", 10);
-
-    let second_a = &a_versions[1];
-    assert_eq!(second_a.version, 1);
-    assert_eq!(second_a.ty, "u32");
-    assert!(expect_decl(&second_a.decl, "a", "u32").is_none());
+    expect_constant(&add_lhs, Literal::from(10_u8));
+    expect_constant(&add_rhs, Literal::from(10_u8));
 
     let y_symbol = graph.symbol("y").expect("y symbol");
-    assert_eq!(y_symbol.ty, "i32");
-    let y_initializer = expect_decl(&y_symbol.decl, "y", "i32").expect("initializer for y");
-    expect_constant(&y_initializer, "11", 11);
+    expect_primitive_type(&y_symbol.ty, Type::Signed { size: 32 });
+    expect_constant(
+        y_symbol.last_value.as_ref().expect("y's last value"),
+        Literal::from(11_u8),
+    );
+
+    let a_symbol = graph.symbol("a").expect("a symbol");
+    expect_primitive_type(&a_symbol.ty, Type::Unsigned { size: 32 });
+    assert!(a_symbol.last_value.is_none());
+
+    let abc_symbol = graph.symbol("abc").expect("abc symbol");
+    expect_unknown_ident(&abc_symbol.ty, "str");
+    expect_quote(
+        abc_symbol.last_value.as_ref().expect("abc's last value"),
+        "abc",
+    );
+
+    let complex_symbol = graph.symbol("complex").expect("complex symbol");
+    expect_primitive_type(
+        &complex_symbol.ty,
+        Type::Unsigned {
+            size: TARGET_PTR_SIZE,
+        },
+    );
+    let (lhs, rhs) = expect_binary(
+        complex_symbol
+            .last_value
+            .as_ref()
+            .expect("complex's last value"),
+        BinaryOp::Add,
+    );
+
+    assert!(x_value.ptr_cmp(&lhs));
+    expect_constant(&rhs, Literal::from(1_u8));
 }
 
 #[test]
 fn assignment_updates_variable_versions() {
     const PROGRAM: &str = "x i32 = 1\nx = x + 1\n";
-    let errors = Rc::new(Errors::empty(Path::new("assign.rx")));
-    let mut tokenizer = Tokenizer::new(PROGRAM, errors);
+    let mut tokenizer = tokenizer_for(PROGRAM);
     let graph = Graph::from_stream(&mut tokenizer).expect("graph");
 
-    let x_versions = graph.symbol_versions("x").expect("x versions");
-    assert_eq!(x_versions.len(), 1);
-    let declaration = &x_versions[0];
-    let initializer = expect_decl(&declaration.decl, "x", "i32").expect("initializer for x");
-    expect_constant(&initializer, "1", 1);
+    let x_symbol = graph.symbol("x").expect("x versions");
+    expect_primitive_type(&x_symbol.ty, Type::Signed { size: 32 });
 
-    let x_symbol = graph.symbol("x").expect("x symbol");
-    let assignment = expect_assign(&x_symbol.last_value, "x");
-    let (lhs, rhs) = expect_binary(&assignment, BinaryOp::Add);
-
-    let read_source = expect_read(&lhs, "x");
-    assert!(
-        ptr::eq(&*read_source, &*initializer),
-        "reads should use the previous SSA value"
+    let (lhs, rhs) = expect_binary(
+        x_symbol.last_value.as_ref().expect("x's last value"),
+        BinaryOp::Add,
     );
-    expect_constant(&rhs, "1", 1);
+
+    expect_constant(&lhs, Literal::from(1_u8));
+    expect_constant(&rhs, Literal::from(1_u8));
 }
 
 #[test]
 fn parses_non_decimal_literals() {
     const PROGRAM: &str = "value i32 = 0x20\n";
-    let errors = Rc::new(Errors::empty(Path::new("hex.rx")));
-    let mut tokenizer = Tokenizer::new(PROGRAM, errors);
+    let mut tokenizer = tokenizer_for(PROGRAM);
     let graph = Graph::from_stream(&mut tokenizer).expect("graph");
 
     let symbol = graph.symbol("value").expect("value symbol");
-    let initializer = expect_decl(&symbol.decl, "value", "i32").expect("initializer for value");
-    expect_constant(&initializer, "0x20", 32);
+    expect_primitive_type(&symbol.ty, Type::Signed { size: 32 });
+    expect_constant(
+        &symbol.last_value.as_ref().expect("value's last value"),
+        Literal {
+            base: Base::Hexadecimal,
+            digits: BigUint::from_u8(32_u8).expect("BigUint"),
+            num_digits_after_dot: 0,
+            exponent: None,
+            suffix: "",
+        },
+    );
 }
 
-fn expect_constant(node: &NodeId<'_>, literal: &str, value: i64) {
+fn expect_constant(node: &NodeId<'_>, literal: Literal<'_>) {
     match &node.kind {
-        NodeKind::Constant {
+        NodeKind::Literal {
             literal: actual_literal,
-            value: actual_value,
         } => {
             assert_eq!(actual_literal, &literal);
-            assert_eq!(*actual_value, value);
         }
-        other => panic!("expected constant {literal}, got {other:?}"),
+        other => panic!("expected literal {literal:?}, got {other:?}"),
     }
 }
 
-fn expect_decl<'src>(node: &NodeId<'src>, name: &str, ty: &str) -> Option<NodeId<'src>> {
+fn expect_quote(node: &NodeId<'_>, requested_quote: &str) {
     match &node.kind {
-        NodeKind::VariableDecl {
-            name: actual_name,
-            ty: actual_ty,
-            initializer,
-        } => {
-            assert_eq!(actual_name, &name);
-            assert_eq!(actual_ty, &ty);
-            initializer.clone()
-        }
-        other => panic!("expected declaration {name}, got {other:?}"),
+        NodeKind::Quote { quote } => assert_eq!(quote, requested_quote),
+        other => panic!("expected quote {requested_quote}, got {other:?}"),
     }
 }
 
-fn expect_assign<'src>(node: &NodeId<'src>, name: &str) -> NodeId<'src> {
+fn expect_primitive_type<'src>(node: &NodeId<'src>, requested_type: Type) {
     match &node.kind {
-        NodeKind::Assign {
-            name: actual_name,
-            value,
-        } => {
-            assert_eq!(actual_name, &name);
-            value.clone()
+        NodeKind::PrimitiveType { ty } => {
+            assert_eq!(*ty, requested_type)
         }
-        other => panic!("expected assignment to {name}, got {other:?}"),
+        other => panic!("expected primitive type {requested_type:?}, got {other:?}"),
     }
 }
 
@@ -137,15 +152,9 @@ fn expect_binary<'src>(node: &NodeId<'src>, op: BinaryOp) -> (NodeId<'src>, Node
     }
 }
 
-fn expect_read<'src>(node: &NodeId<'src>, name: &str) -> NodeId<'src> {
+fn expect_unknown_ident(node: &NodeId<'_>, requested_name: &str) {
     match &node.kind {
-        NodeKind::Read {
-            name: actual_name,
-            source,
-        } => {
-            assert_eq!(actual_name, &name);
-            source.clone()
-        }
-        other => panic!("expected read of {name}, got {other:?}"),
+        NodeKind::UnknownIdent { name } => assert_eq!(*name, requested_name),
+        other => panic!("expected unknown identifier {requested_name:?}, got {other:?}"),
     }
 }

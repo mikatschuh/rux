@@ -119,6 +119,7 @@ impl<'src> Parser<'src> {
                         tokens: VecDeque::new(),
                         literals: VecDeque::new(),
                         quotes: VecDeque::new(),
+                        types: VecDeque::new(),
                     };
                     loop {
                         let tok = tokens.peek();
@@ -145,6 +146,8 @@ impl<'src> Parser<'src> {
                             token_buffer.literals.push_back(tokens.get_literal())
                         } else if let Quote = tok.kind {
                             token_buffer.quotes.push_back(tokens.get_quote());
+                        } else if let Type = tok.kind {
+                            token_buffer.types.push_back(tokens.get_type());
                         }
 
                         tokens.consume();

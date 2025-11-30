@@ -2,7 +2,7 @@ use super::files::*;
 use crate::{
     error::{CliError, Errors},
     format_time,
-    parser::{tree::TreeDisplay, Parser},
+    grapher::Graph,
     tokenizing::Tokenizer,
     utilities::Rc,
 };
@@ -103,27 +103,12 @@ impl Task {
                 let parsing_errors = Rc::new(Errors::empty(path));
 
                 // lazy tokenizing
-                let mut tokenizer = Tokenizer::new(&content, parsing_errors.clone());
-
-                let ast = Parser::new(parsing_errors.clone()).parse(&mut tokenizer);
+                let mut tokenizer = Tokenizer::new(&content, parsing_errors.clone(), 64);
+                let graph = Graph::from_stream(&mut tokenizer);
 
                 // Debug Print
                 let time = now.elapsed().as_nanos();
-                for (sym, const_id) in ast.sym_const_table {
-                    let name = ast.internalizer.resolve(sym);
-                    let const_id_print = const_id.to_string();
-                    println!(
-                        "{} {} {}",
-                        name,
-                        const_id_print,
-                        ast.consts[const_id].display(
-                            &ast.internalizer,
-                            &(name.chars().map(|_| " ").collect::<String>()
-                                + "  "
-                                + &const_id_print.chars().map(|_| " ").collect::<String>())
-                        )
-                    )
-                }
+
                 println!("\n{}", *parsing_errors);
                 println!("\n\n{}", format_time(time));
 

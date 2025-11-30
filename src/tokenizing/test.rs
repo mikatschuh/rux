@@ -132,7 +132,7 @@ fn test() {
 
     for seq in sequences {
         let errors = Rc::new(Errors::empty(Path::new("example.rx")));
-        let mut tokenizer = Tokenizer::new(seq.0, errors);
+        let mut tokenizer = Tokenizer::new(seq.0, errors, 64);
 
         let mut tokens = vec![];
         loop {
@@ -150,7 +150,7 @@ fn test() {
     // testing literal behavior:
 
     let errors = Rc::new(Errors::empty(Path::new("example.rx")));
-    let mut tokenizer = Tokenizer::new("-1.3 + 0x345", errors);
+    let mut tokenizer = Tokenizer::new("-1.3 + 0x345", errors, 64);
 
     assert_eq!(
         tokenizer.peek(),

@@ -9,7 +9,7 @@ use threader::Threadpool;
 #[macro_use]
 mod error;
 // mod number;
-mod parser;
+// mod parser;
 mod threader;
 mod tokenizing;
 #[macro_use]

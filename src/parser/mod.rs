@@ -121,10 +121,7 @@ impl<'src> Parser<'src> {
                 }
             } // Generate missing opening bracket error
 
-            if tok.kind.is_terminator() {
-                return Some(lhs);
-            }
-            if tok.binding_pow() < min_bp {
+            if tok.binding_pow() < min_bp || tok.kind.is_terminator() {
                 return Some(lhs);
             }
 

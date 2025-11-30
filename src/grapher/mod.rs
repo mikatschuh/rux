@@ -4,16 +4,15 @@ use crate::{
         binding_pow,
         num::Literal,
         token::{Token, TokenKind},
+        ty::Type,
         unary_op::UnaryOp,
         TokenStream,
     },
     utilities::{MocAllocator, Rc},
 };
 use bumpalo::Bump;
-use num::ToPrimitive;
 use std::{collections::HashMap, fmt};
 
-pub mod intern;
 #[cfg(test)]
 mod test;
 
@@ -28,13 +27,16 @@ pub struct Node<'src> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum NodeKind<'src> {
-    Constant {
-        literal: &'src str,
-        value: i64,
+    Literal {
+        literal: Literal<'src>,
     },
     Quote {
         quote: String,
     },
+    PrimitiveType {
+        ty: Type,
+    },
+
     Unary {
         op: UnaryOp,
         input: NodeId<'src>,
@@ -44,32 +46,21 @@ pub enum NodeKind<'src> {
         lhs: NodeId<'src>,
         rhs: NodeId<'src>,
     },
-    VariableDecl {
+    UnknownIdent {
         name: &'src str,
-        ty: NodeId<'src>,
-    },
-    Assign {
-        name: &'src str,
-        value: NodeId<'src>,
-    },
-    Read {
-        name: &'src str,
-        source: NodeId<'src>,
     },
 }
 
 #[derive(Debug)]
 pub struct Symbol<'src> {
     pub ty: NodeId<'src>,
-    pub decl: NodeId<'src>,
-    pub last_value: NodeId<'src>,
-    pub version: usize,
+    pub last_value: Option<NodeId<'src>>,
 }
 
 #[derive(Debug, Default)]
 pub struct Graph<'src> {
     arena: Bump,
-    symbols: HashMap<&'src str, Vec<Symbol<'src>>>,
+    symbols: HashMap<&'src str, Symbol<'src>>,
 }
 
 impl<'src> Graph<'src> {
@@ -78,17 +69,7 @@ impl<'src> Graph<'src> {
     }
 
     pub fn symbol(&self, name: &str) -> Option<&Symbol<'src>> {
-        self.symbols.get(name).and_then(|stack| stack.last())
-    }
-
-    #[allow(dead_code)]
-    pub fn symbol_versions(&self, name: &str) -> Option<&[Symbol<'src>]> {
-        self.symbols.get(name).map(|stack| stack.as_slice())
-    }
-
-    #[allow(dead_code)]
-    pub fn symbols(&self) -> impl Iterator<Item = &Symbol<'src>> {
-        self.symbols.values().flat_map(|stack| stack.iter())
+        self.symbols.get(name)
     }
 
     fn push_node(&mut self, kind: NodeKind<'src>) -> NodeId<'src> {
@@ -96,8 +77,8 @@ impl<'src> Graph<'src> {
         Rc::<Node<'src>, MocAllocator>::new_in_bump(node, &self.arena)
     }
 
-    fn add_constant(&mut self, literal: &'src str, value: i64) -> NodeId<'src> {
-        self.push_node(NodeKind::Constant { literal, value })
+    fn add_literal(&mut self, literal: Literal<'src>) -> NodeId<'src> {
+        self.push_node(NodeKind::Literal { literal })
     }
 
     fn add_unary(&mut self, op: UnaryOp, input: NodeId<'src>) -> NodeId<'src> {
@@ -112,69 +93,57 @@ impl<'src> Graph<'src> {
         self.push_node(NodeKind::Quote { quote })
     }
 
-    fn declare_variable(&mut self, name: Token<'src>, ty: NodeId<'src>) -> NodeId<'src> {
-        let decl = self.push_node(NodeKind::VariableDecl {
-            name: name.src,
-            ty: ty.clone(),
-        });
-        let stack = self.symbols.entry(name.src).or_default();
-        let version = stack.len();
-        stack.push(Symbol {
-            ty,
-            decl: decl.clone(),
-            last_value: decl.clone(),
-            version,
-        });
-        decl
+    fn add_type(&mut self, ty: Type) -> NodeId<'src> {
+        self.push_node(NodeKind::PrimitiveType { ty })
+    }
+
+    fn declare_variable(&mut self, name: Token<'src>, ty: NodeId<'src>) {
+        self.symbols.insert(
+            name.src,
+            Symbol {
+                ty,
+                last_value: None,
+            },
+        );
     }
 
     fn assign_variable(&mut self, name: Token<'src>, value: NodeId<'src>) -> GraphResult<'src, ()> {
-        let has_symbol = matches!(
-            self.symbols.get(name.src),
-            Some(stack) if !stack.is_empty()
-        );
-        if !has_symbol {
-            return Err(GraphError::UnknownVariable { token: name });
+        if !self.symbols.contains_key(name.src) {
+            return Err(GraphError::AssignmentToUnknownIdent { ident: name });
         }
 
-        let assignment = self.push_node(NodeKind::Assign {
-            name: name.src,
-            value,
-        });
-        if let Some(symbol) = self
-            .symbols
-            .get_mut(name.src)
-            .and_then(|stack| stack.last_mut())
-        {
-            symbol.last_value = assignment.clone();
+        if let Some(symbol) = self.symbols.get_mut(name.src) {
+            symbol.last_value = Some(value);
         }
         Ok(())
     }
 
     fn read_variable(&mut self, ident: Token<'src>) -> GraphResult<'src, NodeId<'src>> {
-        let Some(stack) = self.symbols.get(ident.src) else {
-            return Err(GraphError::UnknownVariable { token: ident });
+        let Some(symbol) = self.symbols.get(ident.src) else {
+            let unknown_id = self.push_node(NodeKind::UnknownIdent { name: ident.src });
+            return Ok(unknown_id);
         };
-        let Some(symbol) = stack.last() else {
-            return Err(GraphError::UnknownVariable { token: ident });
-        };
-        Ok(self.push_node(NodeKind::Read {
-            name: ident.src,
-            source: symbol.last_value.clone(),
-        }))
+
+        match symbol.last_value {
+            Some(ref last_value) => Ok(last_value.clone()),
+            None => Err(GraphError::IdentWithoutAssignment { ident }),
+        }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum GraphError<'src> {
     UnexpectedToken {
         expected: &'static str,
         found: Token<'src>,
     },
-    InvalidLiteral {
-        token: Token<'src>,
+    AssignmentToUnknownIdent {
+        ident: Token<'src>,
     },
-    UnknownVariable {
+    IdentWithoutAssignment {
+        ident: Token<'src>,
+    },
+    InvalidLiteral {
         token: Token<'src>,
     },
     ExpectedExpression {
@@ -195,11 +164,20 @@ impl fmt::Display for GraphError<'_> {
                 "expected {}, found '{}' at {:?}",
                 expected, found.src, found.span
             ),
+            AssignmentToUnknownIdent { ident } => write!(
+                f,
+                "assignment to unknown identifier '{}' at {:?}",
+                ident.src, ident.span
+            ),
+            IdentWithoutAssignment { ident } => {
+                write!(
+                    f,
+                    "identifier '{}' read without being ever assigned at {:?}",
+                    ident.src, ident.span
+                )
+            }
             InvalidLiteral { token } => {
                 write!(f, "invalid literal '{}' at {:?}", token.src, token.span)
-            }
-            UnknownVariable { token } => {
-                write!(f, "unknown variable '{}' at {:?}", token.src, token.span)
             }
             ExpectedExpression { found } => write!(f, "expected expression near {:?}", found.span),
             MismatchedBracket { opener, closer } => write!(
@@ -266,6 +244,8 @@ impl<'src, 'tokens, T: TokenStream<'src>> GraphBuilder<'src, 'tokens, T> {
             } else if let Some(op) = tok.as_postfix() {
                 self.advance();
                 lhs = self.graph.add_unary(op, lhs)
+            } else {
+                return Ok(lhs);
             }
         }
     }
@@ -276,12 +256,17 @@ impl<'src, 'tokens, T: TokenStream<'src>> GraphBuilder<'src, 'tokens, T> {
             TokenKind::Literal => {
                 let literal = self.tokens.get_literal();
                 self.advance();
-                self.emit_literal(tok, literal)
+                Ok(self.graph.add_literal(literal))
             }
             TokenKind::Quote => {
                 let quote = self.tokens.get_quote();
                 self.advance();
                 Ok(self.graph.add_quote(quote))
+            }
+            TokenKind::Type => {
+                let ty = self.tokens.get_type();
+                self.advance();
+                Ok(self.graph.add_type(ty))
             }
             TokenKind::Ident => {
                 let name = self.advance();
@@ -338,33 +323,18 @@ impl<'src, 'tokens, T: TokenStream<'src>> GraphBuilder<'src, 'tokens, T> {
                 let lhs = self.graph.read_variable(name)?;
 
                 let new_val = self.graph.add_binary(op, lhs, rhs);
-                self.graph.assign_variable(name, new_val);
+                self.graph.assign_variable(name, new_val)?;
+            } else if let Some(op) = next_tok.as_inc_or_dec() {
+                self.advance();
+                let rhs = self.graph.add_literal(Literal::from(1_u8));
+                let lhs = self.graph.read_variable(name)?;
+
+                let new_val = self.graph.add_binary(op, lhs, rhs);
+                self.graph.assign_variable(name, new_val)?
+            } else {
+                return Ok(());
             }
-
-            return Ok(());
         }
-    }
-
-    fn emit_literal(
-        &mut self,
-        token: Token<'src>,
-        literal: Literal<'src>,
-    ) -> GraphResult<'src, NodeId<'src>> {
-        if literal.num_digits_after_dot != 0
-            || literal.exponent.is_some()
-            || !literal.suffix.is_empty()
-        {
-            return Err(GraphError::InvalidLiteral { token });
-        }
-        let value_u64 = literal
-            .digits
-            .to_u64()
-            .ok_or(GraphError::InvalidLiteral { token })?;
-        if value_u64 > i64::MAX as u64 {
-            return Err(GraphError::InvalidLiteral { token });
-        }
-        let value = value_u64 as i64;
-        Ok(self.graph.add_constant(token.src, value))
     }
 
     fn advance(&mut self) -> Token<'src> {
