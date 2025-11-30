@@ -127,6 +127,9 @@ fn deduplicates_types_and_literal_nodes() {
     assert!(x_value.ptr_cmp(y_value));
 
     expect_constant(x_value, Literal::from(1_u8));
+
+    drop(graph);
+    drop(tokenizer);
 }
 
 #[test]
