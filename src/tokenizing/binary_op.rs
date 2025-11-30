@@ -1,4 +1,4 @@
-#[derive(Clone, PartialEq, Eq, Debug, Copy)]
+#[derive(Clone, PartialEq, Eq, Debug, Copy, Hash)]
 pub enum BinaryOp {
     Or,   // a || b
     Nor,  // a !|| b

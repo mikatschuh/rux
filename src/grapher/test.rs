@@ -111,6 +111,56 @@ fn parses_non_decimal_literals() {
     );
 }
 
+#[test]
+fn deduplicates_types_and_literal_nodes() {
+    const PROGRAM: &str = "x i32 = 1\ny i32 = 1\n";
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer).expect("graph");
+
+    let x_symbol = graph.symbol("x").expect("x symbol");
+    let y_symbol = graph.symbol("y").expect("y symbol");
+
+    assert!(x_symbol.ty.ptr_cmp(&y_symbol.ty));
+
+    let x_value = x_symbol.last_value.as_ref().expect("x value");
+    let y_value = y_symbol.last_value.as_ref().expect("y value");
+    assert!(x_value.ptr_cmp(y_value));
+
+    expect_constant(x_value, Literal::from(1_u8));
+}
+
+#[test]
+fn deduplicates_binary_nodes_for_identical_expressions() {
+    const PROGRAM: &str = "x i32 = (10 + 2) * 3\ny i32 = (10 + 2) * 3\n";
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer).expect("graph");
+
+    let x_value = graph
+        .symbol("x")
+        .and_then(|symbol| symbol.last_value.as_ref())
+        .expect("x value");
+    let y_value = graph
+        .symbol("y")
+        .and_then(|symbol| symbol.last_value.as_ref())
+        .expect("y value");
+
+    assert!(x_value.ptr_cmp(y_value));
+
+    let (x_mul_lhs, x_mul_rhs) = expect_binary(x_value, BinaryOp::Mul);
+    let (y_mul_lhs, y_mul_rhs) = expect_binary(y_value, BinaryOp::Mul);
+    assert!(x_mul_lhs.ptr_cmp(&y_mul_lhs));
+    assert!(x_mul_rhs.ptr_cmp(&y_mul_rhs));
+
+    let (x_add_lhs, x_add_rhs) = expect_binary(&x_mul_lhs, BinaryOp::Add);
+    let (y_add_lhs, y_add_rhs) = expect_binary(&y_mul_lhs, BinaryOp::Add);
+    assert!(x_add_lhs.ptr_cmp(&y_add_lhs));
+    assert!(x_add_rhs.ptr_cmp(&y_add_rhs));
+
+    expect_constant(&x_mul_rhs, Literal::from(3_u8));
+    expect_constant(&x_add_lhs, Literal::from(10_u8));
+    expect_constant(&x_add_rhs, Literal::from(2_u8));
+}
+
 fn expect_constant(node: &NodeId<'_>, literal: Literal<'_>) {
     match &node.kind {
         NodeKind::Literal {

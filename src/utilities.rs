@@ -1,4 +1,5 @@
 use std::alloc::{alloc, dealloc, Layout};
+use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::mem::{self, MaybeUninit};
 use std::ops::{Deref, DerefMut, Index, IndexMut};
@@ -178,10 +179,20 @@ impl<T, A: CustomAllocator> Drop for Rc<T, A> {
 }
 impl<T: PartialEq, A: CustomAllocator> PartialEq for Rc<T, A> {
     fn eq(&self, other: &Self) -> bool {
-        unsafe { self.ptr.as_ref().value == other.ptr.as_ref().value }
+        unsafe {
+            if self.ptr_cmp(other) {
+                return true;
+            }
+            self.ptr.as_ref().value == other.ptr.as_ref().value
+        }
     }
 }
 impl<T: PartialEq + Eq, A: CustomAllocator> Eq for Rc<T, A> {}
+impl<T: Hash, A: CustomAllocator> Hash for Rc<T, A> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        unsafe { self.ptr.as_ref().value.hash(state) }
+    }
+}
 use std::fmt::{self, Debug};
 
 use bumpalo::Bump;

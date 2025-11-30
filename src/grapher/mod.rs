@@ -20,12 +20,12 @@ pub type GraphResult<'src, T> = Result<T, GraphError<'src>>;
 
 pub type NodeId<'src> = Rc<Node<'src>, MocAllocator>;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Node<'src> {
     pub kind: NodeKind<'src>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum NodeKind<'src> {
     Literal {
         literal: Literal<'src>,
@@ -61,6 +61,7 @@ pub struct Symbol<'src> {
 pub struct Graph<'src> {
     arena: Bump,
     symbols: HashMap<&'src str, Symbol<'src>>,
+    node_cache: HashMap<NodeKind<'src>, NodeId<'src>>,
 }
 
 impl<'src> Graph<'src> {
@@ -73,8 +74,15 @@ impl<'src> Graph<'src> {
     }
 
     fn push_node(&mut self, kind: NodeKind<'src>) -> NodeId<'src> {
+        if let Some(existing) = self.node_cache.get(&kind) {
+            return existing.clone();
+        }
+
+        let key = kind.clone();
         let node: Node<'src> = Node { kind };
-        Rc::<Node<'src>, MocAllocator>::new_in_bump(node, &self.arena)
+        let node_id = Rc::<Node<'src>, MocAllocator>::new_in_bump(node, &self.arena);
+        self.node_cache.insert(key, node_id.clone());
+        node_id
     }
 
     fn add_literal(&mut self, literal: Literal<'src>) -> NodeId<'src> {

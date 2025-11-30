@@ -2,7 +2,7 @@ use crate::tokenizing::{token::TokenKind, whitespace_at_start_or_empty};
 use num::{bigint::Sign, BigInt, BigUint, FromPrimitive};
 use std::slice;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Literal<'src> {
     pub base: Base,
     pub digits: BigUint,
@@ -116,7 +116,7 @@ pub(super) fn parse_literal<'src>(mut ident: &'src [u8]) -> Option<(usize, Liter
     ))
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Base {
     Binary = 2,
     Seximal = 6,

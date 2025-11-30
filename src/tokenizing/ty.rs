@@ -2,7 +2,7 @@ use num::BigUint;
 
 use crate::tokenizing::parse_literal;
 
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Hash)]
 pub enum Type {
     Unsigned { size: usize },
     Signed { size: usize },
