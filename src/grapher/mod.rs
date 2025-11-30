@@ -1,5 +1,5 @@
 use crate::{
-    grapher::parsing::{GraphBuilder, Parser},
+    grapher::parser::{GraphBuilder, Parser},
     tokenizing::{
         binary_op::BinaryOp, num::Literal, token::Token, ty::Type, unary_op::UnaryOp, TokenStream,
     },
@@ -8,7 +8,7 @@ use crate::{
 use bumpalo::Bump;
 use std::{collections::HashMap, fmt};
 
-mod parsing;
+mod parser;
 #[cfg(test)]
 mod test;
 

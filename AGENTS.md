@@ -13,13 +13,13 @@
 - to understand the tokenizing api a look at `src/tokenizing/test.rs` and the `TokenStream` trait in 
 `src/tokenizing/mod.rs` can be taken
 - `src/parser` is deprecated and should be stayed independent from and is now no longer part of the module tree
-- `src/grapher` contains the Sea of Nodes framework and parser
+- `src/grapher` contains the Sea of Nodes framework in mod.rs, the parser in parser.rs and in test.rs the tests 
 - `codegen/`, `vms/` and `interpreter/` are yet to be filled with content in future sessions
 - `my_project/` is the sample Flou workspace (`main.rx`, `module/inter.rx`) used by integration tests and quick demos.
 - `docs/` contains design references on Flou but is partially outdated and should be ignored.
 
 ## Build, Test, and Development Commands
-- `cargo build --release` compiles the toolchain; `cargo run -- build my_project/inter.rx` compiles the demo program        end-to-end.
+- `cargo build --release` compiles the toolchain; `cargo run -- build my_project/inter.rx` compiles the demo program end-to-end.
 - `cargo test` runs unit and integration suites; add `-- --ignored` when touching long-running cases.
 - `cargo fmt && cargo clippy --all-targets` enforces style and lints; run them before every branch push.
 - `./watcher.sh` is for humans and can be ignored
