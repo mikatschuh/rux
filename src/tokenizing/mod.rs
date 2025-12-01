@@ -211,9 +211,7 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
                             unsafe { str::from_utf8_unchecked(slice::from_raw_parts(ptr, len)) };
                         return self.cache_tok(Token {
                             span,
-                            src: unsafe {
-                                str::from_utf8_unchecked(slice::from_raw_parts(ptr, len))
-                            },
+                            src,
                             kind: match src {
                                 _ if src.trim_start_matches('_').is_empty() => {
                                     TokenKind::Placeholder

@@ -165,7 +165,7 @@ fn deduplicates_binary_nodes_for_identical_expressions() {
     expect_literal(&x_add_rhs, Literal::from(2_u8));
 }
 
-const IF_EXAMPLE: &str = include_str!("arithmetic_example.rx");
+const IF_EXAMPLE: &str = include_str!("if_example.rx");
 
 #[test]
 fn basic_phi_works() {

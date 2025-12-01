@@ -1,13 +1,14 @@
 use crate::{
-    grapher::{Graph, GraphError, GraphResult, NodeId},
+    grapher::{Graph, GraphError, GraphResult, NodeId, Symbol},
     tokenizing::{
         binding_pow,
         num::Literal,
-        token::{Token, TokenKind},
+        token::{Bracket, Keyword, Token, TokenKind},
         unary_op::UnaryOp,
         TokenStream,
     },
 };
+use std::collections::HashMap;
 pub trait Parser<'tokens, 'src, T: TokenStream<'src>> {
     fn new(tokens: &'tokens mut T) -> Self;
     fn build(self) -> GraphResult<'src, Graph<'src>>;
@@ -31,27 +32,35 @@ impl<'tokens, 'src, T: TokenStream<'src>> Parser<'tokens, 'src, T>
     fn build(mut self) -> GraphResult<'src, Graph<'src>> {
         loop {
             let token = self.peek();
-            match token.kind {
-                TokenKind::EOF => return Ok(self.graph),
-                TokenKind::Semicolon => {
-                    self.advance();
-                }
-                TokenKind::Ident => {
-                    let name = self.advance();
-                    self.parse_variable_tail(name, 1)?
-                }
-                _ => {
-                    return Err(GraphError::UnexpectedToken {
-                        expected: "identifier",
-                        found: token,
-                    })
-                }
+            if token.kind == TokenKind::EOF {
+                return Ok(self.graph);
             }
+
+            self.parse_statement()?;
         }
     }
 }
 
 impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
+    fn parse_statement(&mut self) -> GraphResult<'src, ()> {
+        let token = self.peek();
+        match token.kind {
+            TokenKind::Semicolon => {
+                self.advance();
+                Ok(())
+            }
+            TokenKind::Ident => {
+                let name = self.advance();
+                self.parse_variable_tail(name, 1)
+            }
+            TokenKind::Keyword(Keyword::If) => self.parse_if_statement(),
+            _ => Err(GraphError::UnexpectedToken {
+                expected: "statement",
+                found: token,
+            }),
+        }
+    }
+
     fn parse_expr(&mut self, min_bp: u8) -> GraphResult<'src, NodeId<'src>> {
         let mut lhs = self.parse_primary(min_bp)?;
 
@@ -111,6 +120,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                     }),
                 }
             }
+            TokenKind::Keyword(Keyword::If) => self.parse_if_expression(),
             _ => match tok.as_prefix() {
                 Some(op) => {
                     self.advance();
@@ -123,6 +133,123 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 }
             },
         }
+    }
+
+    fn parse_if_expression(&mut self) -> GraphResult<'src, NodeId<'src>> {
+        self.advance(); // consume 'if'
+        let condition = self.parse_expr(binding_pow::PATH)?;
+        let when_true = self.parse_expr(binding_pow::PATH)?;
+
+        let else_token = self.peek();
+        match else_token.kind {
+            TokenKind::Keyword(Keyword::Else) => {
+                self.advance();
+            }
+            _ => {
+                return Err(GraphError::UnexpectedToken {
+                    expected: "else",
+                    found: else_token,
+                })
+            }
+        }
+
+        let when_false = self.parse_expr(binding_pow::PATH)?;
+
+        Ok(self.graph.add_phi(condition, when_true, when_false))
+    }
+
+    fn parse_if_statement(&mut self) -> GraphResult<'src, ()> {
+        self.advance(); // consume 'if'
+        let condition = self.parse_expr(binding_pow::PATH)?;
+        let before_symbols = self.graph.snapshot_symbols();
+
+        let then_block_open = self.expect_open_curly()?;
+        self.parse_block(then_block_open)?;
+        let when_true_symbols = self.graph.snapshot_symbols();
+
+        self.graph.replace_symbols(before_symbols.clone());
+
+        let when_false_symbols = if matches!(self.peek().kind, TokenKind::Keyword(Keyword::Else)) {
+            self.advance();
+            let else_block_open = self.expect_open_curly()?;
+            self.parse_block(else_block_open)?;
+            self.graph.snapshot_symbols()
+        } else {
+            before_symbols.clone()
+        };
+
+        self.merge_symbol_versions(
+            condition,
+            before_symbols,
+            when_true_symbols,
+            when_false_symbols,
+        );
+        Ok(())
+    }
+
+    fn expect_open_curly(&mut self) -> GraphResult<'src, Token<'src>> {
+        let token = self.advance();
+        match token.kind {
+            TokenKind::Open(Bracket::Curly) => Ok(token),
+            _ => Err(GraphError::UnexpectedToken {
+                expected: "'{'",
+                found: token,
+            }),
+        }
+    }
+
+    fn parse_block(&mut self, opener: Token<'src>) -> GraphResult<'src, ()> {
+        loop {
+            let token = self.peek();
+            match token.kind {
+                TokenKind::Closed(closed) if closed == Bracket::Curly => {
+                    self.advance();
+                    return Ok(());
+                }
+                TokenKind::Closed(_) | TokenKind::EOF => {
+                    return Err(GraphError::MismatchedBracket {
+                        opener,
+                        closer: token,
+                    })
+                }
+                _ => self.parse_statement()?,
+            }
+        }
+    }
+
+    fn merge_symbol_versions(
+        &mut self,
+        condition: NodeId<'src>,
+        mut base: HashMap<&'src str, Symbol<'src>>,
+        when_true: HashMap<&'src str, Symbol<'src>>,
+        when_false: HashMap<&'src str, Symbol<'src>>,
+    ) {
+        for (name, symbol) in base.iter_mut() {
+            let base_value = symbol.last_value.clone();
+            let true_value = when_true
+                .get(name)
+                .and_then(|symbol| symbol.last_value.clone())
+                .or_else(|| base_value.clone());
+            let false_value = when_false
+                .get(name)
+                .and_then(|symbol| symbol.last_value.clone())
+                .or_else(|| base_value.clone());
+
+            let new_value = match (true_value, false_value) {
+                (Some(t_val), Some(f_val)) => {
+                    if t_val.ptr_cmp(&f_val) {
+                        Some(t_val)
+                    } else {
+                        Some(self.graph.add_phi(condition.clone(), t_val, f_val))
+                    }
+                }
+                _ => None,
+            };
+
+            symbol.last_value = new_value;
+        }
+
+        self.graph.replace_symbols(base);
     }
 
     fn parse_variable_tail(&mut self, name: Token<'src>, min_bp: u8) -> GraphResult<'src, ()> {

@@ -54,7 +54,7 @@ pub enum NodeKind<'src> {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Symbol<'src> {
     pub ty: NodeId<'src>,
     pub last_value: Option<NodeId<'src>>,
@@ -102,6 +102,19 @@ impl<'src> Graph<'src> {
         self.push_node(NodeKind::Binary { op, lhs, rhs })
     }
 
+    fn add_phi(
+        &mut self,
+        condition: NodeId<'src>,
+        when_true: NodeId<'src>,
+        when_false: NodeId<'src>,
+    ) -> NodeId<'src> {
+        self.push_node(NodeKind::Phi {
+            condition,
+            when_true,
+            when_false,
+        })
+    }
+
     fn add_quote(&mut self, quote: String) -> NodeId<'src> {
         self.push_node(NodeKind::Quote { quote })
     }
@@ -141,6 +154,14 @@ impl<'src> Graph<'src> {
             Some(ref last_value) => Ok(last_value.clone()),
             None => Err(GraphError::IdentWithoutAssignment { ident }),
         }
+    }
+
+    fn snapshot_symbols(&self) -> HashMap<&'src str, Symbol<'src>> {
+        self.symbols.clone()
+    }
+
+    fn replace_symbols(&mut self, snapshot: HashMap<&'src str, Symbol<'src>>) {
+        self.symbols = snapshot;
     }
 }
 
