@@ -44,8 +44,18 @@ Linked List:
 
 Node[T] = type {
     content T,
-    next | { some, next -}-> Node
+    next | { some, next -}-> Node[T]
          | .none
+}
+
+Node :: proc(T type) type {
+    .{
+        content T,
+        next .{
+            > some, next -> Node(T)
+            > none
+        }
+    }
 }
 
 { content 0, next { Some, -}}->
@@ -66,3 +76,18 @@ Copy(Slice)
 On placeholders:
 
 .. will be used throughout the language. _ has no special meaning. ".." can also be used to drop:
+
+.. = x
+
+
+bool :: .{
+    > true,
+    > false,
+} = true
+
+add :: proc(
+    x X _,
+    a A _,
+) X + A {
+
+}

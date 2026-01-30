@@ -20,6 +20,7 @@ fn tokenizer_for(source: &'static str) -> Tokenizer<'static> {
 }
 
 const ARITHMETIC_EXAMPLE: &str = include_str!("arithmetic_example.rx");
+const LOOP_EXAMPLE: &str = include_str!("loop_example.rx");
 
 #[test]
 fn builds_graph_for_example_program() {
@@ -215,7 +216,7 @@ fn expect_literal(node: &NodeId<'_>, literal: Literal<'_>) {
         NodeKind::Literal {
             literal: actual_literal,
         } => {
-            assert_eq!(actual_literal, &literal);
+            assert_eq!(*actual_literal, literal);
         }
         other => panic!("expected literal {literal:?}, got {other:?}"),
     }

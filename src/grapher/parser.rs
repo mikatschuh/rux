@@ -135,6 +135,44 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
+    fn parse_variable_tail(&mut self, name: Token<'src>, min_bp: u8) -> GraphResult<'src, ()> {
+        if binding_pow::WRITE < min_bp {
+            return Ok(());
+        }
+
+        if min_bp <= 1 && self.peek().binding_pow() == 0 {
+            let ty = self.parse_expr(if min_bp == 0 { 0 } else { binding_pow::LABEL })?;
+
+            self.graph.declare_variable(name, ty);
+        }
+
+        loop {
+            let next_tok = self.peek();
+            if next_tok.kind == TokenKind::Equal {
+                self.advance();
+                let rhs = self.parse_expr(binding_pow::WRITE_RIGHT)?;
+
+                self.graph.assign_variable(name, rhs)?;
+            } else if let Some(op) = next_tok.as_assign() {
+                self.advance();
+                let rhs = self.parse_expr(binding_pow::WRITE_RIGHT)?;
+                let lhs = self.graph.read_variable(name)?;
+
+                let new_val = self.graph.add_binary(op, lhs, rhs);
+                self.graph.assign_variable(name, new_val)?;
+            } else if let Some(op) = next_tok.as_inc_or_dec() {
+                self.advance();
+                let rhs = self.graph.add_literal(Literal::from(1_u8));
+                let lhs = self.graph.read_variable(name)?;
+
+                let new_val = self.graph.add_binary(op, lhs, rhs);
+                self.graph.assign_variable(name, new_val)?
+            } else {
+                return Ok(());
+            }
+        }
+    }
+
     fn parse_if_expression(&mut self) -> GraphResult<'src, NodeId<'src>> {
         self.advance(); // consume 'if'
         let condition = self.parse_expr(binding_pow::PATH)?;
@@ -250,44 +288,6 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
 
         self.graph.replace_symbols(base);
-    }
-
-    fn parse_variable_tail(&mut self, name: Token<'src>, min_bp: u8) -> GraphResult<'src, ()> {
-        if binding_pow::WRITE < min_bp {
-            return Ok(());
-        }
-
-        if min_bp <= 1 && self.peek().binding_pow() == 0 {
-            let ty = self.parse_expr(if min_bp == 0 { 0 } else { binding_pow::LABEL })?;
-
-            self.graph.declare_variable(name, ty);
-        }
-
-        loop {
-            let next_tok = self.peek();
-            if next_tok.kind == TokenKind::Equal {
-                self.advance();
-                let rhs = self.parse_expr(binding_pow::WRITE_RIGHT)?;
-
-                self.graph.assign_variable(name, rhs)?;
-            } else if let Some(op) = next_tok.as_assign() {
-                self.advance();
-                let rhs = self.parse_expr(binding_pow::WRITE_RIGHT)?;
-                let lhs = self.graph.read_variable(name)?;
-
-                let new_val = self.graph.add_binary(op, lhs, rhs);
-                self.graph.assign_variable(name, new_val)?;
-            } else if let Some(op) = next_tok.as_inc_or_dec() {
-                self.advance();
-                let rhs = self.graph.add_literal(Literal::from(1_u8));
-                let lhs = self.graph.read_variable(name)?;
-
-                let new_val = self.graph.add_binary(op, lhs, rhs);
-                self.graph.assign_variable(name, new_val)?
-            } else {
-                return Ok(());
-            }
-        }
     }
 
     fn advance(&mut self) -> Token<'src> {

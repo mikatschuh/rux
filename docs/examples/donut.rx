@@ -1,19 +1,20 @@
-time.now() Instant
-time.since(Instant) f64
-sin(f32) f32
-cos(f32) f32
+time.now proc() Instant
+time.since proc(Instant) f64
+sin proc(f32) f32
+cos proc(f32) f32
 
-main() {
-    start = time.now()
-    vec2 = { x f32, y f32 }
-    vec3 = { x f32, y f32, z f32 }
-    loop () std.out.display(width=100, height=100).fill() <| (uv vec2) - std.char {
-        f = 1
-        epsilon = 0.01
-        r = 15.0
-        mut(p vec3) := 0
+vec2 :: { x f32, y f32 }
+vec3 :: { x f32, y f32, z f32 }
 
-        d = norm((uv, f))
+main :: proc () {
+    start f32 = time.now()
+    loop () std.out.display(width=100, height=100).fill() <| (uv vec2) std.char {
+        f _ = 1
+        epsilon _ = 0.01
+        r _ = 15.0
+        p vec3 = 0
+
+        d vec3 = norm((uv, f))
         loop {
             sdf(p vec3) f32 {
                 angle = time.since(start)
@@ -22,8 +23,8 @@ main() {
                     * (cos(angle), sin(angle)(0, 1, 0))
                     * (p - (0, 0, f + r))
 
-                t = vec2 { 4, 2.2 }
-                q = vec2 { len(p.(x, z)) - t.x, p.y }
+                t vec2 = .{ 4, 2.2 }
+                q vec2 = .{ len(p.(x, z)) - t.x, p.y }
                 len(q) - t.y
             }
             dst = sdf(p)

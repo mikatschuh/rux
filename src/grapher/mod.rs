@@ -23,6 +23,16 @@ pub struct Node<'src> {
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum NodeKind<'src> {
+    ControlFlowStart,
+    Merge,
+
+    Load {
+        addr: NodeId<'src>,
+    },
+    Store {
+        addr: NodeId<'src>,
+    },
+
     Literal {
         literal: Literal<'src>,
     },
