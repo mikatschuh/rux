@@ -4,19 +4,18 @@ Vec2 :: .{
 }
 
 Vec2 :: .{
-    x f32,
-    y f32,
+    > x f32,
+      y f32,
 }
-
-Vec2 :: .{
-  > abc
-    x f32,
-    y f32,
-}
-
 
 construct_type :: proc() void {
     type_var type = type {>}
 
+    x i32
 
+    if cond {
+        x = 10
+    } else {
+        x = 11
+    }
 }

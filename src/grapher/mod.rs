@@ -53,6 +53,8 @@ pub enum NodeKind<'src> {
         rhs: NodeId<'src>,
     },
 
+    NotAssigned,
+
     Phi {
         condition: NodeId<'src>,
         when_true: NodeId<'src>,
@@ -67,7 +69,7 @@ pub enum NodeKind<'src> {
 #[derive(Debug, Clone)]
 pub struct Symbol<'src> {
     pub ty: NodeId<'src>,
-    pub last_value: Option<NodeId<'src>>,
+    pub assignment: NodeId<'src>,
 }
 
 #[derive(Debug, Default)]
@@ -134,11 +136,13 @@ impl<'src> Graph<'src> {
     }
 
     fn declare_variable(&mut self, name: Token<'src>, ty: NodeId<'src>) {
+        let not_assigned = self.push_node(NodeKind::NotAssigned);
+
         self.symbols.insert(
             name.src,
             Symbol {
                 ty,
-                last_value: None,
+                assignment: not_assigned,
             },
         );
     }
@@ -149,7 +153,7 @@ impl<'src> Graph<'src> {
         }
 
         if let Some(symbol) = self.symbols.get_mut(name.src) {
-            symbol.last_value = Some(value);
+            symbol.assignment = value;
         }
         Ok(())
     }
@@ -160,9 +164,10 @@ impl<'src> Graph<'src> {
             return Ok(unknown_id);
         };
 
-        match symbol.last_value {
-            Some(ref last_value) => Ok(last_value.clone()),
-            None => Err(GraphError::IdentWithoutAssignment { ident }),
+        if symbol.assignment.kind == NodeKind::NotAssigned {
+            Err(GraphError::IdentWithoutAssignment { ident })
+        } else {
+            Ok(symbol.assignment.clone())
         }
     }
 

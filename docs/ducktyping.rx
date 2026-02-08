@@ -1,0 +1,3 @@
+len :: proc(
+    x X .{ len 'L }
+) (T _) {}

@@ -263,14 +263,14 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         when_false: HashMap<&'src str, Symbol<'src>>,
     ) {
         for (name, symbol) in base.iter_mut() {
-            let base_value = symbol.last_value.clone();
+            let base_value = symbol.assignment.clone();
             let true_value = when_true
                 .get(name)
-                .and_then(|symbol| symbol.last_value.clone())
+                .map(|symbol| symbol.assignment.clone())
                 .or_else(|| base_value.clone());
             let false_value = when_false
                 .get(name)
-                .and_then(|symbol| symbol.last_value.clone())
+                .and_then(|symbol| symbol.assignment.clone())
                 .or_else(|| base_value.clone());
 
             let new_value = match (true_value, false_value) {
@@ -284,7 +284,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 _ => None,
             };
 
-            symbol.last_value = new_value;
+            symbol.assignment = new_value;
         }
 
         self.graph.replace_symbols(base);

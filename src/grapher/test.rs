@@ -30,7 +30,7 @@ fn builds_graph_for_example_program() {
     let x_symbol = graph.symbol("x").expect("x symbol");
     expect_primitive_type(&x_symbol.ty, Type::Signed { size: 32 });
 
-    let x_value = x_symbol.last_value.as_ref().expect("x's last_value");
+    let x_value = x_symbol.assignment.as_ref().expect("x's last_value");
     let (mul_lhs, mul_rhs) = expect_binary(x_value, BinaryOp::Mul);
     expect_literal(&mul_rhs, Literal::from(20_u8));
 
@@ -41,18 +41,18 @@ fn builds_graph_for_example_program() {
     let y_symbol = graph.symbol("y").expect("y symbol");
     expect_primitive_type(&y_symbol.ty, Type::Signed { size: 32 });
     expect_literal(
-        y_symbol.last_value.as_ref().expect("y's last value"),
+        y_symbol.assignment.as_ref().expect("y's last value"),
         Literal::from(11_u8),
     );
 
     let a_symbol = graph.symbol("a").expect("a symbol");
     expect_primitive_type(&a_symbol.ty, Type::Unsigned { size: 32 });
-    assert!(a_symbol.last_value.is_none());
+    assert!(a_symbol.assignment.is_none());
 
     let abc_symbol = graph.symbol("abc").expect("abc symbol");
     expect_unknown_ident(&abc_symbol.ty, "str");
     expect_quote(
-        abc_symbol.last_value.as_ref().expect("abc's last value"),
+        abc_symbol.assignment.as_ref().expect("abc's last value"),
         "abc",
     );
 
@@ -65,7 +65,7 @@ fn builds_graph_for_example_program() {
     );
     let (lhs, rhs) = expect_binary(
         complex_symbol
-            .last_value
+            .assignment
             .as_ref()
             .expect("complex's last value"),
         BinaryOp::Add,
@@ -85,7 +85,7 @@ fn assignment_updates_variable_versions() {
     expect_primitive_type(&x_symbol.ty, Type::Signed { size: 32 });
 
     let (lhs, rhs) = expect_binary(
-        x_symbol.last_value.as_ref().expect("x's last value"),
+        x_symbol.assignment.as_ref().expect("x's last value"),
         BinaryOp::Add,
     );
 
@@ -102,7 +102,7 @@ fn parses_non_decimal_literals() {
     let symbol = graph.symbol("value").expect("value symbol");
     expect_primitive_type(&symbol.ty, Type::Signed { size: 32 });
     expect_literal(
-        &symbol.last_value.as_ref().expect("value's last value"),
+        &symbol.assignment.as_ref().expect("value's last value"),
         Literal {
             base: Base::Hexadecimal,
             digits: BigUint::from_u8(32_u8).expect("BigUint"),
@@ -124,8 +124,8 @@ fn deduplicates_types_and_literal_nodes() {
 
     assert!(x_symbol.ty.ptr_cmp(&y_symbol.ty));
 
-    let x_value = x_symbol.last_value.as_ref().expect("x value");
-    let y_value = y_symbol.last_value.as_ref().expect("y value");
+    let x_value = x_symbol.assignment.as_ref().expect("x value");
+    let y_value = y_symbol.assignment.as_ref().expect("y value");
     assert!(x_value.ptr_cmp(y_value));
 
     expect_literal(x_value, Literal::from(1_u8));
@@ -142,11 +142,11 @@ fn deduplicates_binary_nodes_for_identical_expressions() {
 
     let x_value = graph
         .symbol("x")
-        .and_then(|symbol| symbol.last_value.as_ref())
+        .and_then(|symbol| symbol.assignment.as_ref())
         .expect("x value");
     let y_value = graph
         .symbol("y")
-        .and_then(|symbol| symbol.last_value.as_ref())
+        .and_then(|symbol| symbol.assignment.as_ref())
         .expect("y value");
 
     assert!(x_value.ptr_cmp(y_value));
@@ -180,13 +180,13 @@ fn basic_phi_works() {
             size: TARGET_PTR_SIZE,
         },
     );
-    let i_value = i_symbol.last_value.as_ref().expect("i' last value");
+    let i_value = i_symbol.assignment.as_ref().expect("i' last value");
 
     expect_literal(i_value, Literal::from(0_u8));
 
     let x_symbol = graph.symbol("x").expect("x symbol");
     expect_primitive_type(&x_symbol.ty, Type::Signed { size: 32 });
-    let x_value = x_symbol.last_value.as_ref().expect("x's last value");
+    let x_value = x_symbol.assignment.as_ref().expect("x's last value");
 
     let (condition, when_true, when_false) = expect_phi(&x_value);
     let (lhs, rhs) = expect_binary(&condition, BinaryOp::Smaller);
@@ -199,7 +199,7 @@ fn basic_phi_works() {
 
     let y_symbol = graph.symbol("y").expect("y symbol");
     expect_primitive_type(&y_symbol.ty, Type::Signed { size: 32 });
-    let y_value = y_symbol.last_value.as_ref().expect("y's last value");
+    let y_value = y_symbol.assignment.as_ref().expect("y's last value");
 
     let (condition, when_true, when_false) = expect_phi(&y_value);
     let (lhs, rhs) = expect_binary(&condition, BinaryOp::Greater);
