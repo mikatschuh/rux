@@ -1,6 +1,6 @@
 use num::{BigUint, FromPrimitive};
 
-use super::{BinaryOp, Graph, NodeId, NodeKind};
+use super::{BinaryOp, Graph, NodeID, NodeKind};
 use crate::{
     error::Errors,
     tokenizing::{
@@ -211,7 +211,7 @@ fn basic_phi_works() {
     expect_literal(&when_false, Literal::from(1_u8));
 }
 
-fn expect_literal(node: &NodeId<'_>, literal: Literal<'_>) {
+fn expect_literal(node: &NodeID<'_>, literal: Literal<'_>) {
     match &node.kind {
         NodeKind::Literal {
             literal: actual_literal,
@@ -222,14 +222,14 @@ fn expect_literal(node: &NodeId<'_>, literal: Literal<'_>) {
     }
 }
 
-fn expect_quote(node: &NodeId<'_>, requested_quote: &str) {
+fn expect_quote(node: &NodeID<'_>, requested_quote: &str) {
     match &node.kind {
         NodeKind::Quote { quote } => assert_eq!(quote, requested_quote),
         other => panic!("expected quote {requested_quote}, got {other:?}"),
     }
 }
 
-fn expect_primitive_type<'src>(node: &NodeId<'src>, requested_type: Type) {
+fn expect_primitive_type<'src>(node: &NodeID<'src>, requested_type: Type) {
     match &node.kind {
         NodeKind::PrimitiveType { ty } => {
             assert_eq!(*ty, requested_type)
@@ -238,7 +238,7 @@ fn expect_primitive_type<'src>(node: &NodeId<'src>, requested_type: Type) {
     }
 }
 
-fn expect_binary<'src>(node: &NodeId<'src>, op: BinaryOp) -> (NodeId<'src>, NodeId<'src>) {
+fn expect_binary<'src>(node: &NodeID<'src>, op: BinaryOp) -> (NodeID<'src>, NodeID<'src>) {
     match &node.kind {
         NodeKind::Binary {
             op: actual_op,
@@ -253,7 +253,7 @@ fn expect_binary<'src>(node: &NodeId<'src>, op: BinaryOp) -> (NodeId<'src>, Node
 }
 
 // returns: condition - when_true - when_false
-fn expect_phi<'src>(node: &NodeId<'src>) -> (NodeId<'src>, NodeId<'src>, NodeId<'src>) {
+fn expect_phi<'src>(node: &NodeID<'src>) -> (NodeID<'src>, NodeID<'src>, NodeID<'src>) {
     match &node.kind {
         NodeKind::Phi {
             condition,
@@ -264,7 +264,7 @@ fn expect_phi<'src>(node: &NodeId<'src>) -> (NodeId<'src>, NodeId<'src>, NodeId<
     }
 }
 
-fn expect_unknown_ident(node: &NodeId<'_>, requested_name: &str) {
+fn expect_unknown_ident(node: &NodeID<'_>, requested_name: &str) {
     match &node.kind {
         NodeKind::UnknownIdent { name } => assert_eq!(*name, requested_name),
         other => panic!("expected unknown identifier {requested_name:?}, got {other:?}"),

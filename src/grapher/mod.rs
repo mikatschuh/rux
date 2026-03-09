@@ -1,3 +1,5 @@
+use bumpalo::Bump;
+
 use crate::{
     grapher::parser::{GraphBuilder, Parser},
     tokenizing::{
@@ -5,7 +7,6 @@ use crate::{
     },
     utilities::{MocAllocator, Rc},
 };
-use bumpalo::Bump;
 use std::{collections::HashMap, fmt};
 
 mod parser;
@@ -14,23 +15,39 @@ mod test;
 
 pub type GraphResult<'src, T> = Result<T, GraphError<'src>>;
 
-pub type NodeId<'src> = Rc<Node<'src>, MocAllocator>;
+pub type NodeID<'src> = Rc<Node<'src>, MocAllocator>;
+pub type MemNodeID<'src> = Rc<MemNode<'src>, MocAllocator>;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Node<'src> {
     pub kind: NodeKind<'src>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub enum NodeKind<'src> {
-    ControlFlowStart,
-    Merge,
+pub struct MemNode<'src> {
+    pub kind: MemNodeKind<'src>,
+}
 
-    Load {
-        addr: NodeId<'src>,
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub enum MemNodeKind<'src> {
+    ControlFlowStart,
+    Merge {
+        a: MemNodeID<'src>,
+        b: MemNodeID<'src>,
     },
+
     Store {
-        addr: NodeId<'src>,
+        prev: MemNodeID<'src>,
+        addr: NodeID<'src>,
+        val: NodeID<'src>,
+    },
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub enum NodeKind<'src> {
+    Load {
+        prev: MemNodeID<'src>,
+        addr: NodeID<'src>,
     },
 
     Literal {
@@ -45,20 +62,20 @@ pub enum NodeKind<'src> {
 
     Unary {
         op: UnaryOp,
-        input: NodeId<'src>,
+        input: NodeID<'src>,
     },
     Binary {
         op: BinaryOp,
-        lhs: NodeId<'src>,
-        rhs: NodeId<'src>,
+        lhs: NodeID<'src>,
+        rhs: NodeID<'src>,
     },
 
-    NotAssigned,
+    Uninitialized,
 
     Phi {
-        condition: NodeId<'src>,
-        when_true: NodeId<'src>,
-        when_false: NodeId<'src>,
+        condition: NodeID<'src>,
+        when_true: NodeID<'src>,
+        when_false: NodeID<'src>,
     },
 
     UnknownIdent {
@@ -68,15 +85,15 @@ pub enum NodeKind<'src> {
 
 #[derive(Debug, Clone)]
 pub struct Symbol<'src> {
-    pub ty: NodeId<'src>,
-    pub assignment: NodeId<'src>,
+    pub ty: NodeID<'src>,
+    pub assignment: NodeID<'src>,
 }
 
 #[derive(Debug, Default)]
 pub struct Graph<'src> {
     arena: Bump,
     symbols: HashMap<&'src str, Symbol<'src>>,
-    node_cache: HashMap<NodeKind<'src>, NodeId<'src>>,
+    node_cache: HashMap<NodeKind<'src>, NodeID<'src>>,
 }
 
 impl<'src> Graph<'src> {
@@ -90,7 +107,7 @@ impl<'src> Graph<'src> {
         self.symbols.get(name)
     }
 
-    fn push_node(&mut self, kind: NodeKind<'src>) -> NodeId<'src> {
+    fn push_node(&mut self, kind: NodeKind<'src>) -> NodeID<'src> {
         if let Some(existing) = self.node_cache.get(&kind) {
             return existing.clone();
         }
@@ -102,24 +119,24 @@ impl<'src> Graph<'src> {
         node_id
     }
 
-    fn add_literal(&mut self, literal: Literal<'src>) -> NodeId<'src> {
+    fn add_literal(&mut self, literal: Literal<'src>) -> NodeID<'src> {
         self.push_node(NodeKind::Literal { literal })
     }
 
-    fn add_unary(&mut self, op: UnaryOp, input: NodeId<'src>) -> NodeId<'src> {
+    fn add_unary(&mut self, op: UnaryOp, input: NodeID<'src>) -> NodeID<'src> {
         self.push_node(NodeKind::Unary { op, input })
     }
 
-    fn add_binary(&mut self, op: BinaryOp, lhs: NodeId<'src>, rhs: NodeId<'src>) -> NodeId<'src> {
+    fn add_binary(&mut self, op: BinaryOp, lhs: NodeID<'src>, rhs: NodeID<'src>) -> NodeID<'src> {
         self.push_node(NodeKind::Binary { op, lhs, rhs })
     }
 
     fn add_phi(
         &mut self,
-        condition: NodeId<'src>,
-        when_true: NodeId<'src>,
-        when_false: NodeId<'src>,
-    ) -> NodeId<'src> {
+        condition: NodeID<'src>,
+        when_true: NodeID<'src>,
+        when_false: NodeID<'src>,
+    ) -> NodeID<'src> {
         self.push_node(NodeKind::Phi {
             condition,
             when_true,
@@ -127,16 +144,16 @@ impl<'src> Graph<'src> {
         })
     }
 
-    fn add_quote(&mut self, quote: String) -> NodeId<'src> {
+    fn add_quote(&mut self, quote: String) -> NodeID<'src> {
         self.push_node(NodeKind::Quote { quote })
     }
 
-    fn add_type(&mut self, ty: Type) -> NodeId<'src> {
+    fn add_type(&mut self, ty: Type) -> NodeID<'src> {
         self.push_node(NodeKind::PrimitiveType { ty })
     }
 
-    fn declare_variable(&mut self, name: Token<'src>, ty: NodeId<'src>) {
-        let not_assigned = self.push_node(NodeKind::NotAssigned);
+    fn declare_variable(&mut self, name: Token<'src>, ty: NodeID<'src>) {
+        let not_assigned = self.push_node(NodeKind::Uninitialized);
 
         self.symbols.insert(
             name.src,
@@ -147,7 +164,7 @@ impl<'src> Graph<'src> {
         );
     }
 
-    fn assign_variable(&mut self, name: Token<'src>, value: NodeId<'src>) -> GraphResult<'src, ()> {
+    fn assign_variable(&mut self, name: Token<'src>, value: NodeID<'src>) -> GraphResult<'src, ()> {
         if !self.symbols.contains_key(name.src) {
             return Err(GraphError::AssignmentToUnknownIdent { ident: name });
         }
@@ -158,13 +175,13 @@ impl<'src> Graph<'src> {
         Ok(())
     }
 
-    fn read_variable(&mut self, ident: Token<'src>) -> GraphResult<'src, NodeId<'src>> {
+    fn read_variable(&mut self, ident: Token<'src>) -> GraphResult<'src, NodeID<'src>> {
         let Some(symbol) = self.symbols.get(ident.src) else {
             let unknown_id = self.push_node(NodeKind::UnknownIdent { name: ident.src });
             return Ok(unknown_id);
         };
 
-        if symbol.assignment.kind == NodeKind::NotAssigned {
+        if symbol.assignment.kind == NodeKind::Uninitialized {
             Err(GraphError::IdentWithoutAssignment { ident })
         } else {
             Ok(symbol.assignment.clone())

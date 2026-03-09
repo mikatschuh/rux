@@ -1,6 +1,6 @@
 i ux = 0
 
-x i32 = 3000
+x i32 = -> 3000 // the -> (arrow) is equal to &mut. its the way of getting mutability in Rux
 if i < 10 {
     x = 10
 } else {

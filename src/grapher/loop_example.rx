@@ -1,11 +1,11 @@
-x i32 = 10
+x i32 = -> 10
 y i32
 
 loop x > 0 {
     x--
 }
 
-y = x + 1 // y == 1
+y = x + 1 // y == 1 // we can change the variable because we didnt initialize it yet
 
 a i32 = 0
 

@@ -1,5 +1,5 @@
 use crate::{
-    grapher::{Graph, GraphError, GraphResult, NodeId, Symbol},
+    grapher::{Graph, GraphError, GraphResult, NodeID, Symbol},
     tokenizing::{
         binding_pow,
         num::Literal,
@@ -61,7 +61,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_expr(&mut self, min_bp: u8) -> GraphResult<'src, NodeId<'src>> {
+    fn parse_expr(&mut self, min_bp: u8) -> GraphResult<'src, NodeID<'src>> {
         let mut lhs = self.parse_primary(min_bp)?;
 
         // connect tokens to this one
@@ -85,7 +85,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_primary(&mut self, min_bp: u8) -> GraphResult<'src, NodeId<'src>> {
+    fn parse_primary(&mut self, min_bp: u8) -> GraphResult<'src, NodeID<'src>> {
         let tok = self.peek();
         match tok.kind {
             TokenKind::Literal => {
@@ -173,7 +173,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_if_expression(&mut self) -> GraphResult<'src, NodeId<'src>> {
+    fn parse_if_expression(&mut self) -> GraphResult<'src, NodeID<'src>> {
         self.advance(); // consume 'if'
         let condition = self.parse_expr(binding_pow::PATH)?;
         let when_true = self.parse_expr(binding_pow::PATH)?;
@@ -257,7 +257,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
     fn merge_symbol_versions(
         &mut self,
-        condition: NodeId<'src>,
+        condition: NodeID<'src>,
         mut base: HashMap<&'src str, Symbol<'src>>,
         when_true: HashMap<&'src str, Symbol<'src>>,
         when_false: HashMap<&'src str, Symbol<'src>>,
