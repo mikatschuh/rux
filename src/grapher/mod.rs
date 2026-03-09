@@ -94,6 +94,8 @@ pub struct Graph<'src> {
     arena: Bump,
     symbols: HashMap<&'src str, Symbol<'src>>,
     node_cache: HashMap<NodeKind<'src>, NodeID<'src>>,
+    mem_node_cache: HashMap<MemNodeKind<'src>, MemNodeID<'src>>,
+    current_mem: Option<MemNodeID<'src>>,
 }
 
 impl<'src> Graph<'src> {
@@ -117,6 +119,42 @@ impl<'src> Graph<'src> {
         let node_id = Rc::<Node<'src>, MocAllocator>::new_in_bump(node, &self.arena);
         self.node_cache.insert(key, node_id.clone());
         node_id
+    }
+
+    fn push_mem_node(&mut self, kind: MemNodeKind<'src>) -> MemNodeID<'src> {
+        if let Some(existing) = self.mem_node_cache.get(&kind) {
+            return existing.clone();
+        }
+
+        let key = kind.clone();
+        let node: MemNode<'src> = MemNode { kind };
+        let node_id = Rc::<MemNode<'src>, MocAllocator>::new_in_bump(node, &self.arena);
+        self.mem_node_cache.insert(key, node_id.clone());
+        node_id
+    }
+
+    fn current_mem_id(&mut self) -> MemNodeID<'src> {
+        if let Some(mem) = &self.current_mem {
+            return mem.clone();
+        }
+
+        let start = self.push_mem_node(MemNodeKind::ControlFlowStart);
+        self.current_mem = Some(start.clone());
+        start
+    }
+
+    fn add_mem_merge(&mut self, a: MemNodeID<'src>, b: MemNodeID<'src>) -> MemNodeID<'src> {
+        self.push_mem_node(MemNodeKind::Merge { a, b })
+    }
+
+    fn add_store(&mut self, addr: NodeID<'src>, val: NodeID<'src>) -> MemNodeID<'src> {
+        let prev = self.current_mem_id();
+        self.push_mem_node(MemNodeKind::Store { prev, addr, val })
+    }
+
+    fn add_load(&mut self, addr: NodeID<'src>) -> NodeID<'src> {
+        let prev = self.current_mem_id();
+        self.push_node(NodeKind::Load { prev, addr })
     }
 
     fn add_literal(&mut self, literal: Literal<'src>) -> NodeID<'src> {
@@ -165,13 +203,28 @@ impl<'src> Graph<'src> {
     }
 
     fn assign_variable(&mut self, name: Token<'src>, value: NodeID<'src>) -> GraphResult<'src, ()> {
-        if !self.symbols.contains_key(name.src) {
+        let Some(existing) = self.symbols.get(name.src) else {
             return Err(GraphError::AssignmentToUnknownIdent { ident: name });
+        };
+        let existing_assignment = existing.assignment.clone();
+
+        if existing_assignment.kind == NodeKind::Uninitialized {
+            if let Some(symbol) = self.symbols.get_mut(name.src) {
+                symbol.assignment = value;
+            }
+            return Ok(());
         }
 
-        if let Some(symbol) = self.symbols.get_mut(name.src) {
-            symbol.assignment = value;
-        }
+        let NodeKind::Unary {
+            op: UnaryOp::Ptr,
+            input,
+        } = &existing_assignment.kind
+        else {
+            return Err(GraphError::AssignmentToImmutableIdent { ident: name });
+        };
+
+        let new_mem = self.add_store(input.clone(), value);
+        self.current_mem = Some(new_mem);
         Ok(())
     }
 
@@ -183,6 +236,12 @@ impl<'src> Graph<'src> {
 
         if symbol.assignment.kind == NodeKind::Uninitialized {
             Err(GraphError::IdentWithoutAssignment { ident })
+        } else if let NodeKind::Unary {
+            op: UnaryOp::Ptr,
+            input,
+        } = &symbol.assignment.kind
+        {
+            Ok(self.add_load(input.clone()))
         } else {
             Ok(symbol.assignment.clone())
         }
@@ -195,6 +254,14 @@ impl<'src> Graph<'src> {
     fn replace_symbols(&mut self, snapshot: HashMap<&'src str, Symbol<'src>>) {
         self.symbols = snapshot;
     }
+
+    fn snapshot_mem(&self) -> Option<MemNodeID<'src>> {
+        self.current_mem.clone()
+    }
+
+    fn replace_mem(&mut self, snapshot: Option<MemNodeID<'src>>) {
+        self.current_mem = snapshot;
+    }
 }
 
 #[derive(Debug)]
@@ -204,6 +271,9 @@ pub enum GraphError<'src> {
         found: Token<'src>,
     },
     AssignmentToUnknownIdent {
+        ident: Token<'src>,
+    },
+    AssignmentToImmutableIdent {
         ident: Token<'src>,
     },
     IdentWithoutAssignment {
@@ -233,6 +303,11 @@ impl fmt::Display for GraphError<'_> {
             AssignmentToUnknownIdent { ident } => write!(
                 f,
                 "assignment to unknown identifier '{}' at {:?}",
+                ident.src, ident.span
+            ),
+            AssignmentToImmutableIdent { ident } => write!(
+                f,
+                "assignment to immutable identifier '{}' at {:?}",
                 ident.src, ident.span
             ),
             IdentWithoutAssignment { ident } => {

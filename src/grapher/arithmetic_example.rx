@@ -1,4 +1,4 @@
-x i32
+x i32 = -> 0
 a i32 = 10
 x = (a + 10) * 20
 
@@ -6,7 +6,7 @@ y i32 = 11 a u32 // also possible to have on the same line
 
 abc str = "abc"
 
-complex ux = x ++ // complex == 20*20 + 1
+complex ux = x ++ // complex == (10*10)*20 + 1
 
 // variables have to be declared before they can be used
 

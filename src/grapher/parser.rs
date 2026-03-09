@@ -1,5 +1,5 @@
 use crate::{
-    grapher::{Graph, GraphError, GraphResult, NodeID, Symbol},
+    grapher::{Graph, GraphError, GraphResult, MemNodeID, NodeID, NodeKind, Symbol},
     tokenizing::{
         binding_pow,
         num::Literal,
@@ -125,7 +125,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 Some(op) => {
                     self.advance();
                     let node = self.parse_primary(op.binding_pow())?;
-                    Ok(self.graph.add_unary(UnaryOp::Neg, node))
+                    Ok(self.graph.add_unary(op, node))
                 }
                 None => {
                     self.advance();
@@ -200,21 +200,25 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         self.advance(); // consume 'if'
         let condition = self.parse_expr(binding_pow::PATH)?;
         let before_symbols = self.graph.snapshot_symbols();
+        let before_mem = self.graph.snapshot_mem();
 
         let then_block_open = self.expect_open_curly()?;
         self.parse_block(then_block_open)?;
         let when_true_symbols = self.graph.snapshot_symbols();
+        let when_true_mem = self.graph.snapshot_mem();
 
         self.graph.replace_symbols(before_symbols.clone());
+        self.graph.replace_mem(before_mem.clone());
 
-        let when_false_symbols = if matches!(self.peek().kind, TokenKind::Keyword(Keyword::Else)) {
-            self.advance();
-            let else_block_open = self.expect_open_curly()?;
-            self.parse_block(else_block_open)?;
-            self.graph.snapshot_symbols()
-        } else {
-            before_symbols.clone()
-        };
+        let (when_false_symbols, when_false_mem) =
+            if matches!(self.peek().kind, TokenKind::Keyword(Keyword::Else)) {
+                self.advance();
+                let else_block_open = self.expect_open_curly()?;
+                self.parse_block(else_block_open)?;
+                (self.graph.snapshot_symbols(), self.graph.snapshot_mem())
+            } else {
+                (before_symbols.clone(), before_mem.clone())
+            };
 
         self.merge_symbol_versions(
             condition,
@@ -222,6 +226,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             when_true_symbols,
             when_false_symbols,
         );
+        self.merge_mem_versions(before_mem, when_true_mem, when_false_mem);
         Ok(())
     }
 
@@ -264,30 +269,54 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     ) {
         for (name, symbol) in base.iter_mut() {
             let base_value = symbol.assignment.clone();
+            if matches!(
+                base_value.kind,
+                NodeKind::Unary {
+                    op: UnaryOp::Ptr,
+                    ..
+                }
+            ) {
+                continue;
+            }
+
             let true_value = when_true
                 .get(name)
                 .map(|symbol| symbol.assignment.clone())
-                .or_else(|| base_value.clone());
+                .unwrap_or_else(|| base_value.clone());
             let false_value = when_false
                 .get(name)
-                .and_then(|symbol| symbol.assignment.clone())
-                .or_else(|| base_value.clone());
+                .map(|symbol| symbol.assignment.clone())
+                .unwrap_or_else(|| base_value.clone());
 
-            let new_value = match (true_value, false_value) {
-                (Some(t_val), Some(f_val)) => {
-                    if t_val.ptr_cmp(&f_val) {
-                        Some(t_val)
-                    } else {
-                        Some(self.graph.add_phi(condition.clone(), t_val, f_val))
-                    }
-                }
-                _ => None,
+            let new_value = if true_value.ptr_cmp(&false_value) {
+                true_value
+            } else {
+                self.graph
+                    .add_phi(condition.clone(), true_value, false_value)
             };
 
             symbol.assignment = new_value;
         }
 
         self.graph.replace_symbols(base);
+    }
+
+    fn merge_mem_versions(
+        &mut self,
+        base_mem: Option<MemNodeID<'src>>,
+        when_true_mem: Option<MemNodeID<'src>>,
+        when_false_mem: Option<MemNodeID<'src>>,
+    ) {
+        let base_mem = base_mem.unwrap_or_else(|| self.graph.current_mem_id());
+        let true_mem = when_true_mem.unwrap_or_else(|| base_mem.clone());
+        let false_mem = when_false_mem.unwrap_or_else(|| base_mem.clone());
+
+        if true_mem.ptr_cmp(&false_mem) {
+            self.graph.replace_mem(Some(true_mem));
+        } else {
+            let merged = self.graph.add_mem_merge(true_mem, false_mem);
+            self.graph.replace_mem(Some(merged));
+        }
     }
 
     fn advance(&mut self) -> Token<'src> {
