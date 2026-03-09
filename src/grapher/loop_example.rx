@@ -7,7 +7,7 @@ loop x > 0 {
 
 y = x + 1 // y == 1 // we can change the variable because we didnt initialize it yet
 
-a i32 = 0
+a i32 = -> 0
 
 loop a < 10 a++
 
