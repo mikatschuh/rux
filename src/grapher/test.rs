@@ -194,6 +194,32 @@ loop a < 10 {a++}
     ));
 }
 
+#[test]
+fn dump_includes_loop_backedge_and_conditional_mem_merge() {
+    const PROGRAM: &str = r#"
+i ux = -> 0
+x i32 = -> 3000
+if i < 10 {
+    x = 10
+} else {
+    x = 11
+}
+loop i < 1 { i++ }
+y i32 = x
+"#;
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer).expect("graph");
+
+    let dump = graph.dump_text();
+    assert!(dump.contains("GraphDump {"));
+    assert!(dump.contains("symbols:"));
+    assert!(dump.contains("nodes:"));
+    assert!(dump.contains("memory:"));
+    assert!(dump.contains("LoopHead(entry=m"));
+    assert!(dump.contains("backedge=m"));
+    assert!(dump.contains("Merge(condition=n"));
+}
+
 fn expect_literal(node: &NodeID<'_>, literal: Literal<'_>) {
     match &node.kind {
         NodeKind::Literal {

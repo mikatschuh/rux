@@ -7,8 +7,13 @@ use crate::{
     },
     utilities::{NoDealloc, Rc},
 };
-use std::{collections::HashMap, fmt};
+use std::{
+    collections::HashMap,
+    fmt::{self},
+};
 
+#[allow(unused)]
+mod graph_dump;
 mod parser;
 #[cfg(test)]
 mod test;
@@ -139,6 +144,9 @@ pub struct Graph<'src> {
 impl<'src> Graph<'src> {
     fn node_ptr_id(node: &NodeID<'src>) -> usize {
         std::ptr::from_ref(&**node) as usize
+    }
+    fn mem_ptr_id(mem: &MemNodeID<'src>) -> usize {
+        std::ptr::from_ref(&**mem) as usize
     }
 
     fn node_key(kind: &NodeKind<'src>) -> Option<NodeKey<'src>> {
