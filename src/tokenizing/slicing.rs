@@ -7,11 +7,23 @@ use std::collections::VecDeque;
 
 #[derive(Debug)]
 pub struct TokenBuffer<'src> {
-    pub last_outputted_pos: Position,
-    pub tokens: VecDeque<Token<'src>>,
-    pub literals: VecDeque<Literal<'src>>,
-    pub quotes: VecDeque<String>,
-    pub types: VecDeque<Type>,
+    last_outputted_pos: Position,
+    pub(super) tokens: VecDeque<Token<'src>>,
+    pub(super) literals: VecDeque<Literal<'src>>,
+    pub(super) quotes: VecDeque<String>,
+    pub(super) types: VecDeque<Type>,
+}
+
+impl<'src> TokenBuffer<'src> {
+    pub fn new(starting_pos: Position) -> Self {
+        Self {
+            last_outputted_pos: starting_pos,
+            tokens: VecDeque::new(),
+            literals: VecDeque::new(),
+            quotes: VecDeque::new(),
+            types: VecDeque::new(),
+        }
+    }
 }
 
 impl<'src> TokenStream<'src> for TokenBuffer<'src> {
@@ -39,7 +51,11 @@ impl<'src> TokenStream<'src> for TokenBuffer<'src> {
 
     fn consume(&mut self) {
         if let Some(Token { span, .. }) = self.tokens.pop_front() {
-            self.last_outputted_pos = span.end
+            self.last_outputted_pos = if let Some(Token { span, .. }) = self.tokens.front() {
+                span.start
+            } else {
+                span.end
+            }
         }
     }
 }

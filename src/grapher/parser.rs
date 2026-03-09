@@ -4,7 +4,6 @@ use crate::{
         binding_pow,
         num::Literal,
         token::{Bracket, Keyword, Token, TokenKind},
-        unary_op::UnaryOp,
         TokenStream,
     },
 };
@@ -25,7 +24,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> Parser<'tokens, 'src, T>
     fn new(tokens: &'tokens mut T) -> Self {
         Self {
             tokens,
-            graph: Graph::default(),
+            graph: Graph::new(),
         }
     }
 
@@ -45,6 +44,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     fn parse_statement(&mut self) -> GraphResult<'src, ()> {
         let token = self.peek();
         match token.kind {
+            TokenKind::EOF => return Ok(()),
             TokenKind::Semicolon => {
                 self.advance();
                 Ok(())
@@ -52,6 +52,10 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             TokenKind::Ident => {
                 let name = self.advance();
                 self.parse_variable_tail(name, 1)
+            }
+            TokenKind::Open(Bracket::Curly) => {
+                let open_curly = self.advance();
+                self.parse_block(open_curly)
             }
             TokenKind::Keyword(Keyword::If) => self.parse_if_statement(),
             TokenKind::Keyword(Keyword::Loop) => self.parse_loop_statement(),
@@ -63,9 +67,16 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     }
 
     fn parse_expr(&mut self, min_bp: u8) -> GraphResult<'src, NodeID<'src>> {
-        let mut lhs = self.parse_primary(min_bp)?;
+        let lhs = self.parse_primary(min_bp)?;
+        self.parse_expr_tail(lhs, min_bp)
+    }
 
-        // connect tokens to this one
+    fn parse_expr_tail(
+        &mut self,
+        mut lhs: NodeID<'src>,
+        min_bp: u8,
+    ) -> GraphResult<'src, NodeID<'src>> {
+        // connect tokens to lhs
         loop {
             let tok = self.peek();
             if tok.binding_pow() < min_bp {
@@ -141,8 +152,12 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             return Ok(());
         }
 
-        if min_bp <= 1 && self.peek().binding_pow() == 0 {
-            let ty = self.parse_expr(if min_bp == 0 { 0 } else { binding_pow::LABEL })?;
+        if min_bp <= binding_pow::STATEMENT && self.peek().binding_pow() == binding_pow::ALL {
+            let ty = self.parse_expr(if min_bp == binding_pow::ALL {
+                min_bp
+            } else {
+                binding_pow::LABEL
+            })?;
 
             self.graph.declare_variable(name, ty);
         }
@@ -176,8 +191,8 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
     fn parse_if_expression(&mut self) -> GraphResult<'src, NodeID<'src>> {
         self.advance(); // consume 'if'
-        let condition = self.parse_expr(binding_pow::PATH)?;
-        let when_true = self.parse_expr(binding_pow::PATH)?;
+        let condition = self.parse_expr(binding_pow::EXPRESSION)?;
+        let when_true = self.parse_expr(binding_pow::EXPRESSION)?;
 
         let else_token = self.peek();
         match else_token.kind {
@@ -192,14 +207,14 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             }
         }
 
-        let when_false = self.parse_expr(binding_pow::PATH)?;
+        let when_false = self.parse_expr(binding_pow::EXPRESSION)?;
 
         Ok(self.graph.add_phi(condition, when_true, when_false))
     }
 
     fn parse_if_statement(&mut self) -> GraphResult<'src, ()> {
         self.advance(); // consume 'if'
-        let condition = self.parse_expr(binding_pow::PATH)?;
+        let condition = self.parse_expr(binding_pow::EXPRESSION)?;
         let before_symbols = self.graph.snapshot_symbols();
         let before_mem = self.graph.snapshot_mem();
 
@@ -227,26 +242,55 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             when_true_symbols,
             when_false_symbols,
         );
-        self.merge_mem_versions(before_mem, when_true_mem, when_false_mem);
+        self.merge_mem_versions(when_true_mem, when_false_mem);
         Ok(())
     }
 
     fn parse_loop_statement(&mut self) -> GraphResult<'src, ()> {
         self.advance(); // consume 'loop'
-        let condition = self.parse_expr(binding_pow::PATH)?;
+
+        let condition = if self.peek().kind == TokenKind::Ident {
+            let name = self.advance();
+            if self.peek().kind == TokenKind::Open(Bracket::Curly) {
+                self.graph.read_variable(name)? // there is already the body, we cannot parse any further
+            } else {
+                self.parse_variable_tail(name, binding_pow::STATEMENT)?;
+
+                if self.peek().kind == TokenKind::Colon {
+                    self.advance();
+                    self.parse_expr(binding_pow::EXPRESSION)
+                } else {
+                    let lhs = self.graph.read_variable(name)?;
+                    self.parse_expr_tail(lhs, binding_pow::EXPRESSION)
+                }?
+            }
+        } else {
+            self.parse_expr(binding_pow::EXPRESSION)?
+        };
+
+        let has_step_clause = if self.peek().kind == TokenKind::Colon {
+            self.advance();
+            true
+        } else {
+            false
+        };
+
         let before_symbols = self.graph.snapshot_symbols();
         let before_mem = self.graph.snapshot_mem();
+        let loop_head = self.graph.add_loop_head(before_mem.clone());
+        self.graph.replace_mem(loop_head.clone());
 
-        let body_result = if matches!(self.peek().kind, TokenKind::Open(Bracket::Curly)) {
-            let body_open = self.expect_open_curly()?;
-            self.parse_block(body_open)
-        } else {
-            self.parse_statement()
-        };
-        body_result?;
+        if has_step_clause {
+            self.parse_statement()?;
+        }
+
+        let body_open = self.expect_open_curly()?;
+        self.parse_block(body_open)?;
 
         let when_loop_symbols = self.graph.snapshot_symbols();
         let when_loop_mem = self.graph.snapshot_mem();
+        self.graph
+            .set_loop_backedge(loop_head.clone(), when_loop_mem);
 
         self.merge_symbol_versions(
             condition,
@@ -254,7 +298,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             when_loop_symbols,
             before_symbols,
         );
-        self.merge_mem_versions(before_mem.clone(), when_loop_mem, before_mem);
+        self.graph.replace_mem(loop_head);
         Ok(())
     }
 
@@ -297,13 +341,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     ) {
         for (name, symbol) in base.iter_mut() {
             let base_value = symbol.assignment.clone();
-            if matches!(
-                base_value.kind,
-                NodeKind::Unary {
-                    op: UnaryOp::Ptr,
-                    ..
-                }
-            ) {
+            if base_value.kind != NodeKind::UnInitialized {
                 continue;
             }
 
@@ -331,19 +369,17 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
     fn merge_mem_versions(
         &mut self,
-        base_mem: Option<MemNodeID<'src>>,
-        when_true_mem: Option<MemNodeID<'src>>,
-        when_false_mem: Option<MemNodeID<'src>>,
+        when_true_mem: MemNodeID<'src>,
+        when_false_mem: MemNodeID<'src>,
     ) {
-        let base_mem = base_mem.unwrap_or_else(|| self.graph.current_mem_id());
-        let true_mem = when_true_mem.unwrap_or_else(|| base_mem.clone());
-        let false_mem = when_false_mem.unwrap_or_else(|| base_mem.clone());
+        let true_mem = when_true_mem;
+        let false_mem = when_false_mem;
 
         if true_mem.ptr_cmp(&false_mem) {
-            self.graph.replace_mem(Some(true_mem));
+            self.graph.replace_mem(true_mem);
         } else {
             let merged = self.graph.add_mem_merge(true_mem, false_mem);
-            self.graph.replace_mem(Some(merged));
+            self.graph.replace_mem(merged);
         }
     }
 

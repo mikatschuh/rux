@@ -1,4 +1,5 @@
 use num::{BigUint, FromPrimitive};
+use std::collections::HashSet;
 
 use super::{BinaryOp, Graph, GraphError, MemNodeID, NodeID, NodeKind};
 use crate::{
@@ -128,8 +129,14 @@ loop x > 0 {
 y = x + 1
 
 a i32 = -> 0
-loop a < 10 a++
+loop a < 10 { a++}
 z i32 = a
+
+loop i ux = -> 0 : i < 10 : i++ { a-- }
+loop i > 0 : i-- {}
+
+result_i i32 = i
+result_a i32 = a
 "#;
 
     let mut tokenizer = tokenizer_for(PROGRAM);
@@ -153,13 +160,29 @@ z i32 = a
     let a_addr = expect_unary(&a_symbol.assignment, UnaryOp::Ptr);
     assert!(z_addr.ptr_cmp(&a_addr));
     assert!(mem_contains_store_to_addr(&z_mem, &a_addr));
+
+    let i_symbol = graph.symbol("i").expect("i symbol");
+    let i_addr = expect_unary(&i_symbol.assignment, UnaryOp::Ptr);
+    expect_literal(&i_addr, Literal::from(0_u8));
+
+    let result_i_symbol = graph.symbol("result_i").expect("result_i symbol");
+    let (result_i_mem, result_i_addr) = expect_load(&result_i_symbol.assignment);
+    assert!(result_i_addr.ptr_cmp(&i_addr));
+    assert!(mem_contains_store_to_addr(&result_i_mem, &i_addr));
+    assert!(mem_has_cycle(&result_i_mem));
+
+    let result_a_symbol = graph.symbol("result_a").expect("result_a symbol");
+    let (result_a_mem, result_a_addr) = expect_load(&result_a_symbol.assignment);
+    assert!(result_a_addr.ptr_cmp(&a_addr));
+    assert!(mem_contains_store_to_addr(&result_a_mem, &a_addr));
+    assert!(mem_has_cycle(&result_a_mem));
 }
 
 #[test]
 fn immutable_increment_in_loop_is_rejected() {
     const PROGRAM: &str = r#"
 a i32 = 0
-loop a < 10 a++
+loop a < 10 {a++}
 "#;
 
     let mut tokenizer = tokenizer_for(PROGRAM);
@@ -231,47 +254,103 @@ fn expect_phi<'src>(node: &NodeID<'src>) -> (NodeID<'src>, NodeID<'src>, NodeID<
 
 fn expect_load<'src>(node: &NodeID<'src>) -> (MemNodeID<'src>, NodeID<'src>) {
     match &node.kind {
-        NodeKind::Load { prev, addr } => (prev.clone(), addr.clone()),
+        NodeKind::Load { load, addr } => (
+            if let super::MemNodeKind::Load { prev } = &load.kind {
+                prev.clone()
+            } else {
+                panic!("should point to a load!")
+            },
+            addr.clone(),
+        ),
         other => panic!("expected load-node, got {other:?}"),
     }
 }
 
 fn expect_store_chain_ends_with_addr(mem: &MemNodeID<'_>, addr: &NodeID<'_>) {
-    let mut current = mem.clone();
-    loop {
-        match &current.kind {
-            super::MemNodeKind::ControlFlowStart => {
-                panic!("expected at least one store in memory chain")
-            }
-            super::MemNodeKind::Merge { a, b } => {
-                expect_store_chain_ends_with_addr(a, addr);
-                expect_store_chain_ends_with_addr(b, addr);
-                return;
-            }
-            super::MemNodeKind::Store {
-                prev,
-                addr: store_addr,
-                ..
-            } => {
-                if store_addr.ptr_cmp(addr) {
-                    return;
-                }
-                current = prev.clone();
-            }
-        }
-    }
+    let mut visited = HashSet::new();
+    assert!(
+        mem_contains_store_to_addr_with_visited(mem, addr, &mut visited),
+        "expected at least one store in memory chain"
+    );
 }
 
 fn mem_contains_store_to_addr(mem: &MemNodeID<'_>, addr: &NodeID<'_>) -> bool {
+    let mut visited = HashSet::new();
+    mem_contains_store_to_addr_with_visited(mem, addr, &mut visited)
+}
+
+fn mem_contains_store_to_addr_with_visited(
+    mem: &MemNodeID<'_>,
+    addr: &NodeID<'_>,
+    visited: &mut HashSet<usize>,
+) -> bool {
+    let mem_ptr = std::ptr::from_ref(&**mem) as usize;
+    if !visited.insert(mem_ptr) {
+        return false;
+    }
+
     match &mem.kind {
         super::MemNodeKind::ControlFlowStart => false,
+        super::MemNodeKind::LoopHead { entry, backedge } => {
+            mem_contains_store_to_addr_with_visited(entry, addr, visited)
+                || backedge.as_ref().is_some_and(|edge| {
+                    mem_contains_store_to_addr_with_visited(edge, addr, visited)
+                })
+        }
         super::MemNodeKind::Merge { a, b } => {
-            mem_contains_store_to_addr(a, addr) || mem_contains_store_to_addr(b, addr)
+            mem_contains_store_to_addr_with_visited(a, addr, visited)
+                || mem_contains_store_to_addr_with_visited(b, addr, visited)
         }
         super::MemNodeKind::Store {
             prev,
             addr: store_addr,
             ..
-        } => store_addr.ptr_cmp(addr) || mem_contains_store_to_addr(prev, addr),
+        } => {
+            store_addr.ptr_cmp(addr) || mem_contains_store_to_addr_with_visited(prev, addr, visited)
+        }
+        super::MemNodeKind::Load { prev, .. } => {
+            mem_contains_store_to_addr_with_visited(prev, addr, visited)
+        }
     }
+}
+
+fn mem_has_cycle(mem: &MemNodeID<'_>) -> bool {
+    let mut visited = HashSet::new();
+    let mut stack = HashSet::new();
+    mem_has_cycle_dfs(mem, &mut visited, &mut stack)
+}
+
+fn mem_has_cycle_dfs(
+    mem: &MemNodeID<'_>,
+    visited: &mut HashSet<usize>,
+    stack: &mut HashSet<usize>,
+) -> bool {
+    let mem_ptr = std::ptr::from_ref(&**mem) as usize;
+    if stack.contains(&mem_ptr) {
+        return true;
+    }
+    if !visited.insert(mem_ptr) {
+        return false;
+    }
+
+    stack.insert(mem_ptr);
+
+    let has_cycle = match &mem.kind {
+        super::MemNodeKind::ControlFlowStart => false,
+        super::MemNodeKind::LoopHead { entry, backedge } => {
+            mem_has_cycle_dfs(entry, visited, stack)
+                || backedge
+                    .as_ref()
+                    .is_some_and(|edge| mem_has_cycle_dfs(edge, visited, stack))
+        }
+        super::MemNodeKind::Merge { a, b } => {
+            mem_has_cycle_dfs(a, visited, stack) || mem_has_cycle_dfs(b, visited, stack)
+        }
+        super::MemNodeKind::Store { prev, .. } | super::MemNodeKind::Load { prev, .. } => {
+            mem_has_cycle_dfs(prev, visited, stack)
+        }
+    };
+
+    stack.remove(&mem_ptr);
+    has_cycle
 }

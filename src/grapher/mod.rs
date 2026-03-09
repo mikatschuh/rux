@@ -5,7 +5,7 @@ use crate::{
     tokenizing::{
         binary_op::BinaryOp, num::Literal, token::Token, ty::Type, unary_op::UnaryOp, TokenStream,
     },
-    utilities::{MocAllocator, Rc},
+    utilities::{NoDealloc, Rc},
 };
 use std::{collections::HashMap, fmt};
 
@@ -15,8 +15,8 @@ mod test;
 
 pub type GraphResult<'src, T> = Result<T, GraphError<'src>>;
 
-pub type NodeID<'src> = Rc<Node<'src>, MocAllocator>;
-pub type MemNodeID<'src> = Rc<MemNode<'src>, MocAllocator>;
+pub type NodeID<'src> = Rc<Node<'src>, NoDealloc>;
+pub type MemNodeID<'src> = Rc<MemNode<'src>, NoDealloc>;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Node<'src> {
@@ -31,6 +31,10 @@ pub struct MemNode<'src> {
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum MemNodeKind<'src> {
     ControlFlowStart,
+    LoopHead {
+        entry: MemNodeID<'src>,
+        backedge: Option<MemNodeID<'src>>,
+    },
     Merge {
         a: MemNodeID<'src>,
         b: MemNodeID<'src>,
@@ -41,12 +45,15 @@ pub enum MemNodeKind<'src> {
         addr: NodeID<'src>,
         val: NodeID<'src>,
     },
+    Load {
+        prev: MemNodeID<'src>,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum NodeKind<'src> {
     Load {
-        prev: MemNodeID<'src>,
+        load: MemNodeID<'src>,
         addr: NodeID<'src>,
     },
 
@@ -89,15 +96,32 @@ pub struct Symbol<'src> {
     pub assignment: NodeID<'src>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Graph<'src> {
     arena: Bump,
     symbols: HashMap<&'src str, Symbol<'src>>,
     node_cache: HashMap<NodeKind<'src>, NodeID<'src>>,
-    current_mem: Option<MemNodeID<'src>>,
+    current_mem: MemNodeID<'src>,
 }
 
 impl<'src> Graph<'src> {
+    fn new() -> Self {
+        let arena = Bump::new();
+        let current_mem = Rc::<MemNode<'src>, NoDealloc>::new_in_bump(
+            MemNode {
+                kind: MemNodeKind::ControlFlowStart,
+            },
+            &arena,
+        );
+
+        Self {
+            arena,
+            symbols: HashMap::new(),
+            node_cache: HashMap::new(),
+            current_mem,
+        }
+    }
+
     pub fn from_stream<'tokens>(
         tokens: &'tokens mut impl TokenStream<'src>,
     ) -> GraphResult<'src, Graph<'src>> {
@@ -115,28 +139,41 @@ impl<'src> Graph<'src> {
 
         let key = kind.clone();
         let node: Node<'src> = Node { kind };
-        let node_id = Rc::<Node<'src>, MocAllocator>::new_in_bump(node, &self.arena);
+        let node_id = Rc::<Node<'src>, NoDealloc>::new_in_bump(node, &self.arena);
         self.node_cache.insert(key, node_id.clone());
         node_id
     }
 
     fn push_mem_node(&mut self, kind: MemNodeKind<'src>) -> MemNodeID<'src> {
         let node: MemNode<'src> = MemNode { kind };
-        Rc::<MemNode<'src>, MocAllocator>::new_in_bump(node, &self.arena)
+        Rc::<MemNode<'src>, NoDealloc>::new_in_bump(node, &self.arena)
     }
 
     fn current_mem_id(&mut self) -> MemNodeID<'src> {
-        if let Some(mem) = &self.current_mem {
-            return mem.clone();
-        }
-
-        let start = self.push_mem_node(MemNodeKind::ControlFlowStart);
-        self.current_mem = Some(start.clone());
-        start
+        self.current_mem.clone()
     }
 
     fn add_mem_merge(&mut self, a: MemNodeID<'src>, b: MemNodeID<'src>) -> MemNodeID<'src> {
         self.push_mem_node(MemNodeKind::Merge { a, b })
+    }
+
+    fn add_loop_head(&mut self, entry: MemNodeID<'src>) -> MemNodeID<'src> {
+        self.push_mem_node(MemNodeKind::LoopHead {
+            entry,
+            backedge: None,
+        })
+    }
+
+    fn set_loop_backedge(&mut self, mut loop_head: MemNodeID<'src>, backedge: MemNodeID<'src>) {
+        match &mut loop_head.kind {
+            MemNodeKind::LoopHead {
+                backedge: loop_backedge,
+                ..
+            } => {
+                *loop_backedge = Some(backedge);
+            }
+            _ => panic!("attempted to set loop backedge on non-loop-head memory node"),
+        }
     }
 
     fn add_store(&mut self, addr: NodeID<'src>, val: NodeID<'src>) -> MemNodeID<'src> {
@@ -146,7 +183,14 @@ impl<'src> Graph<'src> {
 
     fn add_load(&mut self, addr: NodeID<'src>) -> NodeID<'src> {
         let prev = self.current_mem_id();
-        self.push_node(NodeKind::Load { prev, addr })
+        let mem_node = self.push_mem_node(MemNodeKind::Load { prev });
+        let node = Node {
+            kind: NodeKind::Load {
+                load: mem_node,
+                addr,
+            },
+        };
+        Rc::<Node<'src>, NoDealloc>::new_in_bump(node, &self.arena)
     }
 
     fn add_literal(&mut self, literal: Literal<'src>) -> NodeID<'src> {
@@ -216,7 +260,7 @@ impl<'src> Graph<'src> {
         };
 
         let new_mem = self.add_store(input.clone(), value);
-        self.current_mem = Some(new_mem);
+        self.current_mem = new_mem;
         Ok(())
     }
 
@@ -247,11 +291,11 @@ impl<'src> Graph<'src> {
         self.symbols = snapshot;
     }
 
-    fn snapshot_mem(&self) -> Option<MemNodeID<'src>> {
+    fn snapshot_mem(&self) -> MemNodeID<'src> {
         self.current_mem.clone()
     }
 
-    fn replace_mem(&mut self, snapshot: Option<MemNodeID<'src>>) {
+    fn replace_mem(&mut self, snapshot: MemNodeID<'src>) {
         self.current_mem = snapshot;
     }
 }

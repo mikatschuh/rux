@@ -38,9 +38,9 @@ impl CustomAllocator for GlobalAllocator {
 
 // Implementierung des Standard-Allocators
 #[derive(Clone, Copy)]
-pub struct MocAllocator;
+pub struct NoDealloc;
 
-impl CustomAllocator for MocAllocator {
+impl CustomAllocator for NoDealloc {
     #[inline]
     unsafe fn allocate(&self, _: Layout) -> *mut u8 {
         null_mut()
@@ -93,7 +93,7 @@ impl<T, A: CustomAllocator> Rc<T, A> {
         Self { ptr, allocator }
     }
 
-    pub fn new_in_bump(value: T, arena: &Bump) -> Rc<T, MocAllocator> {
+    pub fn new_in_bump(value: T, arena: &Bump) -> Rc<T, NoDealloc> {
         let layout = Layout::new::<RcBoxInner<T>>();
 
         let ptr = unsafe {
@@ -111,7 +111,7 @@ impl<T, A: CustomAllocator> Rc<T, A> {
 
         Rc {
             ptr,
-            allocator: MocAllocator {},
+            allocator: NoDealloc {},
         }
     }
     // Aktuelle Anzahl der starken Referenzen
@@ -179,18 +179,13 @@ impl<T, A: CustomAllocator> Drop for Rc<T, A> {
 }
 impl<T: PartialEq, A: CustomAllocator> PartialEq for Rc<T, A> {
     fn eq(&self, other: &Self) -> bool {
-        unsafe {
-            if self.ptr_cmp(other) {
-                return true;
-            }
-            self.ptr.as_ref().value == other.ptr.as_ref().value
-        }
+        self.ptr_cmp(other)
     }
 }
 impl<T: PartialEq + Eq, A: CustomAllocator> Eq for Rc<T, A> {}
 impl<T: Hash, A: CustomAllocator> Hash for Rc<T, A> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        unsafe { self.ptr.as_ref().value.hash(state) }
+        self.ptr.hash(state)
     }
 }
 use std::fmt::{self, Debug};

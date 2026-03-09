@@ -2,6 +2,7 @@ use crate::{
     error::{ErrorCode, Errors, Position, Span},
     tokenizing::{
         num::{parse_literal, Literal},
+        slicing::TokenBuffer,
         token::{
             Keyword, Token,
             TokenKind::{self, *},
@@ -13,7 +14,6 @@ use crate::{
 use std::{
     mem::{self, MaybeUninit},
     slice,
-    vec::IntoIter,
 };
 
 pub mod binary_op;
@@ -37,28 +37,25 @@ pub trait TokenStream<'src> {
     fn get_type(&mut self) -> Type;
     fn consume(&mut self);
 
-    /// Consumes a token if it matches a predicate. If a token got consumed true is outputted.
-    fn match_and_consume(&mut self, mut predicate: impl FnMut(Token) -> bool) -> bool {
-        let tok = self.peek();
-        if predicate(tok) {
-            self.consume();
-            true
-        } else {
-            false
-        }
-    }
-
-    fn consume_while(&mut self, mut predicate: impl FnMut(Token) -> bool) -> IntoIter<Token<'src>> {
-        let mut tokens = Vec::new();
+    fn consume_while(&mut self, mut predicate: impl FnMut(Token) -> bool) -> TokenBuffer<'src> {
+        let mut buffer = TokenBuffer::new(self.current_pos());
         loop {
             let tok = self.peek();
             if !predicate(tok) {
                 break;
             }
+
+            match tok.kind {
+                Literal => buffer.literals.push_back(self.get_literal()),
+                Quote => buffer.quotes.push_back(self.get_quote()),
+                Type => buffer.types.push_back(self.get_type()),
+                _ => {}
+            }
+
+            buffer.tokens.push_back(tok);
             self.consume();
-            tokens.push(tok);
         }
-        tokens.into_iter()
+        buffer
     }
 }
 

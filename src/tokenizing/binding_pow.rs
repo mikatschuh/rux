@@ -3,8 +3,9 @@ use crate::tokenizing::token::{Bracket, Token, TokenKind};
 
 use TokenKind::*;
 
-pub const PATH: u8 = 2;
-pub const COLON: u8 = 8;
+pub const ALL: u8 = 0;
+pub const STATEMENT: u8 = 1;
+pub const EXPRESSION: u8 = 2;
 
 pub const WRITE: u8 = 10;
 pub const WRITE_RIGHT: u8 = 11;
@@ -51,9 +52,7 @@ impl<'src> Token<'src> {
         match self.kind {
             Comma | Closed(..) | EOF | HalfCenterDot | RightArrow | Underscore | DashDashDash
             | Ident | Not | Literal | Quote | Keyword(..) | Type | Open(Bracket::Curly)
-            | Semicolon => 0,
-
-            TokenKind::Colon => COLON,
+            | Semicolon | Colon => 0,
 
             ColonColon
             | Equal
