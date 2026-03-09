@@ -214,7 +214,7 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
                             src,
                             kind: match src {
                                 _ if src.trim_start_matches('_').is_empty() => {
-                                    TokenKind::Placeholder
+                                    TokenKind::Underscore
                                 }
                                 _ => Keyword::from_str(src)
                                     .map(TokenKind::Keyword)

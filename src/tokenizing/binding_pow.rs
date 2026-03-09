@@ -49,8 +49,9 @@ pub const ACCESSOR_RIGHT: u8 = 151;
 impl<'src> Token<'src> {
     pub const fn binding_pow(self) -> u8 {
         match self.kind {
-            Comma | Closed(..) | EOF | HalfCenterDot | RightArrow | Placeholder | Ident | Not
-            | Literal | Quote | Keyword(..) | Type | Open(Bracket::Curly) | Semicolon => 0,
+            Comma | Closed(..) | EOF | HalfCenterDot | RightArrow | Underscore | DashDashDash
+            | Ident | Not | Literal | Quote | Keyword(..) | Type | Open(Bracket::Curly)
+            | Semicolon => 0,
 
             TokenKind::Colon => COLON,
 

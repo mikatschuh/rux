@@ -37,12 +37,13 @@ pub enum TokenKind {
     NotRightEqual,   // !>=
     RightArrow,      // ->
 
-    Plus,      // +
-    PlusPlus,  // ++
-    PlusEqual, // +=
-    Dash,      // -
-    DashDash,  // --
-    DashEqual, // -=
+    Plus,         // +
+    PlusPlus,     // ++
+    PlusEqual,    // +=
+    Dash,         // -
+    DashDash,     // --
+    DashDashDash, // ---
+    DashEqual,    // -=
 
     Star,         // *
     StarEqual,    // *=
@@ -92,7 +93,7 @@ pub enum TokenKind {
     Comma, // ,
 
     Ident,            // x
-    Placeholder,      // _
+    Underscore,       // _
     Literal,          // 1001010101
     Quote,            // "_"
     Keyword(Keyword), // if / loop / ..
@@ -129,43 +130,57 @@ impl Bracket {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Keyword {
+    Move,
+    Mut,
+
     Proc,
     Loop,
     If,
     Else,
+    OrElse,
     Continue,
+    OrContinue,
     Break,
+    OrBreak,
     Return,
+    OrReturn,
 }
 
 impl Keyword {
     pub fn display(&self) -> &'static str {
         match self {
+            Move => "move",
+            Mut => "mut",
+
             Proc => "proc",
             Loop => "loop",
             If => "if",
             Else => "else",
+            OrElse => "orelse",
             Continue => "continue",
+            OrContinue => "orcontinue",
             Break => "break",
+            OrBreak => "orbreak",
             Return => "return",
+            OrReturn => "orreturn",
         }
     }
     pub fn from_str(string: &str) -> Option<Self> {
         Some(match string {
+            "move" => Move,
+            "mut" => Mut,
+
             "proc" => Proc,
-            "prozedur" => Proc,
             "loop" => Loop,
-            "wiederhole" => Loop,
             "if" => If,
-            "wenn" => If,
             "else" => Else,
-            "sonst" => Else,
+            "orelse" => OrElse,
             "continue" => Continue,
-            "nächste" => Continue,
+            "orcontinue" => OrContinue,
             "break" => Break,
-            "verlasse" => Break,
+            "orbreak" => OrBreak,
             "return" => Return,
-            "zurückgeben" => Return,
+            "orreturn" => OrReturn,
             _ => return None,
         })
     }
@@ -275,6 +290,7 @@ impl TokenKind {
             Plus if c == b'=' => PlusEqual,
 
             Dash if c == b'-' => DashDash,
+            DashDash if c == b'-' => DashDashDash,
             Dash if c == b'=' => DashEqual,
             Dash if c == b'>' => RightArrow,
 

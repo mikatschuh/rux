@@ -70,7 +70,7 @@ pub enum NodeKind<'src> {
         rhs: NodeID<'src>,
     },
 
-    Uninitialized,
+    UnInitialized,
 
     Phi {
         condition: NodeID<'src>,
@@ -183,7 +183,7 @@ impl<'src> Graph<'src> {
     }
 
     fn declare_variable(&mut self, name: Token<'src>, ty: NodeID<'src>) {
-        let not_assigned = self.push_node(NodeKind::Uninitialized);
+        let not_assigned = self.push_node(NodeKind::UnInitialized);
 
         self.symbols.insert(
             name.src,
@@ -200,7 +200,7 @@ impl<'src> Graph<'src> {
         };
         let existing_assignment = existing.assignment.clone();
 
-        if existing_assignment.kind == NodeKind::Uninitialized {
+        if existing_assignment.kind == NodeKind::UnInitialized {
             if let Some(symbol) = self.symbols.get_mut(name.src) {
                 symbol.assignment = value;
             }
@@ -226,7 +226,7 @@ impl<'src> Graph<'src> {
             return Ok(unknown_id);
         };
 
-        if symbol.assignment.kind == NodeKind::Uninitialized {
+        if symbol.assignment.kind == NodeKind::UnInitialized {
             Err(GraphError::IdentWithoutAssignment { ident })
         } else if let NodeKind::Unary {
             op: UnaryOp::Ptr,
