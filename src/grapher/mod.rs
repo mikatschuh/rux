@@ -94,7 +94,6 @@ pub struct Graph<'src> {
     arena: Bump,
     symbols: HashMap<&'src str, Symbol<'src>>,
     node_cache: HashMap<NodeKind<'src>, NodeID<'src>>,
-    mem_node_cache: HashMap<MemNodeKind<'src>, MemNodeID<'src>>,
     current_mem: Option<MemNodeID<'src>>,
 }
 
@@ -122,15 +121,8 @@ impl<'src> Graph<'src> {
     }
 
     fn push_mem_node(&mut self, kind: MemNodeKind<'src>) -> MemNodeID<'src> {
-        if let Some(existing) = self.mem_node_cache.get(&kind) {
-            return existing.clone();
-        }
-
-        let key = kind.clone();
         let node: MemNode<'src> = MemNode { kind };
-        let node_id = Rc::<MemNode<'src>, MocAllocator>::new_in_bump(node, &self.arena);
-        self.mem_node_cache.insert(key, node_id.clone());
-        node_id
+        Rc::<MemNode<'src>, MocAllocator>::new_in_bump(node, &self.arena)
     }
 
     fn current_mem_id(&mut self) -> MemNodeID<'src> {
