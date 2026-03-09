@@ -54,6 +54,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 self.parse_variable_tail(name, 1)
             }
             TokenKind::Keyword(Keyword::If) => self.parse_if_statement(),
+            TokenKind::Keyword(Keyword::Loop) => self.parse_loop_statement(),
             _ => Err(GraphError::UnexpectedToken {
                 expected: "statement",
                 found: token,
@@ -227,6 +228,33 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             when_false_symbols,
         );
         self.merge_mem_versions(before_mem, when_true_mem, when_false_mem);
+        Ok(())
+    }
+
+    fn parse_loop_statement(&mut self) -> GraphResult<'src, ()> {
+        self.advance(); // consume 'loop'
+        let condition = self.parse_expr(binding_pow::PATH)?;
+        let before_symbols = self.graph.snapshot_symbols();
+        let before_mem = self.graph.snapshot_mem();
+
+        let body_result = if matches!(self.peek().kind, TokenKind::Open(Bracket::Curly)) {
+            let body_open = self.expect_open_curly()?;
+            self.parse_block(body_open)
+        } else {
+            self.parse_statement()
+        };
+        body_result?;
+
+        let when_loop_symbols = self.graph.snapshot_symbols();
+        let when_loop_mem = self.graph.snapshot_mem();
+
+        self.merge_symbol_versions(
+            condition,
+            before_symbols.clone(),
+            when_loop_symbols,
+            before_symbols,
+        );
+        self.merge_mem_versions(before_mem.clone(), when_loop_mem, before_mem);
         Ok(())
     }
 

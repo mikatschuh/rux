@@ -115,6 +115,62 @@ y i32 = if i > 10 x else 1
     expect_literal(&when_false, Literal::from(1_u8));
 }
 
+#[test]
+fn loop_statement_supports_block_and_single_statement_forms() {
+    const PROGRAM: &str = r#"
+x i32 = -> 10
+y i32
+
+loop x > 0 {
+    x--
+}
+
+y = x + 1
+
+a i32 = -> 0
+loop a < 10 a++
+z i32 = a
+"#;
+
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer).expect("graph");
+
+    let x_symbol = graph.symbol("x").expect("x symbol");
+    let x_addr = expect_unary(&x_symbol.assignment, UnaryOp::Ptr);
+    expect_literal(&x_addr, Literal::from(10_u8));
+
+    let y_symbol = graph.symbol("y").expect("y symbol");
+    let (lhs, rhs) = expect_binary(&y_symbol.assignment, BinaryOp::Add);
+    expect_literal(&rhs, Literal::from(1_u8));
+    let (y_mem, y_addr) = expect_load(&lhs);
+    assert!(y_addr.ptr_cmp(&x_addr));
+    assert!(mem_contains_store_to_addr(&y_mem, &x_addr));
+
+    let z_symbol = graph.symbol("z").expect("z symbol");
+    let (z_mem, z_addr) = expect_load(&z_symbol.assignment);
+
+    let a_symbol = graph.symbol("a").expect("a symbol");
+    let a_addr = expect_unary(&a_symbol.assignment, UnaryOp::Ptr);
+    assert!(z_addr.ptr_cmp(&a_addr));
+    assert!(mem_contains_store_to_addr(&z_mem, &a_addr));
+}
+
+#[test]
+fn immutable_increment_in_loop_is_rejected() {
+    const PROGRAM: &str = r#"
+a i32 = 0
+loop a < 10 a++
+"#;
+
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer);
+
+    assert!(matches!(
+        graph,
+        Err(GraphError::AssignmentToImmutableIdent { .. })
+    ));
+}
+
 fn expect_literal(node: &NodeID<'_>, literal: Literal<'_>) {
     match &node.kind {
         NodeKind::Literal {
@@ -203,5 +259,19 @@ fn expect_store_chain_ends_with_addr(mem: &MemNodeID<'_>, addr: &NodeID<'_>) {
                 current = prev.clone();
             }
         }
+    }
+}
+
+fn mem_contains_store_to_addr(mem: &MemNodeID<'_>, addr: &NodeID<'_>) -> bool {
+    match &mem.kind {
+        super::MemNodeKind::ControlFlowStart => false,
+        super::MemNodeKind::Merge { a, b } => {
+            mem_contains_store_to_addr(a, addr) || mem_contains_store_to_addr(b, addr)
+        }
+        super::MemNodeKind::Store {
+            prev,
+            addr: store_addr,
+            ..
+        } => store_addr.ptr_cmp(addr) || mem_contains_store_to_addr(prev, addr),
     }
 }
