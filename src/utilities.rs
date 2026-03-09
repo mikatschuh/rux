@@ -179,13 +179,18 @@ impl<T, A: CustomAllocator> Drop for Rc<T, A> {
 }
 impl<T: PartialEq, A: CustomAllocator> PartialEq for Rc<T, A> {
     fn eq(&self, other: &Self) -> bool {
-        self.ptr_cmp(other)
+        unsafe {
+            if self.ptr_cmp(other) {
+                return true;
+            }
+            self.ptr.as_ref().value == other.ptr.as_ref().value
+        }
     }
 }
 impl<T: PartialEq + Eq, A: CustomAllocator> Eq for Rc<T, A> {}
 impl<T: Hash, A: CustomAllocator> Hash for Rc<T, A> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.ptr.hash(state)
+        unsafe { self.ptr.as_ref().value.hash(state) }
     }
 }
 use std::fmt::{self, Debug};

@@ -237,12 +237,12 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             };
 
         self.merge_symbol_versions(
-            condition,
+            condition.clone(),
             before_symbols,
             when_true_symbols,
             when_false_symbols,
         );
-        self.merge_mem_versions(when_true_mem, when_false_mem);
+        self.merge_mem_versions(condition, when_true_mem, when_false_mem);
         Ok(())
     }
 
@@ -369,6 +369,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
     fn merge_mem_versions(
         &mut self,
+        condition: NodeID<'src>,
         when_true_mem: MemNodeID<'src>,
         when_false_mem: MemNodeID<'src>,
     ) {
@@ -378,7 +379,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         if true_mem.ptr_cmp(&false_mem) {
             self.graph.replace_mem(true_mem);
         } else {
-            let merged = self.graph.add_mem_merge(true_mem, false_mem);
+            let merged = self.graph.add_mem_merge(condition, true_mem, false_mem);
             self.graph.replace_mem(merged);
         }
     }

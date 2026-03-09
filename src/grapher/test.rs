@@ -297,7 +297,7 @@ fn mem_contains_store_to_addr_with_visited(
                     mem_contains_store_to_addr_with_visited(edge, addr, visited)
                 })
         }
-        super::MemNodeKind::Merge { a, b } => {
+        super::MemNodeKind::Merge { condition: _, a, b } => {
             mem_contains_store_to_addr_with_visited(a, addr, visited)
                 || mem_contains_store_to_addr_with_visited(b, addr, visited)
         }
@@ -343,7 +343,7 @@ fn mem_has_cycle_dfs(
                     .as_ref()
                     .is_some_and(|edge| mem_has_cycle_dfs(edge, visited, stack))
         }
-        super::MemNodeKind::Merge { a, b } => {
+        super::MemNodeKind::Merge { condition: _, a, b } => {
             mem_has_cycle_dfs(a, visited, stack) || mem_has_cycle_dfs(b, visited, stack)
         }
         super::MemNodeKind::Store { prev, .. } | super::MemNodeKind::Load { prev, .. } => {

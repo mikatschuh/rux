@@ -36,6 +36,7 @@ pub enum MemNodeKind<'src> {
         backedge: Option<MemNodeID<'src>>,
     },
     Merge {
+        condition: NodeID<'src>,
         a: MemNodeID<'src>,
         b: MemNodeID<'src>,
     },
@@ -90,6 +91,37 @@ pub enum NodeKind<'src> {
     },
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+enum NodeKey<'src> {
+    Literal {
+        literal: Literal<'src>,
+    },
+    Quote {
+        quote: String,
+    },
+    PrimitiveType {
+        ty: Type,
+    },
+    Unary {
+        op: UnaryOp,
+        input: usize,
+    },
+    Binary {
+        op: BinaryOp,
+        lhs: usize,
+        rhs: usize,
+    },
+    UnInitialized,
+    Phi {
+        condition: usize,
+        when_true: usize,
+        when_false: usize,
+    },
+    UnknownIdent {
+        name: &'src str,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub struct Symbol<'src> {
     pub ty: NodeID<'src>,
@@ -100,11 +132,48 @@ pub struct Symbol<'src> {
 pub struct Graph<'src> {
     arena: Bump,
     symbols: HashMap<&'src str, Symbol<'src>>,
-    node_cache: HashMap<NodeKind<'src>, NodeID<'src>>,
+    node_cache: HashMap<NodeKey<'src>, NodeID<'src>>,
     current_mem: MemNodeID<'src>,
 }
 
 impl<'src> Graph<'src> {
+    fn node_ptr_id(node: &NodeID<'src>) -> usize {
+        std::ptr::from_ref(&**node) as usize
+    }
+
+    fn node_key(kind: &NodeKind<'src>) -> Option<NodeKey<'src>> {
+        match kind {
+            NodeKind::Load { .. } => None, // effectful, never interned
+            NodeKind::Literal { literal } => Some(NodeKey::Literal {
+                literal: literal.clone(),
+            }),
+            NodeKind::Quote { quote } => Some(NodeKey::Quote {
+                quote: quote.clone(),
+            }),
+            NodeKind::PrimitiveType { ty } => Some(NodeKey::PrimitiveType { ty: *ty }),
+            NodeKind::Unary { op, input } => Some(NodeKey::Unary {
+                op: *op,
+                input: Self::node_ptr_id(input),
+            }),
+            NodeKind::Binary { op, lhs, rhs } => Some(NodeKey::Binary {
+                op: *op,
+                lhs: Self::node_ptr_id(lhs),
+                rhs: Self::node_ptr_id(rhs),
+            }),
+            NodeKind::UnInitialized => Some(NodeKey::UnInitialized),
+            NodeKind::Phi {
+                condition,
+                when_true,
+                when_false,
+            } => Some(NodeKey::Phi {
+                condition: Self::node_ptr_id(condition),
+                when_true: Self::node_ptr_id(when_true),
+                when_false: Self::node_ptr_id(when_false),
+            }),
+            NodeKind::UnknownIdent { name } => Some(NodeKey::UnknownIdent { name }),
+        }
+    }
+
     fn new() -> Self {
         let arena = Bump::new();
         let current_mem = Rc::<MemNode<'src>, NoDealloc>::new_in_bump(
@@ -133,14 +202,18 @@ impl<'src> Graph<'src> {
     }
 
     fn push_node(&mut self, kind: NodeKind<'src>) -> NodeID<'src> {
-        if let Some(existing) = self.node_cache.get(&kind) {
-            return existing.clone();
+        let key = Self::node_key(&kind);
+        if let Some(ref key) = key {
+            if let Some(existing) = self.node_cache.get(key) {
+                return existing.clone();
+            }
         }
 
-        let key = kind.clone();
         let node: Node<'src> = Node { kind };
         let node_id = Rc::<Node<'src>, NoDealloc>::new_in_bump(node, &self.arena);
-        self.node_cache.insert(key, node_id.clone());
+        if let Some(key) = key {
+            self.node_cache.insert(key, node_id.clone());
+        }
         node_id
     }
 
@@ -153,8 +226,13 @@ impl<'src> Graph<'src> {
         self.current_mem.clone()
     }
 
-    fn add_mem_merge(&mut self, a: MemNodeID<'src>, b: MemNodeID<'src>) -> MemNodeID<'src> {
-        self.push_mem_node(MemNodeKind::Merge { a, b })
+    fn add_mem_merge(
+        &mut self,
+        condition: NodeID<'src>,
+        a: MemNodeID<'src>,
+        b: MemNodeID<'src>,
+    ) -> MemNodeID<'src> {
+        self.push_mem_node(MemNodeKind::Merge { condition, a, b })
     }
 
     fn add_loop_head(&mut self, entry: MemNodeID<'src>) -> MemNodeID<'src> {
