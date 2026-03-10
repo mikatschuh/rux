@@ -95,15 +95,6 @@ impl<'src> Graph<'src> {
         }
 
         let line = match &node.kind {
-            NodeKind::MemoryNode { mem } => match &mem.kind {
-                MemNodeKind::Load { prev, addr } => {
-                    self.collect_mem_dump(mem, visited_nodes, visited_mem, node_lines, mem_lines);
-                    format!("Load(mem=m{})", Self::mem_ptr_id(&mem))
-                }
-                _ => {
-                    panic!("only MemNodeKind::Load is expected right now ")
-                }
-            },
             NodeKind::Literal { literal } => format!("Literal({literal:?})"),
             NodeKind::Quote { quote } => format!("Quote({quote:?})"),
             NodeKind::PrimitiveType { ty } => format!("PrimitiveType({ty:?})"),
@@ -118,6 +109,15 @@ impl<'src> Graph<'src> {
                     "Binary({op:?}, lhs=n{}, rhs=n{})",
                     Self::node_ptr_id(lhs),
                     Self::node_ptr_id(rhs)
+                )
+            }
+            NodeKind::Load { mem, addr } => {
+                self.collect_mem_dump(mem, visited_nodes, visited_mem, node_lines, mem_lines);
+                self.collect_node_dump(addr, visited_nodes, visited_mem, node_lines, mem_lines);
+                format!(
+                    "Load(mem=m{}, addr=n{})",
+                    Self::mem_ptr_id(mem),
+                    Self::node_ptr_id(addr)
                 )
             }
             NodeKind::UnInitialized => "UnInitialized".to_string(),
@@ -230,15 +230,6 @@ impl<'src> Graph<'src> {
                     Self::mem_ptr_id(prev),
                     Self::node_ptr_id(addr),
                     Self::node_ptr_id(val)
-                )
-            }
-            MemNodeKind::Load { prev, addr } => {
-                self.collect_mem_dump(prev, visited_nodes, visited_mem, node_lines, mem_lines);
-                self.collect_node_dump(addr, visited_nodes, visited_mem, node_lines, mem_lines);
-                format!(
-                    "Load(prev=m{}, addr=n{})",
-                    Self::mem_ptr_id(prev),
-                    Self::node_ptr_id(addr)
                 )
             }
         };

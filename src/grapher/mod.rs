@@ -54,18 +54,10 @@ pub enum MemNodeKind<'src> {
         addr: NodeID<'src>,
         val: NodeID<'src>,
     },
-    Load {
-        prev: MemNodeID<'src>,
-        addr: NodeID<'src>,
-    },
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum NodeKind<'src> {
-    MemoryNode {
-        mem: MemNodeID<'src>,
-    },
-
     Literal {
         literal: Literal<'src>,
     },
@@ -84,6 +76,10 @@ pub enum NodeKind<'src> {
         op: BinaryOp,
         lhs: NodeID<'src>,
         rhs: NodeID<'src>,
+    },
+    Load {
+        mem: MemNodeID<'src>,
+        addr: NodeID<'src>,
     },
 
     UnInitialized,
@@ -118,6 +114,10 @@ enum NodeKey<'src> {
         op: BinaryOp,
         lhs: usize,
         rhs: usize,
+    },
+    Load {
+        mem: usize,
+        addr: usize,
     },
     UnInitialized,
     Phi {
@@ -154,7 +154,6 @@ impl<'src> Graph<'src> {
 
     fn node_key(kind: &NodeKind<'src>) -> Option<NodeKey<'src>> {
         match kind {
-            NodeKind::MemoryNode { .. } => None, // effectful, never interned
             NodeKind::Literal { literal } => Some(NodeKey::Literal {
                 literal: literal.clone(),
             }),
@@ -170,6 +169,10 @@ impl<'src> Graph<'src> {
                 op: *op,
                 lhs: Self::node_ptr_id(lhs),
                 rhs: Self::node_ptr_id(rhs),
+            }),
+            NodeKind::Load { mem, addr } => Some(NodeKey::Load {
+                mem: Self::mem_ptr_id(mem),
+                addr: Self::node_ptr_id(addr),
             }),
             NodeKind::UnInitialized => Some(NodeKey::UnInitialized),
             NodeKind::Phi {
@@ -286,12 +289,8 @@ impl<'src> Graph<'src> {
     }
 
     fn add_load(&mut self, addr: NodeID<'src>) -> NodeID<'src> {
-        let prev = self.current_mem_id();
-        let mem_node = self.push_mem_node(MemNodeKind::Load { prev, addr });
-        let node = Node {
-            kind: NodeKind::MemoryNode { mem: mem_node },
-        };
-        Rc::<Node<'src>, NoDealloc>::new_in_bump(node, &self.arena)
+        let mem = self.current_mem_id();
+        self.push_node(NodeKind::Load { mem, addr })
     }
 
     fn add_literal(&mut self, literal: Literal<'src>) -> NodeID<'src> {
