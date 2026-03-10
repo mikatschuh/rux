@@ -18,5 +18,5 @@ echo "Watching $FILE ..."
 
 fswatch -o "$FILE" | while read _; do
     clear
-    target/release/flou --mute build my_project
+    target/release/rux build my_project
 done
