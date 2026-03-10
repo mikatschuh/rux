@@ -425,6 +425,13 @@ pub enum GraphError<'src> {
         opener: Token<'src>,
         closer: Token<'src>,
     },
+    JumpOutsideLoop {
+        keyword: Token<'src>,
+    },
+    UnreachableStatementAfterJump {
+        jump: Token<'src>,
+        statement: Token<'src>,
+    },
 }
 
 impl fmt::Display for GraphError<'_> {
@@ -461,6 +468,16 @@ impl fmt::Display for GraphError<'_> {
                 f,
                 "mismatched brackets: opened at {:?}, closed with '{}' at {:?}",
                 opener.span, closer.src, closer.span
+            ),
+            JumpOutsideLoop { keyword } => write!(
+                f,
+                "'{}' used outside of a loop at {:?}",
+                keyword.src, keyword.span
+            ),
+            UnreachableStatementAfterJump { jump, statement } => write!(
+                f,
+                "statement '{}' at {:?} is unreachable after '{}' at {:?}",
+                statement.src, statement.span, jump.src, jump.span
             ),
         }
     }

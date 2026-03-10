@@ -179,6 +179,139 @@ result_a i32 = a
 }
 
 #[test]
+fn continue_skips_remaining_loop_body_but_keeps_backedge() {
+    const PROGRAM: &str = r#"
+i ux = -> 0
+x i32 = -> 0
+
+loop i < 3 : i++ {
+    x = 1
+    continue
+}
+
+result_i i32 = i
+result_x i32 = x
+"#;
+
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer).expect("graph");
+
+    let i_symbol = graph.symbol("i").expect("i symbol");
+    let i_addr = expect_unary(&i_symbol.assignment, UnaryOp::Ptr);
+
+    let x_symbol = graph.symbol("x").expect("x symbol");
+    let x_addr = expect_unary(&x_symbol.assignment, UnaryOp::Ptr);
+
+    let result_i_symbol = graph.symbol("result_i").expect("result_i symbol");
+    let (result_i_mem, result_i_addr) = expect_load(&result_i_symbol.assignment);
+    assert!(result_i_addr.ptr_cmp(&i_addr));
+    assert!(mem_contains_store_to_addr(&result_i_mem, &i_addr));
+    assert!(mem_has_cycle(&result_i_mem));
+
+    let result_x_symbol = graph.symbol("result_x").expect("result_x symbol");
+    let (result_x_mem, result_x_addr) = expect_load(&result_x_symbol.assignment);
+    assert!(result_x_addr.ptr_cmp(&x_addr));
+    assert!(mem_contains_store_to_addr(&result_x_mem, &x_addr));
+}
+
+#[test]
+fn break_exits_loop_without_creating_backedge() {
+    const PROGRAM: &str = r#"
+x i32 = -> 0
+loop true {
+    x = 1
+    break
+}
+result_x i32 = x
+"#;
+
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer).expect("graph");
+
+    let x_symbol = graph.symbol("x").expect("x symbol");
+    let x_addr = expect_unary(&x_symbol.assignment, UnaryOp::Ptr);
+
+    let result_x_symbol = graph.symbol("result_x").expect("result_x symbol");
+    let (result_x_mem, result_x_addr) = expect_load(&result_x_symbol.assignment);
+    assert!(result_x_addr.ptr_cmp(&x_addr));
+    assert!(mem_contains_store_to_addr(&result_x_mem, &x_addr));
+    assert!(!mem_has_cycle(&result_x_mem));
+}
+
+#[test]
+fn statements_after_continue_are_rejected() {
+    const PROGRAM: &str = r#"
+loop true {
+    continue
+    x i32 = 1
+}
+"#;
+
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer);
+
+    assert!(matches!(
+        graph,
+        Err(GraphError::UnreachableStatementAfterJump { .. })
+    ));
+}
+
+#[test]
+fn statements_after_break_are_rejected() {
+    const PROGRAM: &str = r#"
+loop true {
+    break
+    x i32 = 1
+}
+"#;
+
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer);
+
+    assert!(matches!(
+        graph,
+        Err(GraphError::UnreachableStatementAfterJump { .. })
+    ));
+}
+
+#[test]
+fn repeated_jump_keywords_target_outer_loops() {
+    const PROGRAM: &str = r#"
+outer ux = -> 0
+inner ux = -> 0
+
+loop outer < 3 : outer++ {
+    loop inner < 3 : inner++ {
+        break break
+    }
+}
+
+result_outer i32 = outer
+result_inner i32 = inner
+"#;
+
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer).expect("graph");
+
+    let outer_symbol = graph.symbol("outer").expect("outer symbol");
+    let outer_addr = expect_unary(&outer_symbol.assignment, UnaryOp::Ptr);
+    let inner_symbol = graph.symbol("inner").expect("inner symbol");
+    let inner_addr = expect_unary(&inner_symbol.assignment, UnaryOp::Ptr);
+
+    let result_outer_symbol = graph.symbol("result_outer").expect("result_outer symbol");
+    let (result_outer_mem, result_outer_addr) = expect_load(&result_outer_symbol.assignment);
+    assert!(result_outer_addr.ptr_cmp(&outer_addr));
+    assert!(matches!(
+        &result_outer_mem.kind,
+        super::MemNodeKind::LoopHead { .. } | super::MemNodeKind::Merge { .. }
+    ));
+
+    let result_inner_symbol = graph.symbol("result_inner").expect("result_inner symbol");
+    let (_result_inner_mem, result_inner_addr) = expect_load(&result_inner_symbol.assignment);
+    assert!(result_inner_addr.ptr_cmp(&inner_addr));
+}
+
+#[test]
 fn immutable_increment_in_loop_is_rejected() {
     const PROGRAM: &str = r#"
 a i32 = 0
