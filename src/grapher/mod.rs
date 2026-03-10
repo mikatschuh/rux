@@ -3,7 +3,7 @@ use bumpalo::Bump;
 use crate::{
     grapher::parser::{GraphBuilder, Parser},
     tokenizing::{
-        binary_op::BinaryOp, num::Literal, token::Token, ty::Type, unary_op::UnaryOp, TokenStream,
+        TokenStream, binary_op::BinaryOp, num::Literal, token::Token, ty::Type, unary_op::UnaryOp,
     },
     utilities::{NoDealloc, Rc},
 };
@@ -53,14 +53,14 @@ pub enum MemNodeKind<'src> {
     },
     Load {
         prev: MemNodeID<'src>,
+        addr: NodeID<'src>,
     },
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum NodeKind<'src> {
-    Load {
-        load: MemNodeID<'src>,
-        addr: NodeID<'src>,
+    MemoryNode {
+        mem: MemNodeID<'src>,
     },
 
     Literal {
@@ -151,7 +151,7 @@ impl<'src> Graph<'src> {
 
     fn node_key(kind: &NodeKind<'src>) -> Option<NodeKey<'src>> {
         match kind {
-            NodeKind::Load { .. } => None, // effectful, never interned
+            NodeKind::MemoryNode { .. } => None, // effectful, never interned
             NodeKind::Literal { literal } => Some(NodeKey::Literal {
                 literal: literal.clone(),
             }),
@@ -269,12 +269,9 @@ impl<'src> Graph<'src> {
 
     fn add_load(&mut self, addr: NodeID<'src>) -> NodeID<'src> {
         let prev = self.current_mem_id();
-        let mem_node = self.push_mem_node(MemNodeKind::Load { prev });
+        let mem_node = self.push_mem_node(MemNodeKind::Load { prev, addr });
         let node = Node {
-            kind: NodeKind::Load {
-                load: mem_node,
-                addr,
-            },
+            kind: NodeKind::MemoryNode { mem: mem_node },
         };
         Rc::<Node<'src>, NoDealloc>::new_in_bump(node, &self.arena)
     }

@@ -1,9 +1,9 @@
-use std::alloc::{alloc, dealloc, Layout};
+use std::alloc::{Layout, alloc, dealloc};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::mem::{self, MaybeUninit};
 use std::ops::{Deref, DerefMut, Index, IndexMut};
-use std::ptr::{null_mut, NonNull};
+use std::ptr::{NonNull, null_mut};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 // Die innere Struktur, die gezählt wird
@@ -27,12 +27,12 @@ pub struct GlobalAllocator;
 impl CustomAllocator for GlobalAllocator {
     #[inline]
     unsafe fn allocate(&self, layout: Layout) -> *mut u8 {
-        alloc(layout)
+        unsafe { alloc(layout) }
     }
 
     #[inline]
     unsafe fn deallocate(&self, ptr: *mut u8, layout: Layout) {
-        dealloc(ptr, layout)
+        unsafe { dealloc(ptr, layout) }
     }
 }
 

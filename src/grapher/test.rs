@@ -5,10 +5,10 @@ use super::{BinaryOp, Graph, GraphError, MemNodeID, NodeID, NodeKind};
 use crate::{
     error::Errors,
     tokenizing::{
+        Tokenizer,
         num::{Base, Literal},
         ty::Type,
         unary_op::UnaryOp,
-        Tokenizer,
     },
     utilities::Rc,
 };
@@ -280,14 +280,13 @@ fn expect_phi<'src>(node: &NodeID<'src>) -> (NodeID<'src>, NodeID<'src>, NodeID<
 
 fn expect_load<'src>(node: &NodeID<'src>) -> (MemNodeID<'src>, NodeID<'src>) {
     match &node.kind {
-        NodeKind::Load { load, addr } => (
-            if let super::MemNodeKind::Load { prev } = &load.kind {
-                prev.clone()
+        NodeKind::MemoryNode { mem: load } => {
+            if let super::MemNodeKind::Load { prev, addr } = &load.kind {
+                (prev.clone(), addr.clone())
             } else {
-                panic!("should point to a load!")
-            },
-            addr.clone(),
-        ),
+                panic!("expected load-node, got {:?}", load.kind)
+            }
+        }
         other => panic!("expected load-node, got {other:?}"),
     }
 }
