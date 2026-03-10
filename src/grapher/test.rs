@@ -312,6 +312,65 @@ result_inner i32 = inner
 }
 
 #[test]
+fn loop_condition_is_kept_on_loop_head_and_uses_loop_memory() {
+    const PROGRAM: &str = r#"
+i ux = -> 0
+loop i < 3 : i++ {}
+result_i i32 = i
+"#;
+
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer).expect("graph");
+
+    let i_symbol = graph.symbol("i").expect("i symbol");
+    let i_addr = expect_unary(&i_symbol.assignment, UnaryOp::Ptr);
+
+    let result_i_symbol = graph.symbol("result_i").expect("result_i symbol");
+    let (result_i_mem, result_i_addr) = expect_load(&result_i_symbol.assignment);
+    assert!(result_i_addr.ptr_cmp(&i_addr));
+
+    let (condition, ..) = find_first_loop_head(&result_i_mem).expect("loop head");
+    let (lhs, rhs) = expect_binary(&condition, BinaryOp::Less);
+    let (condition_mem, condition_addr) = expect_load(&lhs);
+    assert!(condition_addr.ptr_cmp(&i_addr));
+    assert!(matches!(
+        &condition_mem.kind,
+        super::MemNodeKind::LoopHead { .. }
+    ));
+    expect_literal(&rhs, Literal::from(3_u8));
+}
+
+#[test]
+fn loop_setup_can_start_with_a_block() {
+    const PROGRAM: &str = r#"
+x i32 = -> 0
+loop { x = 1 } : x < 2 : x++ {}
+result_x i32 = x
+"#;
+
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer).expect("graph");
+
+    let x_symbol = graph.symbol("x").expect("x symbol");
+    let x_addr = expect_unary(&x_symbol.assignment, UnaryOp::Ptr);
+
+    let result_x_symbol = graph.symbol("result_x").expect("result_x symbol");
+    let (result_x_mem, result_x_addr) = expect_load(&result_x_symbol.assignment);
+    assert!(result_x_addr.ptr_cmp(&x_addr));
+    assert!(mem_contains_store_to_addr(&result_x_mem, &x_addr));
+
+    let (condition, ..) = find_first_loop_head(&result_x_mem).expect("loop head");
+    let (lhs, rhs) = expect_binary(&condition, crate::tokenizing::binary_op::BinaryOp::Less);
+    let (condition_mem, condition_addr) = expect_load(&lhs);
+    assert!(condition_addr.ptr_cmp(&x_addr));
+    assert!(matches!(
+        &condition_mem.kind,
+        super::MemNodeKind::LoopHead { .. }
+    ));
+    expect_literal(&rhs, Literal::from(2_u8));
+}
+
+#[test]
 fn immutable_increment_in_loop_is_rejected() {
     const PROGRAM: &str = r#"
 a i32 = 0
@@ -358,7 +417,7 @@ y i32 = x
     assert!(dump.contains("symbols:"));
     assert!(dump.contains("nodes:"));
     assert!(dump.contains("memory:"));
-    assert!(dump.contains("LoopHead(entry=m"));
+    assert!(dump.contains("LoopHead(condition=n"));
     assert!(dump.contains("backedge=m"));
     assert!(dump.contains("Merge(condition=n"));
 }
@@ -453,7 +512,11 @@ fn mem_contains_store_to_addr_with_visited(
 
     match &mem.kind {
         super::MemNodeKind::ControlFlowStart => false,
-        super::MemNodeKind::LoopHead { entry, backedge } => {
+        super::MemNodeKind::LoopHead {
+            condition: _,
+            entry,
+            backedge,
+        } => {
             mem_contains_store_to_addr_with_visited(entry, addr, visited)
                 || backedge.as_ref().is_some_and(|edge| {
                     mem_contains_store_to_addr_with_visited(edge, addr, visited)
@@ -503,7 +566,11 @@ fn mem_has_cycle_dfs(
 
     let has_cycle = match &mem.kind {
         super::MemNodeKind::ControlFlowStart => false,
-        super::MemNodeKind::LoopHead { entry, backedge } => {
+        super::MemNodeKind::LoopHead {
+            condition: _,
+            entry,
+            backedge,
+        } => {
             mem_has_cycle_dfs(entry, visited, stack)
                 || backedge
                     .as_ref()
@@ -520,4 +587,38 @@ fn mem_has_cycle_dfs(
 
     stack.remove(&mem_ptr);
     has_cycle
+}
+
+fn find_first_loop_head<'src>(
+    mem: &MemNodeID<'src>,
+) -> Option<(NodeID<'src>, MemNodeID<'src>, Option<MemNodeID<'src>>)> {
+    let mut visited = HashSet::new();
+    find_first_loop_head_with_visited(mem, &mut visited)
+}
+
+fn find_first_loop_head_with_visited<'src>(
+    mem: &MemNodeID<'src>,
+    visited: &mut HashSet<usize>,
+) -> Option<(NodeID<'src>, MemNodeID<'src>, Option<MemNodeID<'src>>)> {
+    let mem_ptr = std::ptr::from_ref(&**mem) as usize;
+    if !visited.insert(mem_ptr) {
+        return None;
+    }
+
+    match &mem.kind {
+        super::MemNodeKind::ControlFlowStart => None,
+        super::MemNodeKind::LoopHead {
+            condition,
+            entry,
+            backedge,
+        } => Some((condition.clone(), entry.clone(), backedge.clone())),
+        super::MemNodeKind::StepClause { prev } => find_first_loop_head_with_visited(prev, visited),
+        super::MemNodeKind::Merge {
+            condition: _,
+            when_true,
+            when_false,
+        } => find_first_loop_head_with_visited(when_true, visited)
+            .or_else(|| find_first_loop_head_with_visited(when_false, visited)),
+        super::MemNodeKind::Store { prev, .. } => find_first_loop_head_with_visited(prev, visited),
+    }
 }

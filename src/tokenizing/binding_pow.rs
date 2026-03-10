@@ -131,7 +131,7 @@ impl BinaryOp {
             BinaryOp::Xor | Xnor => XOR_RIGHT,
             BinaryOp::And | Nand => AND_RIGHT,
 
-            Eq | Ne | Smaller | SmallerEq | Greater | GreaterEq => COMPARISON_RIGHT,
+            Eq | Ne | Less | LessEq | Greater | GreaterEq => COMPARISON_RIGHT,
 
             Lsh | Rsh => BIT_SHIFT_RIGHT,
 

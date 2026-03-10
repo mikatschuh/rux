@@ -37,6 +37,7 @@ pub struct MemNode<'src> {
 pub enum MemNodeKind<'src> {
     ControlFlowStart,
     LoopHead {
+        condition: NodeID<'src>,
         entry: MemNodeID<'src>,
         backedge: Option<MemNodeID<'src>>,
     },
@@ -253,8 +254,13 @@ impl<'src> Graph<'src> {
         })
     }
 
-    fn add_loop_head(&mut self, entry: MemNodeID<'src>) -> MemNodeID<'src> {
+    fn add_loop_head(
+        &mut self,
+        condition: NodeID<'src>,
+        entry: MemNodeID<'src>,
+    ) -> MemNodeID<'src> {
         self.push_mem_node(MemNodeKind::LoopHead {
+            condition,
             entry,
             backedge: None,
         })

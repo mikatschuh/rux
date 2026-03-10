@@ -169,7 +169,12 @@ impl<'src> Graph<'src> {
 
         match &mem_node.kind {
             MemNodeKind::ControlFlowStart => {}
-            MemNodeKind::LoopHead { entry, backedge } => {
+            MemNodeKind::LoopHead {
+                condition,
+                entry,
+                backedge,
+            } => {
+                self.collect_node_dump(condition, visited_nodes, visited_mem, nodes, mem);
                 self.collect_mem_dump(entry, visited_nodes, visited_mem, nodes, mem);
                 if let Some(backedge) = backedge {
                     self.collect_mem_dump(backedge, visited_nodes, visited_mem, nodes, mem);
@@ -250,13 +255,18 @@ impl<'src> Graph<'src> {
     ) -> String {
         match &mem_node.kind {
             MemNodeKind::ControlFlowStart => "ControlFlowStart".to_string(),
-            MemNodeKind::LoopHead { entry, backedge } => {
+            MemNodeKind::LoopHead {
+                condition,
+                entry,
+                backedge,
+            } => {
                 let backedge_text = backedge
                     .as_ref()
                     .map(|edge| format!("m{}", mem_indices[&Self::mem_ptr_id(edge)]))
                     .unwrap_or_else(|| "None".to_string());
                 format!(
-                    "LoopHead(entry=m{}, backedge={})",
+                    "LoopHead(condition=n{}, entry=m{}, backedge={})",
+                    node_indices[&Self::node_ptr_id(condition)],
                     mem_indices[&Self::mem_ptr_id(entry)],
                     backedge_text
                 )

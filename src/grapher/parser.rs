@@ -231,81 +231,25 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         self.advance(); // consume 'if'
         let condition = self.parse_expr(binding_pow::EXPRESSION)?;
         let before_state = self.snapshot_state();
-
-        let then_block_open = self.expect_open_curly()?;
-        self.parse_block(then_block_open)?;
-        let when_true_state = self.snapshot_state();
+        let when_true_state = self.parse_branch_block()?;
 
         self.restore_state(before_state.clone());
 
         let when_false_state = if matches!(self.peek().kind, TokenKind::Keyword(Keyword::Else)) {
             self.advance();
-            let else_block_open = self.expect_open_curly()?;
-            self.parse_block(else_block_open)?;
-            self.snapshot_state()
+            self.parse_branch_block()?
         } else {
             before_state.clone()
         };
 
-        self.merge_loop_versions(
-            &before_state.loops,
-            &when_true_state.loops,
-            &when_false_state.loops,
-        );
-
-        match (when_true_state.reachable, when_false_state.reachable) {
-            (true, true) => {
-                self.merge_symbol_versions(
-                    condition.clone(),
-                    before_state.symbols,
-                    when_true_state.symbols,
-                    when_false_state.symbols,
-                );
-                self.merge_mem_versions(condition, when_true_state.mem, when_false_state.mem);
-                self.reachable = true;
-            }
-            (true, false) => {
-                self.graph.replace_symbols(when_true_state.symbols);
-                self.graph.replace_mem(when_true_state.mem);
-                self.reachable = true;
-            }
-            (false, true) => {
-                self.graph.replace_symbols(when_false_state.symbols);
-                self.graph.replace_mem(when_false_state.mem);
-                self.reachable = true;
-            }
-            (false, false) => {
-                self.graph.replace_symbols(before_state.symbols);
-                self.graph.replace_mem(before_state.mem);
-                self.reachable = false;
-            }
-        }
+        self.finish_branch_merge(condition, before_state, when_true_state, when_false_state);
         Ok(())
     }
 
     fn parse_loop_statement(&mut self) -> GraphResult<'src, ()> {
         self.advance(); // consume 'loop'
-
-        let _condition = if self.peek().kind == TokenKind::Ident {
-            let name = self.advance();
-            if self.peek().kind == TokenKind::Open(Bracket::Curly) {
-                self.graph.read_variable(name)? // there is already the body, we cannot parse any further
-            } else {
-                self.parse_variable_tail(name, binding_pow::STATEMENT)?;
-
-                if self.peek().kind == TokenKind::Colon {
-                    self.advance();
-                    self.parse_expr(binding_pow::EXPRESSION)
-                } else {
-                    let lhs = self.graph.read_variable(name)?;
-                    self.parse_expr_tail(lhs, binding_pow::EXPRESSION)
-                }?
-            }
-        } else {
-            self.parse_expr(binding_pow::EXPRESSION)?
-        };
-
         let before_loop = self.graph.snapshot_mem();
+        let loop_head = self.parse_loop_header(before_loop.clone())?;
 
         let step_clause = if self.peek().kind == TokenKind::Colon {
             self.advance();
@@ -316,7 +260,6 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             None
         };
 
-        let loop_head = self.graph.add_loop_head(before_loop.clone());
         self.graph.replace_mem(loop_head.clone());
         self.loops.push(LoopContext {
             loop_head: loop_head.clone(),
@@ -350,7 +293,139 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             .expect("loop exit memory");
         self.graph.replace_mem(after_loop_mem);
         self.reachable = true;
+        self.last_jump = None;
         Ok(())
+    }
+
+    fn parse_loop_header(
+        &mut self,
+        before_loop: MemNodeID<'src>,
+    ) -> GraphResult<'src, MemNodeID<'src>> {
+        if self.peek().kind == TokenKind::Ident {
+            let name = self.advance();
+            if self.peek().kind == TokenKind::Open(Bracket::Curly) {
+                let condition = self.graph.read_variable(name)?;
+                let loop_head = self.graph.add_loop_head(condition, before_loop);
+                self.graph.replace_mem(loop_head.clone());
+                return Ok(loop_head);
+            }
+
+            self.parse_variable_tail(name, binding_pow::STATEMENT)?;
+
+            if self.peek().kind == TokenKind::Colon {
+                self.advance();
+                let loop_entry = self.graph.snapshot_mem();
+                let placeholder = self.graph.add_literal(Literal::from(1_u8));
+                let loop_head = self.graph.add_loop_head(placeholder, loop_entry);
+                self.graph.replace_mem(loop_head.clone());
+                let condition = self.parse_expr(binding_pow::EXPRESSION)?;
+                self.set_loop_condition(loop_head.clone(), condition);
+                return Ok(loop_head);
+            }
+
+            let placeholder = self.graph.add_literal(Literal::from(1_u8));
+            let loop_head = self.graph.add_loop_head(placeholder, before_loop);
+            self.graph.replace_mem(loop_head.clone());
+            let lhs = self.graph.read_variable(name)?;
+            let condition = self.parse_expr_tail(lhs, binding_pow::EXPRESSION)?;
+            self.set_loop_condition(loop_head.clone(), condition);
+            Ok(loop_head)
+        } else if self.starts_statement_only_loop_setup() {
+            self.parse_statement()?;
+            let colon = self.advance();
+            if colon.kind != TokenKind::Colon {
+                return Err(GraphError::UnexpectedToken {
+                    expected: "':'",
+                    found: colon,
+                });
+            }
+
+            let loop_entry = self.graph.snapshot_mem();
+            let placeholder = self.graph.add_literal(Literal::from(1_u8));
+            let loop_head = self.graph.add_loop_head(placeholder, loop_entry);
+            self.graph.replace_mem(loop_head.clone());
+            let condition = self.parse_expr(binding_pow::EXPRESSION)?;
+            self.set_loop_condition(loop_head.clone(), condition);
+            Ok(loop_head)
+        } else {
+            let placeholder = self.graph.add_literal(Literal::from(1_u8));
+            let loop_head = self.graph.add_loop_head(placeholder, before_loop);
+            self.graph.replace_mem(loop_head.clone());
+            let condition = self.parse_expr(binding_pow::EXPRESSION)?;
+            self.set_loop_condition(loop_head.clone(), condition);
+            Ok(loop_head)
+        }
+    }
+
+    fn starts_statement_only_loop_setup(&mut self) -> bool {
+        matches!(
+            self.peek().kind,
+            TokenKind::Open(Bracket::Curly)
+                | TokenKind::Keyword(Keyword::Loop)
+                | TokenKind::Keyword(Keyword::Continue)
+                | TokenKind::Keyword(Keyword::Break)
+        )
+    }
+
+    fn set_loop_condition(&mut self, mut loop_head: MemNodeID<'src>, condition: NodeID<'src>) {
+        match &mut loop_head.kind {
+            crate::grapher::MemNodeKind::LoopHead {
+                condition: loop_condition,
+                ..
+            } => *loop_condition = condition,
+            _ => panic!("attempted to set loop condition on non-loop-head memory node"),
+        }
+    }
+
+    fn parse_branch_block(&mut self) -> GraphResult<'src, ParserState<'src>> {
+        let block_open = self.expect_open_curly()?;
+        self.parse_block(block_open)?;
+        Ok(self.snapshot_state())
+    }
+
+    fn finish_branch_merge(
+        &mut self,
+        condition: NodeID<'src>,
+        before_state: ParserState<'src>,
+        when_true_state: ParserState<'src>,
+        when_false_state: ParserState<'src>,
+    ) {
+        self.merge_loop_versions(
+            &before_state.loops,
+            &when_true_state.loops,
+            &when_false_state.loops,
+        );
+
+        match (when_true_state.reachable, when_false_state.reachable) {
+            (true, true) => {
+                self.merge_symbol_versions(
+                    condition.clone(),
+                    before_state.symbols,
+                    when_true_state.symbols,
+                    when_false_state.symbols,
+                );
+                self.merge_mem_versions(condition, when_true_state.mem, when_false_state.mem);
+                self.reachable = true;
+                self.last_jump = None;
+            }
+            (true, false) => {
+                self.graph.replace_symbols(when_true_state.symbols);
+                self.graph.replace_mem(when_true_state.mem);
+                self.reachable = true;
+                self.last_jump = None;
+            }
+            (false, true) => {
+                self.graph.replace_symbols(when_false_state.symbols);
+                self.graph.replace_mem(when_false_state.mem);
+                self.reachable = true;
+                self.last_jump = None;
+            }
+            (false, false) => {
+                self.graph.replace_symbols(before_state.symbols);
+                self.graph.replace_mem(before_state.mem);
+                self.reachable = false;
+            }
+        }
     }
 
     fn parse_continue_statement(&mut self) -> GraphResult<'src, ()> {

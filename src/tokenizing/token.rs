@@ -397,17 +397,17 @@ impl<'src> Token<'src> {
             EqualEqual => Eq,
             NotEqual => Ne,
 
-            Left => Smaller,
+            Left => Less,
             LeftLeft => Lsh,
             NotLeft => GreaterEq,
-            LeftEqual => SmallerEq,
+            LeftEqual => LessEq,
             NotLeftEqual => Greater,
 
             Right => Greater,
             RightRight => Rsh,
-            NotRight => SmallerEq,
+            NotRight => LessEq,
             RightEqual => GreaterEq,
-            NotRightEqual => Smaller,
+            NotRightEqual => Less,
 
             Plus => Add,
             Dash => Sub,
