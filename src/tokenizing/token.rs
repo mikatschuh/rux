@@ -131,9 +131,8 @@ impl Bracket {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Keyword {
     Move,
-    Mut,
 
-    Proc,
+    Fn,
     Loop,
     If,
     Else,
@@ -150,9 +149,8 @@ impl Keyword {
     pub fn display(&self) -> &'static str {
         match self {
             Move => "move",
-            Mut => "mut",
 
-            Proc => "proc",
+            Fn => "fn",
             Loop => "loop",
             If => "if",
             Else => "else",
@@ -168,9 +166,8 @@ impl Keyword {
     pub fn from_str(string: &str) -> Option<Self> {
         Some(match string {
             "move" => Move,
-            "mut" => Mut,
 
-            "proc" => Proc,
+            "fn" => Fn,
             "loop" => Loop,
             "if" => If,
             "else" => Else,
