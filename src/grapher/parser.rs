@@ -1,34 +1,27 @@
 use crate::{
     grapher::{Graph, GraphError, GraphResult, MemNodeID, NodeID, NodeKind, Symbol},
     tokenizing::{
-        binding_pow,
+        TokenStream, binding_pow,
         num::Literal,
         token::{Bracket, Keyword, Token, TokenKind},
-        TokenStream,
     },
 };
 use std::collections::HashMap;
-pub trait Parser<'tokens, 'src, T: TokenStream<'src>> {
-    fn new(tokens: &'tokens mut T) -> Self;
-    fn build(self) -> GraphResult<'src, Graph<'src>>;
-}
 
 pub struct GraphBuilder<'tokens, 'src, T: TokenStream<'src>> {
     tokens: &'tokens mut T,
     graph: Graph<'src>,
 }
 
-impl<'tokens, 'src, T: TokenStream<'src>> Parser<'tokens, 'src, T>
-    for GraphBuilder<'tokens, 'src, T>
-{
-    fn new(tokens: &'tokens mut T) -> Self {
+impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
+    pub fn new(tokens: &'tokens mut T) -> Self {
         Self {
             tokens,
             graph: Graph::new(),
         }
     }
 
-    fn build(mut self) -> GraphResult<'src, Graph<'src>> {
+    pub fn build(mut self) -> GraphResult<'src, Graph<'src>> {
         loop {
             let token = self.peek();
             if token.kind == TokenKind::EOF {
@@ -38,9 +31,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> Parser<'tokens, 'src, T>
             self.parse_statement()?;
         }
     }
-}
 
-impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     fn parse_statement(&mut self) -> GraphResult<'src, ()> {
         let token = self.peek();
         match token.kind {
@@ -203,7 +194,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 return Err(GraphError::UnexpectedToken {
                     expected: "else",
                     found: else_token,
-                })
+                });
             }
         }
 
@@ -275,29 +266,32 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             false
         };
 
-        let before_symbols = self.graph.snapshot_symbols();
-        let before_mem = self.graph.snapshot_mem();
-        let loop_head = self.graph.add_loop_head(before_mem.clone());
+        let before_loop = self.graph.snapshot_mem();
+        let step_clause = if has_step_clause {
+            let step_clause = self.graph.add_step_clause(before_loop.clone());
+            self.parse_statement()?;
+            Some(step_clause)
+        } else {
+            None
+        };
+
+        let loop_head = self.graph.add_loop_head(before_loop.clone());
         self.graph.replace_mem(loop_head.clone());
 
-        if has_step_clause {
-            self.parse_statement()?;
-        }
-
-        let body_open = self.expect_open_curly()?;
+        let body_open = self.expect_open_curly()?; // loop body
         self.parse_block(body_open)?;
 
-        let when_loop_symbols = self.graph.snapshot_symbols();
-        let when_loop_mem = self.graph.snapshot_mem();
+        let mut when_loop_mem = self.graph.snapshot_mem();
+
+        step_clause.map(|step_clause| {
+            self.graph
+                .set_step_clause_entry(step_clause.clone(), when_loop_mem.clone());
+            when_loop_mem = step_clause
+        }); // wire the step clause into the memory dependencies
+
         self.graph
             .set_loop_backedge(loop_head.clone(), when_loop_mem);
 
-        self.merge_symbol_versions(
-            condition,
-            before_symbols.clone(),
-            when_loop_symbols,
-            before_symbols,
-        );
         self.graph.replace_mem(loop_head);
         Ok(())
     }
@@ -325,7 +319,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                     return Err(GraphError::MismatchedBracket {
                         opener,
                         closer: token,
-                    })
+                    });
                 }
                 _ => self.parse_statement()?,
             }

@@ -1,13 +1,13 @@
 use crate::{
     error::{ErrorCode, Errors, Position, Span},
     tokenizing::{
-        num::{parse_literal, Literal},
+        num::{Literal, parse_literal},
         slicing::TokenBuffer,
         token::{
             Keyword, Token,
             TokenKind::{self, *},
         },
-        ty::{parse_type, Type},
+        ty::{Type, parse_type},
     },
     utilities::Rc,
 };
@@ -37,7 +37,7 @@ pub trait TokenStream<'src> {
     fn get_type(&mut self) -> Type;
     fn consume(&mut self);
 
-    fn consume_while(&mut self, mut predicate: impl FnMut(Token) -> bool) -> TokenBuffer<'src> {
+    fn consume_if(&mut self, mut predicate: impl FnMut(Token) -> bool) -> TokenBuffer<'src> {
         let mut buffer = TokenBuffer::new(self.current_pos());
         loop {
             let tok = self.peek();

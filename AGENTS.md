@@ -4,6 +4,7 @@
 - This is a work in progress compiler for the not existing Rux programming language. (file ending ".rx")
 - The goal for Rux is to be a statically typed low level imperative programming language with a strong emphasis on metaprogramming and compile time safety
 - The compiler should be a treeless multithreaded "Sea of Nodes" compiler
+- NOTE: the compiler is 
 
 ## Project Structure & Module Organization
 - `src/` hosts the Rust compiler

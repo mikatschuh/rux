@@ -195,6 +195,17 @@ loop a < 10 {a++}
 }
 
 #[test]
+fn uninitialized_variable_initialized_in_loop_is_rejected() {
+    const PROGRAM: &str = r#"
+    a i32
+    loop true { a = 10 }
+    "#;
+
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer);
+}
+
+#[test]
 fn dump_includes_loop_backedge_and_conditional_mem_merge() {
     const PROGRAM: &str = r#"
 i ux = -> 0
@@ -322,7 +333,14 @@ fn mem_contains_store_to_addr_with_visited(
                     mem_contains_store_to_addr_with_visited(edge, addr, visited)
                 })
         }
-        super::MemNodeKind::Merge { condition: _, a, b } => {
+        super::MemNodeKind::StepClause { prev } => {
+            mem_contains_store_to_addr_with_visited(prev, addr, visited)
+        }
+        super::MemNodeKind::Merge {
+            condition: _,
+            when_true: a,
+            when_false: b,
+        } => {
             mem_contains_store_to_addr_with_visited(a, addr, visited)
                 || mem_contains_store_to_addr_with_visited(b, addr, visited)
         }
@@ -368,9 +386,12 @@ fn mem_has_cycle_dfs(
                     .as_ref()
                     .is_some_and(|edge| mem_has_cycle_dfs(edge, visited, stack))
         }
-        super::MemNodeKind::Merge { condition: _, a, b } => {
-            mem_has_cycle_dfs(a, visited, stack) || mem_has_cycle_dfs(b, visited, stack)
-        }
+        super::MemNodeKind::StepClause { prev } => mem_has_cycle_dfs(prev, visited, stack),
+        super::MemNodeKind::Merge {
+            condition: _,
+            when_true: a,
+            when_false: b,
+        } => mem_has_cycle_dfs(a, visited, stack) || mem_has_cycle_dfs(b, visited, stack),
         super::MemNodeKind::Store { prev, .. } | super::MemNodeKind::Load { prev, .. } => {
             mem_has_cycle_dfs(prev, visited, stack)
         }

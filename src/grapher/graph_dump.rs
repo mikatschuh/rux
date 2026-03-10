@@ -196,7 +196,15 @@ impl<'src> Graph<'src> {
                     backedge_text
                 )
             }
-            MemNodeKind::Merge { condition, a, b } => {
+            MemNodeKind::StepClause { prev } => {
+                self.collect_mem_dump(prev, visited_nodes, visited_mem, node_lines, mem_lines);
+                format!("StepClause(prev=m{})", Self::mem_ptr_id(prev))
+            }
+            MemNodeKind::Merge {
+                condition,
+                when_true: a,
+                when_false: b,
+            } => {
                 self.collect_node_dump(
                     condition,
                     visited_nodes,

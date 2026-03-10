@@ -1,7 +1,7 @@
 use bumpalo::Bump;
 
 use crate::{
-    grapher::parser::{GraphBuilder, Parser},
+    grapher::parser::GraphBuilder,
     tokenizing::{
         TokenStream, binary_op::BinaryOp, num::Literal, token::Token, ty::Type, unary_op::UnaryOp,
     },
@@ -40,10 +40,13 @@ pub enum MemNodeKind<'src> {
         entry: MemNodeID<'src>,
         backedge: Option<MemNodeID<'src>>,
     },
+    StepClause {
+        prev: MemNodeID<'src>,
+    },
     Merge {
         condition: NodeID<'src>,
-        a: MemNodeID<'src>,
-        b: MemNodeID<'src>,
+        when_true: MemNodeID<'src>,
+        when_false: MemNodeID<'src>,
     },
 
     Store {
@@ -240,7 +243,11 @@ impl<'src> Graph<'src> {
         a: MemNodeID<'src>,
         b: MemNodeID<'src>,
     ) -> MemNodeID<'src> {
-        self.push_mem_node(MemNodeKind::Merge { condition, a, b })
+        self.push_mem_node(MemNodeKind::Merge {
+            condition,
+            when_true: a,
+            when_false: b,
+        })
     }
 
     fn add_loop_head(&mut self, entry: MemNodeID<'src>) -> MemNodeID<'src> {
@@ -259,6 +266,17 @@ impl<'src> Graph<'src> {
                 *loop_backedge = Some(backedge);
             }
             _ => panic!("attempted to set loop backedge on non-loop-head memory node"),
+        }
+    }
+
+    fn add_step_clause(&mut self, entry: MemNodeID<'src>) -> MemNodeID<'src> {
+        self.push_mem_node(MemNodeKind::StepClause { prev: entry })
+    }
+
+    fn set_step_clause_entry(&mut self, mut step_clause: MemNodeID<'src>, entry: MemNodeID<'src>) {
+        match &mut step_clause.kind {
+            MemNodeKind::StepClause { prev, .. } => *prev = entry,
+            _ => panic!("attempted to set step clause prev on non-step-clause memory node"),
         }
     }
 
