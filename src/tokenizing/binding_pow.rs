@@ -4,8 +4,8 @@ use crate::tokenizing::token::{Bracket, Token, TokenKind};
 use TokenKind::*;
 
 pub const ALL: u8 = 0;
-pub const STATEMENT: u8 = 1;
-pub const EXPRESSION: u8 = 2;
+pub const STMT: u8 = 1;
+pub const EXPR: u8 = 2;
 
 pub const WRITE: u8 = 10;
 pub const WRITE_RIGHT: u8 = 11;

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
-use crate::grapher::{Graph, MemNodeID, MemNodeKind, NodeID, NodeKind};
+use crate::grapher::graph::Graph;
 
 impl<'src> Graph<'src> {
     pub fn dump_text(&self) -> String {
@@ -176,9 +176,7 @@ impl<'src> Graph<'src> {
             } => {
                 self.collect_node_dump(condition, visited_nodes, visited_mem, nodes, mem);
                 self.collect_mem_dump(entry, visited_nodes, visited_mem, nodes, mem);
-                if let Some(backedge) = backedge {
-                    self.collect_mem_dump(backedge, visited_nodes, visited_mem, nodes, mem);
-                }
+                self.collect_mem_dump(backedge, visited_nodes, visited_mem, nodes, mem);
             }
             MemNodeKind::StepClause { prev } => {
                 self.collect_mem_dump(prev, visited_nodes, visited_mem, nodes, mem);
@@ -260,10 +258,7 @@ impl<'src> Graph<'src> {
                 entry,
                 backedge,
             } => {
-                let backedge_text = backedge
-                    .as_ref()
-                    .map(|edge| format!("m{}", mem_indices[&Self::mem_ptr_id(edge)]))
-                    .unwrap_or_else(|| "None".to_string());
+                let backedge_text = format!("m{}", mem_indices[&Self::mem_ptr_id(backedge)]);
                 format!(
                     "LoopHead(condition=n{}, entry=m{}, backedge={})",
                     node_indices[&Self::node_ptr_id(condition)],

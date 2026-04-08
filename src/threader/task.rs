@@ -111,8 +111,8 @@ impl Task {
                 let time = now.elapsed().as_nanos();
 
                 println!(
-                    "{}\n\n{}",
-                    graph.map_or_else(|err| err.to_string(), |graph| graph.dump_text()),
+                    "\n\n{}",
+                    // graph.map_or_else(|err| err.to_string(), |graph| graph.dump_text()),
                     *parsing_errors
                 );
                 println!("\n\n{}", format_time(time));
