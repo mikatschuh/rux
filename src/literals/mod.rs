@@ -1,6 +1,6 @@
 use crate::{
     literals::error::LiteralResult,
-    tokenizing::{token::TokenKind, whitespace_at_start_or_empty},
+    tokenizing::parse_tok::is_empty_or_starts_with_space_operator_or_quote,
 };
 use num::{BigInt, BigUint, FromPrimitive, bigint::Sign};
 use std::slice;
@@ -55,13 +55,13 @@ pub fn parse_literal<'src>(mut ident: &'src [u8]) -> LiteralResult<(usize, Liter
     };
 
     let Some(digits) = digits else {
-        return Err((original_len - ident.len(), Error::NoDigitsAtBeginning));
+        return Err((original_len - ident.len(), Error::NotALiteral));
     };
 
     // parse exponent
     let exponent = if !ident.is_empty()
-        && (ident[0] == b'e' || ident[0] == b'p')
-        && (base == Base::Binary || base == Base::Decimal || base == Base::Hexadecimal)
+        && (((base == Base::Binary || base == Base::Decimal) && ident[0] == b'e')
+            || (base == Base::Hexadecimal && ident[0] == b'p'))
     {
         ident = &ident[1..];
 
@@ -80,22 +80,19 @@ pub fn parse_literal<'src>(mut ident: &'src [u8]) -> LiteralResult<(usize, Liter
             }
             _ => Sign::Plus,
         };
-        let (_, Some(number)) = parse_integer(&mut ident) else {
-            return Err((original_len - ident.len(), Error::MissingExponent));
-        };
 
-        Some(BigInt::new(sign, number.to_u32_digits()))
+        match parse_integer(&mut ident) {
+            (_, Some(number)) => Some(BigInt::new(sign, number.to_u32_digits())),
+            _ => return Err((original_len - ident.len(), Error::MissingExponent)),
+        }
     } else {
         None
     };
 
     let suffix_start = ident.as_ptr();
     let mut suffix_len = 0_usize;
-    while !ident.is_empty() {
-        if ident[0] == b'\"'
-            || whitespace_at_start_or_empty(ident)
-            || TokenKind::new(ident[0]).is_some()
-        {
+    loop {
+        if is_empty_or_starts_with_space_operator_or_quote(ident) {
             break;
         }
 

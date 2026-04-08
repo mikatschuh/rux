@@ -50,8 +50,8 @@ impl fmt::Display for Errors<'_> {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct Error {
-    section: Span,
-    error: ErrorCode,
+    pub span: Span,
+    pub error: ErrorCode,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ErrorCode {
@@ -85,11 +85,8 @@ pub enum ErrorCode {
     InvalidUTF8,
 }
 impl Error {
-    pub fn new(pos: Span, error: ErrorCode) -> Self {
-        Self {
-            section: pos,
-            error,
-        }
+    pub fn new(span: Span, error: ErrorCode) -> Self {
+        Self { span, error }
     }
 }
 
@@ -204,101 +201,97 @@ impl Error {
     fn to_string(&self, path: &Path) -> String {
         use ErrorCode::*;
         (match &self.error {
-            ExpectedExpr => format_error!(self.section.to_string(path), "expected a value"),
+            ExpectedExpr => format_error!(self.span.to_string(path), "expected a value"),
             ExpectedIdent => format_error!(
-                self.section.to_string(path),
+                self.span.to_string(path),
                 "expected an identifier",
                 "you have to always put an identifier behind a tick"
             ),
-            ExpectedInterface => format_error!(
-                self.section.to_string(path),
-                "expected a function interface"
-            ),
+            ExpectedInterface => {
+                format_error!(self.span.to_string(path), "expected a function interface")
+            }
             ParamShadowing => format_error!(
-                self.section.to_string(path),
+                self.span.to_string(path),
                 "found shadowing of parameters, which is illegal"
             ),
             NoClosingQuotes => format_error!(
-                self.section.to_string(path),
+                self.span.to_string(path),
                 "the ending quotes of the quote were missing"
             ),
             ExpectedTerminator => format_error!(
-                self.section.to_string(path),
+                self.span.to_string(path),
                 "expected a comma or any closed bracket"
             ),
             ExpectedOpenParen => {
                 format_error!(
-                    self.section.to_string(path),
+                    self.span.to_string(path),
                     "expected open parentheses {}",
                     ["("]
                 )
             }
             ExpectedItemDeclaration => format_error!(
-                self.section.to_string(path),
+                self.span.to_string(path),
                 "expected an item declaration with {}",
                 ["::"]
             ),
-            ExpectedComma => format_error!(self.section.to_string(path), "expected a comma"),
-            UnexpectedToken => format_error!(self.section.to_string(path), "unexpected token"),
+            ExpectedComma => format_error!(self.span.to_string(path), "expected a comma"),
+            UnexpectedToken => format_error!(self.span.to_string(path), "unexpected token"),
             LonelyElse => {
                 format_error!(
-                    self.section.to_string(path),
+                    self.span.to_string(path),
                     "the else - keyword has been used without an if / loop - block infront of it",
                     "you've to add the if / loop block"
                 )
             }
             ExpectedReturn => format_error!(
-                self.section.to_string(path),
+                self.span.to_string(path),
                 "expected return",
                 "you've to add the return keyword"
             ),
             NoOpenedBracket { closed } => {
                 format_error!(
-                    self.section.to_string(path),
+                    self.span.to_string(path),
                     "there was a closed bracket {} but no opened one",
                     [closed.display_closed()]
                 )
             }
             ExpectedClosedBracket { opened } => {
                 format_error!(
-                    self.section.to_string(path),
+                    self.span.to_string(path),
                     "expected a closed bracket {}",
                     [opened.display_closed()]
                 )
             }
             NoClosedBracket { opened } => {
                 format_error!(
-                    self.section.to_string(path),
+                    self.span.to_string(path),
                     "there was a opened bracket {} but no closed one",
                     [opened.display_open()]
                 )
             }
             WrongClosedBracket { expected, found } => {
                 format_error!(
-                    self.section.to_string(path),
+                    self.span.to_string(path),
                     "found a closed bracket {} but actually expected {}",
                     [found.display_closed(), expected.display_closed()]
                 )
             }
             LiteralParsingError(err) => {
                 format_error!(
-                    self.section.to_string(path),
+                    self.span.to_string(path),
                     "literal error: {}",
                     [err.to_string()]
                 )
             }
             TypeParsingError(err) => {
                 format_error!(
-                    self.section.to_string(path),
+                    self.span.to_string(path),
                     "primitive type parsing error: {}",
                     [err.to_string()]
                 )
             }
             InvalidUTF8 => {
-                format_error!(
-                    self.section.to_string(path),
-                    "found invalid UTF-8 character"
-                )
+                format_error!(self.span.to_string(path), "found invalid UTF-8 character")
             }
         })
         .to_string()

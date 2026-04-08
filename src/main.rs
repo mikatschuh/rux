@@ -8,6 +8,7 @@ use threader::Threadpool;
 #[allow(dead_code)]
 #[macro_use]
 mod error;
+mod byte_parsing;
 mod threader;
 mod tokenizing;
 mod types;
@@ -31,7 +32,7 @@ ___    __
 opensource
 */
 #[derive(Parser)]
-#[command(author = "mikatschuh", version = "0.1", about = ABOUT.clone(), long_about = None, name = "flou")]
+#[command(author = "mikatschuh", version = "0.1", about = ABOUT.clone(), long_about = None, name = "rux")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -133,9 +134,9 @@ fn _print_communism() {
 
 static ABOUT: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     format!("\n{}\n| {}\n|  {}\t{}\n",
-    "The Flou programming language.\n•--------------------------------------------------------------------------------".bold(),
+    "The Rux programming language.\n•--------------------------------------------------------------------------------".bold(),
     "Usage:",
-    "flou build \tpath_to_your_project",
+    "rux build \tpath_to_your_project",
     "to build an executable from your project"
 )
 });
