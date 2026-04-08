@@ -1,7 +1,6 @@
-use super::{token::Token, TokenStream};
+use super::{TokenStream, token::Token};
 use crate::{
-    error::Position,
-    tokenizing::{num::Literal, token::TokenKind::*, ty::Type},
+    error::Position, literals::Literal, tokenizing::token::TokenKind::*, types::PrimitiveType,
 };
 use std::collections::VecDeque;
 
@@ -11,7 +10,7 @@ pub struct TokenBuffer<'src> {
     pub(super) tokens: VecDeque<Token<'src>>,
     pub(super) literals: VecDeque<Literal<'src>>,
     pub(super) quotes: VecDeque<String>,
-    pub(super) types: VecDeque<Type>,
+    pub(super) types: VecDeque<PrimitiveType>,
 }
 
 impl<'src> TokenBuffer<'src> {
@@ -36,7 +35,7 @@ impl<'src> TokenStream<'src> for TokenBuffer<'src> {
         self.tokens.front().copied().unwrap_or(Token {
             span: self.last_outputted_pos.into(),
             src: "",
-            kind: EOF,
+            kind: Eof,
         })
     }
     fn get_literal(&mut self) -> Literal<'src> {
@@ -45,7 +44,7 @@ impl<'src> TokenStream<'src> for TokenBuffer<'src> {
     fn get_quote(&mut self) -> String {
         unsafe { self.quotes.pop_front().unwrap_unchecked() }
     }
-    fn get_type(&mut self) -> Type {
+    fn get_type(&mut self) -> PrimitiveType {
         unsafe { self.types.pop_front().unwrap_unchecked() }
     }
 

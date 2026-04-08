@@ -4,10 +4,10 @@ use num::BigUint;
 
 use crate::{
     error::{Errors, Span},
+    literals::{Base, Literal},
     tokenizing::{
-        num::{Base, Literal},
-        token::{Token, TokenKind::*},
         TokenStream, Tokenizer,
+        token::{Token, TokenKind::*},
     },
     utilities::Rc,
 };
@@ -20,7 +20,7 @@ fn test() {
             vec![Token {
                 span: Span::at(1, 1, 1, 1),
                 src: "",
-                kind: EOF,
+                kind: Eof,
             }],
         ),
         /*(
@@ -79,7 +79,7 @@ fn test() {
                 Token {
                     span: Span::at(11, 2, 11, 2),
                     src: "",
-                    kind: EOF,
+                    kind: Eof,
                 },
             ],
         ),*/
@@ -104,7 +104,7 @@ fn test() {
                 Token {
                     span: Span::at(3, 3, 3, 3),
                     src: "",
-                    kind: EOF,
+                    kind: Eof,
                 },
             ],
         ),
@@ -124,7 +124,7 @@ fn test() {
                 Token {
                     span: Span::at(4, 2, 4, 2),
                     src: "",
-                    kind: EOF,
+                    kind: Eof,
                 },
             ],
         ),
@@ -140,7 +140,7 @@ fn test() {
             tokens.push(tok);
             tokenizer.consume();
 
-            if tok.kind == EOF {
+            if tok.kind == Eof {
                 break;
             }
         }
@@ -220,7 +220,7 @@ fn test() {
         Token {
             span: Span::at(13, 1, 13, 1),
             src: "",
-            kind: EOF
+            kind: Eof
         }
     )
 

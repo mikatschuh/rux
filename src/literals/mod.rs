@@ -1,6 +1,12 @@
-use crate::tokenizing::{token::TokenKind, whitespace_at_start_or_empty};
-use num::{bigint::Sign, BigInt, BigUint, FromPrimitive};
+use crate::{
+    literals::error::LiteralResult,
+    tokenizing::{token::TokenKind, whitespace_at_start_or_empty},
+};
+use num::{BigInt, BigUint, FromPrimitive, bigint::Sign};
 use std::slice;
+
+mod error;
+pub use error::Error;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Literal<'src> {
@@ -37,9 +43,9 @@ impl<'src, N: Into<u128>> From<N> for Literal<'src> {
 /// ```
 /// If instead of a base specifier, a digit is given, its assumed that the leading zero
 /// was just a typo. The number will be continued regulary.
-pub(super) fn parse_literal<'src>(mut ident: &'src [u8]) -> Option<(usize, Literal<'src>)> {
+pub fn parse_literal<'src>(mut ident: &'src [u8]) -> LiteralResult<(usize, Literal<'src>)> {
     let original_len = ident.len();
-    let (base, mut digits) = parse_number(&mut ident);
+    let (base, mut digits) = parse_integer(&mut ident);
 
     let num_digits_after_dot = if !ident.is_empty() && ident[0] == b'.' {
         ident = &ident[1..];
@@ -49,43 +55,38 @@ pub(super) fn parse_literal<'src>(mut ident: &'src [u8]) -> Option<(usize, Liter
     };
 
     let Some(digits) = digits else {
-        return None;
+        return Err((original_len - ident.len(), Error::NoDigitsAtBeginning));
     };
 
-    let exponent = 'blk: {
-        // parse exponent
-        if !ident.is_empty() && (ident[0] == b'e' || ident[0] == b'p') {
-            let original_slice = ident;
+    // parse exponent
+    let exponent = if !ident.is_empty()
+        && (ident[0] == b'e' || ident[0] == b'p')
+        && (base == Base::Binary || base == Base::Decimal || base == Base::Hexadecimal)
+    {
+        ident = &ident[1..];
 
-            ident = &ident[1..];
-
-            if ident.is_empty() {
-                ident = original_slice;
-                break 'blk None;
-            }
-
-            let sign = match ident[0] {
-                b'+' => {
-                    ident = &ident[1..];
-                    Sign::Plus
-                }
-                b'-' => {
-                    ident = &ident[1..];
-                    Sign::Minus
-                }
-                _ => Sign::Plus,
-            };
-            let (_, number) = parse_number(&mut ident);
-
-            let Some(number) = number else {
-                ident = original_slice;
-                break 'blk None;
-            };
-
-            Some(BigInt::new(sign, number.to_u32_digits()))
-        } else {
-            None
+        if ident.is_empty() {
+            return Err((original_len - ident.len(), Error::MissingExponent));
         }
+
+        let sign = match ident[0] {
+            b'+' => {
+                ident = &ident[1..];
+                Sign::Plus
+            }
+            b'-' => {
+                ident = &ident[1..];
+                Sign::Minus
+            }
+            _ => Sign::Plus,
+        };
+        let (_, Some(number)) = parse_integer(&mut ident) else {
+            return Err((original_len - ident.len(), Error::MissingExponent));
+        };
+
+        Some(BigInt::new(sign, number.to_u32_digits()))
+    } else {
+        None
     };
 
     let suffix_start = ident.as_ptr();
@@ -102,7 +103,7 @@ pub(super) fn parse_literal<'src>(mut ident: &'src [u8]) -> Option<(usize, Liter
         suffix_len += 1;
     }
 
-    Some((
+    Ok((
         original_len - ident.len(),
         Literal {
             digits,
@@ -128,7 +129,7 @@ pub enum Base {
 use Base::*;
 
 /// Defaults to Decimal
-fn parse_base_prefix(num: &mut &[u8]) -> Base {
+pub fn parse_base_prefix(num: &mut &[u8]) -> Base {
     if num.len() >= 2 {
         let base = match &num[..2] {
             b"0b" => Binary,
@@ -145,7 +146,7 @@ fn parse_base_prefix(num: &mut &[u8]) -> Base {
     }
 }
 
-fn parse_digits(number: &mut Option<BigUint>, radix: u8, input: &mut &[u8]) -> usize {
+pub fn parse_digits(number: &mut Option<BigUint>, radix: u8, input: &mut &[u8]) -> usize {
     let mut num_digits = 0;
 
     while !input.is_empty() {
@@ -182,9 +183,9 @@ fn to_digit(c: u8, radix: u8) -> Option<u8> {
     None
 }
 
-pub fn parse_number(num: &mut &[u8]) -> (Base, Option<BigUint>) {
-    let base = parse_base_prefix(num);
+pub fn parse_integer(input: &mut &[u8]) -> (Base, Option<BigUint>) {
+    let base = parse_base_prefix(input);
     let mut number = None;
-    parse_digits(&mut number, base as u8, num);
+    parse_digits(&mut number, base as u8, input);
     (base, number)
 }

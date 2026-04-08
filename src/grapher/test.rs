@@ -5,18 +5,14 @@ use super::{Graph, GraphError};
 use crate::{
     error::Errors,
     grapher::graph::{MemNodeID, MemNodeKind, NodeID, NodeKind},
-    tokenizing::{
-        Tokenizer,
-        binary_op::BinaryOp,
-        num::{Base, Literal},
-        ty::Type,
-        unary_op::UnaryOp,
-    },
+    literals::{Base, Literal},
+    tokenizing::{Tokenizer, binary_op::BinaryOp, unary_op::UnaryOp},
+    types::{PrimitiveType, TypeSize},
     utilities::Rc,
 };
 use std::path::Path;
 
-const TARGET_PTR_SIZE: usize = 64;
+const TARGET_PTR_SIZE: TypeSize = 64;
 
 fn tokenizer_for(source: &'static str) -> Tokenizer<'static> {
     let errors = Rc::new(Errors::empty(Path::new("example.rx")));
@@ -42,7 +38,7 @@ fn mutable_symbol_assignments_use_memory_nodes() {
     let graph = Graph::from_stream(&mut tokenizer).expect("graph");
 
     let x_symbol = graph.symbol("x").expect("x symbol");
-    expect_primitive_type(&x_symbol.ty, Type::Signed { size: 32 });
+    expect_primitive_type(&x_symbol.ty, PrimitiveType::Signed { size: 32 });
     let x_addr = expect_unary(&x_symbol.assignment, UnaryOp::Ptr);
     expect_literal(&x_addr, Literal::from(1_u8));
 
@@ -59,7 +55,7 @@ fn parses_non_decimal_literals() {
     let graph = Graph::from_stream(&mut tokenizer).expect("graph");
 
     let symbol = graph.symbol("value").expect("value symbol");
-    expect_primitive_type(&symbol.ty, Type::Signed { size: 32 });
+    expect_primitive_type(&symbol.ty, PrimitiveType::Signed { size: 32 });
     expect_literal(
         &symbol.assignment,
         Literal {
@@ -421,7 +417,7 @@ fn expect_literal(node: &NodeID<'_>, literal: Literal<'_>) {
     }
 }
 
-fn expect_primitive_type(node: &NodeID<'_>, requested_type: Type) {
+fn expect_primitive_type(node: &NodeID<'_>, requested_type: PrimitiveType) {
     match &node.kind {
         NodeKind::PrimitiveType { ty } => {
             assert_eq!(*ty, requested_type)

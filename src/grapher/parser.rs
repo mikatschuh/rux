@@ -3,9 +3,9 @@ use crate::{
         Graph, GraphError, GraphResult,
         graph::{MemNodeID, NodeID, NodeKind, Symbol},
     },
+    literals::Literal,
     tokenizing::{
         TokenStream, binding_pow,
-        num::Literal,
         token::{Bracket, Keyword, Token, TokenKind},
     },
 };
@@ -49,7 +49,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     pub fn build(mut self) -> GraphResult<'src, Graph<'src>> {
         loop {
             let token = self.peek();
-            if token.kind == TokenKind::EOF {
+            if token.kind == TokenKind::Eof {
                 return Ok(self.graph);
             }
 
@@ -60,7 +60,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     fn parse_statement(&mut self) -> GraphResult<'src, ()> {
         let token = self.peek();
         match token.kind {
-            TokenKind::EOF => return Ok(()),
+            TokenKind::Eof => return Ok(()),
             TokenKind::Semicolon => {
                 self.advance();
                 Ok(())
@@ -469,7 +469,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                     self.advance();
                     return Ok(());
                 }
-                TokenKind::Closed(_) | TokenKind::EOF => {
+                TokenKind::Closed(_) | TokenKind::Eof => {
                     return Err(GraphError::MismatchedBracket {
                         opener,
                         closer: token,

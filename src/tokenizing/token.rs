@@ -102,7 +102,7 @@ pub enum TokenKind {
     Open(Bracket),   // ( / [ / {
     Closed(Bracket), // ) / ] / }
 
-    EOF,
+    Eof,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

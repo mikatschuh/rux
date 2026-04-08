@@ -4,9 +4,9 @@ use bumpalo::Bump;
 
 use crate::{
     grapher::{GraphError, GraphResult, parser::GraphBuilder},
-    tokenizing::{
-        TokenStream, binary_op::BinaryOp, num::Literal, token::Token, ty::Type, unary_op::UnaryOp,
-    },
+    literals::Literal,
+    tokenizing::{TokenStream, binary_op::BinaryOp, token::Token, unary_op::UnaryOp},
+    types::PrimitiveType,
     utilities::{NoDealloc, Rc},
 };
 
@@ -59,7 +59,7 @@ pub enum NodeKind<'src> {
         quote: String,
     },
     PrimitiveType {
-        ty: Type,
+        ty: PrimitiveType,
     },
 
     Unary {
@@ -98,7 +98,7 @@ enum NodeKey<'src> {
         quote: String,
     },
     PrimitiveType {
-        ty: Type,
+        ty: PrimitiveType,
     },
     Unary {
         op: UnaryOp,
@@ -312,7 +312,7 @@ impl<'src> Graph<'src> {
         self.push_node(NodeKind::Quote { quote })
     }
 
-    pub fn add_type(&mut self, ty: Type) -> NodeID<'src> {
+    pub fn add_type(&mut self, ty: PrimitiveType) -> NodeID<'src> {
         self.push_node(NodeKind::PrimitiveType { ty })
     }
 
