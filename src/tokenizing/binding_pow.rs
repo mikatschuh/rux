@@ -3,8 +3,9 @@ use crate::tokenizing::token::{Bracket, Token, TokenKind};
 
 use TokenKind::*;
 
-pub const PATH: u8 = 2;
-pub const COLON: u8 = 8;
+pub const ALL: u8 = 0;
+pub const STMT: u8 = 1;
+pub const EXPR: u8 = 2;
 
 pub const WRITE: u8 = 10;
 pub const WRITE_RIGHT: u8 = 11;
@@ -49,10 +50,9 @@ pub const ACCESSOR_RIGHT: u8 = 151;
 impl<'src> Token<'src> {
     pub const fn binding_pow(self) -> u8 {
         match self.kind {
-            Comma | Closed(..) | EOF | HalfCenterDot | RightArrow | Placeholder | Ident | Not
-            | Literal | Quote | Keyword(..) | Type | Open(Bracket::Curly) | Semicolon => 0,
-
-            TokenKind::Colon => COLON,
+            Comma | Closed(..) | Eof | HalfCenterDot | RightArrow | Underscore | DashDashDash
+            | Ident | Not | Literal | Quote | Keyword(..) | Type | Open(Bracket::Curly)
+            | Semicolon | Colon => 0,
 
             ColonColon
             | Equal
@@ -131,7 +131,7 @@ impl BinaryOp {
             BinaryOp::Xor | Xnor => XOR_RIGHT,
             BinaryOp::And | Nand => AND_RIGHT,
 
-            Eq | Ne | Smaller | SmallerEq | Greater | GreaterEq => COMPARISON_RIGHT,
+            Eq | Ne | Less | LessEq | Greater | GreaterEq => COMPARISON_RIGHT,
 
             Lsh | Rsh => BIT_SHIFT_RIGHT,
 

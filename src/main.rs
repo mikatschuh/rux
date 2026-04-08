@@ -12,9 +12,11 @@ mod error;
 // mod parser;
 mod threader;
 mod tokenizing;
+mod types;
 #[macro_use]
 #[allow(dead_code)]
 mod utilities;
+mod literals;
 #[macro_use]
 mod comp;
 #[allow(dead_code)]

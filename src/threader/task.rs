@@ -11,7 +11,7 @@ use std::{
     fs::*,
     io::Read,
     path::{Path, PathBuf},
-    time::{Instant, UNIX_EPOCH},
+    time::Instant,
 };
 
 #[derive(Clone, Debug)]
@@ -69,29 +69,30 @@ impl Task {
                         }
                     }
                 }
-                for file in relevant_files.files.into_iter() {
-                    if file.1 != UNIX_EPOCH {
-                        println!(
-                            "wants to remove: {:?} name: {}",
-                            path.join(String::from(".") + &file.0 + COMPILED_FILE_EXTENSION),
-                            file.0
-                        );
-                        // match fs::remove_file(&path.join(file)) {
-                        //     Ok(_) => {},
-                        //     Err(_) => println!("You shall not remove that file! file: {:?}", path)
-                        // }
-                    } else {
-                        push(Task::Parse {
-                            path: Box::leak(
-                                path.join(PathBuf::from(file.0 + FILE_EXTENSION))
-                                    .into_boxed_path(),
-                            ),
-                        });
-                    }
+                let (files_to_compile, files_to_remove) = relevant_files.get_resulting();
+                for file in files_to_compile {
+                    push(Task::Parse {
+                        path: Box::leak(
+                            path.join(PathBuf::from(file + FILE_EXTENSION))
+                                .into_boxed_path(),
+                        ),
+                    });
+                }
+                for file in files_to_remove {
+                    println!(
+                        "wants to remove: {:?} name: {}",
+                        path.join(String::from(".") + &file + COMPILED_FILE_EXTENSION),
+                        file
+                    );
+
+                    // match fs::remove_file(&path.join(file)) {
+                    //     Ok(_) => {},
+                    //     Err(_) => println!("You shall not remove that file! file: {:?}", path)
+                    // }
                 }
             }
             Task::Parse { path } => {
-                if path.file_name() != Some(&OsString::from("inter.rx")) {
+                if path.file_name() != Some(&OsString::from("test.rx")) {
                     return Ok(());
                 }
                 let mut file = OpenOptions::new().read(true).open(path)?;
@@ -109,10 +110,12 @@ impl Task {
                 // Debug Print
                 let time = now.elapsed().as_nanos();
 
-                println!("\n{}", *parsing_errors);
+                println!(
+                    "\n\n{}",
+                    // graph.map_or_else(|err| err.to_string(), |graph| graph.dump_text()),
+                    *parsing_errors
+                );
                 println!("\n\n{}", format_time(time));
-
-                if path.file_name() == Some(&OsString::from("main.rx")) {}
             }
         }
         Ok(())

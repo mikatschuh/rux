@@ -37,12 +37,13 @@ pub enum TokenKind {
     NotRightEqual,   // !>=
     RightArrow,      // ->
 
-    Plus,      // +
-    PlusPlus,  // ++
-    PlusEqual, // +=
-    Dash,      // -
-    DashDash,  // --
-    DashEqual, // -=
+    Plus,         // +
+    PlusPlus,     // ++
+    PlusEqual,    // +=
+    Dash,         // -
+    DashDash,     // --
+    DashDashDash, // ---
+    DashEqual,    // -=
 
     Star,         // *
     StarEqual,    // *=
@@ -92,7 +93,7 @@ pub enum TokenKind {
     Comma, // ,
 
     Ident,            // x
-    Placeholder,      // _
+    Underscore,       // _
     Literal,          // 1001010101
     Quote,            // "_"
     Keyword(Keyword), // if / loop / ..
@@ -101,7 +102,7 @@ pub enum TokenKind {
     Open(Bracket),   // ( / [ / {
     Closed(Bracket), // ) / ] / }
 
-    EOF,
+    Eof,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -129,43 +130,54 @@ impl Bracket {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Keyword {
-    Proc,
+    Move,
+
+    Fn,
     Loop,
     If,
     Else,
+    OrElse,
     Continue,
+    OrContinue,
     Break,
+    OrBreak,
     Return,
+    OrReturn,
 }
 
 impl Keyword {
     pub fn display(&self) -> &'static str {
         match self {
-            Proc => "proc",
+            Move => "move",
+
+            Fn => "fn",
             Loop => "loop",
             If => "if",
             Else => "else",
+            OrElse => "orelse",
             Continue => "continue",
+            OrContinue => "orcontinue",
             Break => "break",
+            OrBreak => "orbreak",
             Return => "return",
+            OrReturn => "orreturn",
         }
     }
     pub fn from_str(string: &str) -> Option<Self> {
         Some(match string {
-            "proc" => Proc,
-            "prozedur" => Proc,
+            "move" => Move,
+
+            "fn" => Fn,
             "loop" => Loop,
-            "wiederhole" => Loop,
             "if" => If,
-            "wenn" => If,
             "else" => Else,
-            "sonst" => Else,
+            "orelse" => OrElse,
             "continue" => Continue,
-            "nächste" => Continue,
+            "orcontinue" => OrContinue,
             "break" => Break,
-            "verlasse" => Break,
+            "orbreak" => OrBreak,
             "return" => Return,
-            "zurückgeben" => Return,
+            "orreturn" => OrReturn,
             _ => return None,
         })
     }
@@ -275,6 +287,7 @@ impl TokenKind {
             Plus if c == b'=' => PlusEqual,
 
             Dash if c == b'-' => DashDash,
+            DashDash if c == b'-' => DashDashDash,
             Dash if c == b'=' => DashEqual,
             Dash if c == b'>' => RightArrow,
 
@@ -384,17 +397,17 @@ impl<'src> Token<'src> {
             EqualEqual => Eq,
             NotEqual => Ne,
 
-            Left => Smaller,
+            Left => Less,
             LeftLeft => Lsh,
             NotLeft => GreaterEq,
-            LeftEqual => SmallerEq,
+            LeftEqual => LessEq,
             NotLeftEqual => Greater,
 
             Right => Greater,
             RightRight => Rsh,
-            NotRight => SmallerEq,
+            NotRight => LessEq,
             RightEqual => GreaterEq,
-            NotRightEqual => Smaller,
+            NotRightEqual => Less,
 
             Plus => Add,
             Dash => Sub,

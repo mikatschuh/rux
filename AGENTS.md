@@ -1,9 +1,10 @@
 # Repository Guidelines
 
 ## Project Goals
-- This is a work in progress compiler for the not existing Flou (working name) programming language. (file ending ".rx")
-- The goal for Flou is to be a statically typed low level imperative programming language with a strong emphasis on metaprogramming and compile time safety
+- This is a work in progress compiler for the not existing Rux programming language. (file ending ".rx")
+- The goal for Rux is to be a statically typed low level imperative programming language with a strong emphasis on metaprogramming and compile time safety
 - The compiler should be a treeless multithreaded "Sea of Nodes" compiler
+- NOTE: the compiler is 
 
 ## Project Structure & Module Organization
 - `src/` hosts the Rust compiler
@@ -15,7 +16,7 @@
 - `src/parser` is deprecated and should be stayed independent from and is now no longer part of the module tree
 - `src/grapher` contains the Sea of Nodes framework in mod.rs, the parser in parser.rs and in test.rs the tests 
 - `codegen/`, `vms/` and `interpreter/` are yet to be filled with content in future sessions
-- `my_project/` is the sample Flou workspace (`main.rx`, `module/inter.rx`) used by integration tests and quick demos.
+- `my_project/` is the sample Rux workspace (`main.rx`, `module/inter.rx`) used by integration tests and quick demos.
 - `docs/` contains design references on Flou but is partially outdated and should be ignored.
 
 ## Build, Test, and Development Commands

@@ -183,19 +183,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 
 [[package]]
-name = "flou"
-version = "0.1.0"
-dependencies = [
- "arrayvec",
- "bumpalo",
- "clap",
- "colored",
- "crossbeam",
- "num",
- "num_cpus",
-]
-
-[[package]]
 name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -330,6 +317,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1885c039570dc00dcb4ff087a89e185fd56bae234ddc7f056a945bf36467248d"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "rux"
+version = "0.1.0"
+dependencies = [
+ "arrayvec",
+ "bumpalo",
+ "clap",
+ "colored",
+ "crossbeam",
+ "num",
+ "num_cpus",
 ]
 
 [[package]]

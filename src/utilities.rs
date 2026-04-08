@@ -1,9 +1,9 @@
-use std::alloc::{alloc, dealloc, Layout};
+use std::alloc::{Layout, alloc, dealloc};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::mem::{self, MaybeUninit};
 use std::ops::{Deref, DerefMut, Index, IndexMut};
-use std::ptr::{null_mut, NonNull};
+use std::ptr::{NonNull, null_mut};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 // Die innere Struktur, die gezählt wird
@@ -27,20 +27,20 @@ pub struct GlobalAllocator;
 impl CustomAllocator for GlobalAllocator {
     #[inline]
     unsafe fn allocate(&self, layout: Layout) -> *mut u8 {
-        alloc(layout)
+        unsafe { alloc(layout) }
     }
 
     #[inline]
     unsafe fn deallocate(&self, ptr: *mut u8, layout: Layout) {
-        dealloc(ptr, layout)
+        unsafe { dealloc(ptr, layout) }
     }
 }
 
 // Implementierung des Standard-Allocators
 #[derive(Clone, Copy)]
-pub struct MocAllocator;
+pub struct NoDealloc;
 
-impl CustomAllocator for MocAllocator {
+impl CustomAllocator for NoDealloc {
     #[inline]
     unsafe fn allocate(&self, _: Layout) -> *mut u8 {
         null_mut()
@@ -93,7 +93,7 @@ impl<T, A: CustomAllocator> Rc<T, A> {
         Self { ptr, allocator }
     }
 
-    pub fn new_in_bump(value: T, arena: &Bump) -> Rc<T, MocAllocator> {
+    pub fn new_in_bump(value: T, arena: &Bump) -> Rc<T, NoDealloc> {
         let layout = Layout::new::<RcBoxInner<T>>();
 
         let ptr = unsafe {
@@ -111,7 +111,7 @@ impl<T, A: CustomAllocator> Rc<T, A> {
 
         Rc {
             ptr,
-            allocator: MocAllocator {},
+            allocator: NoDealloc {},
         }
     }
     // Aktuelle Anzahl der starken Referenzen

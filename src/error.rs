@@ -7,6 +7,9 @@ use std::ops::AddAssign;
 use std::ops::Sub;
 use std::ops::SubAssign;
 
+use crate::literals::Error as LiteralError;
+use crate::types::Error as PrimitiveTypeParsingError;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Errors<'src> {
     file: &'src Path,
@@ -77,6 +80,8 @@ pub enum ErrorCode {
     NoClosedBracket { opened: Bracket },
     WrongClosedBracket { expected: Bracket, found: Bracket },
 
+    LiteralParsingError(LiteralError),
+    TypeParsingError(PrimitiveTypeParsingError),
     InvalidUTF8,
 }
 impl Error {
@@ -273,6 +278,20 @@ impl Error {
                     self.section.to_string(path),
                     "found a closed bracket {} but actually expected {}",
                     [found.display_closed(), expected.display_closed()]
+                )
+            }
+            LiteralParsingError(err) => {
+                format_error!(
+                    self.section.to_string(path),
+                    "literal error: {}",
+                    [err.to_string()]
+                )
+            }
+            TypeParsingError(err) => {
+                format_error!(
+                    self.section.to_string(path),
+                    "primitive type parsing error: {}",
+                    [err.to_string()]
                 )
             }
             InvalidUTF8 => {

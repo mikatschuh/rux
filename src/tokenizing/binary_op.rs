@@ -9,10 +9,10 @@ pub enum BinaryOp {
 
     Eq,        // a == b
     Ne,        // a != b
-    Smaller,   // a < b
+    Less,      // a < b
     GreaterEq, // a >= b
     Greater,   // a > b
-    SmallerEq, // a <= b
+    LessEq,    // a <= b
 
     Lsh, // a << b
     Rsh, // a >> b
@@ -57,10 +57,10 @@ impl Display for BinaryOp {
 
                 Eq => "==",
                 Ne => "!=",
-                Smaller => "<",
+                Less => "<",
                 GreaterEq => ">=",
                 Greater => ">",
-                SmallerEq => "<=",
+                LessEq => "<=",
 
                 Lsh => "<<",
                 Rsh => ">>",

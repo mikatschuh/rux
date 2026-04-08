@@ -1,96 +1,51 @@
 use num::{BigUint, FromPrimitive};
+use std::collections::HashSet;
 
-use super::{BinaryOp, Graph, NodeId, NodeKind};
+use super::{Graph, GraphError};
 use crate::{
     error::Errors,
-    tokenizing::{
-        num::{Base, Literal},
-        ty::Type,
-        Tokenizer,
-    },
+    grapher::graph::{MemNodeID, MemNodeKind, NodeID, NodeKind},
+    literals::{Base, Literal},
+    tokenizing::{Tokenizer, binary_op::BinaryOp, unary_op::UnaryOp},
+    types::{PrimitiveType, TypeSize},
     utilities::Rc,
 };
-use std::{panic, path::Path};
+use std::path::Path;
 
-const TARGET_PTR_SIZE: usize = 64;
+const TARGET_PTR_SIZE: TypeSize = 64;
 
 fn tokenizer_for(source: &'static str) -> Tokenizer<'static> {
     let errors = Rc::new(Errors::empty(Path::new("example.rx")));
     Tokenizer::new(source, errors, TARGET_PTR_SIZE)
 }
 
-const ARITHMETIC_EXAMPLE: &str = include_str!("arithmetic_example.rx");
-const LOOP_EXAMPLE: &str = include_str!("loop_example.rx");
-
 #[test]
-fn builds_graph_for_example_program() {
-    let mut tokenizer = tokenizer_for(ARITHMETIC_EXAMPLE);
-    let graph = Graph::from_stream(&mut tokenizer).expect("graph");
+fn immutable_symbol_cannot_be_reassigned() {
+    const PROGRAM: &str = "x i32 = 1\nx = 2\n";
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer);
 
-    let x_symbol = graph.symbol("x").expect("x symbol");
-    expect_primitive_type(&x_symbol.ty, Type::Signed { size: 32 });
-
-    let x_value = x_symbol.last_value.as_ref().expect("x's last_value");
-    let (mul_lhs, mul_rhs) = expect_binary(x_value, BinaryOp::Mul);
-    expect_literal(&mul_rhs, Literal::from(20_u8));
-
-    let (add_lhs, add_rhs) = expect_binary(&mul_lhs, BinaryOp::Add);
-    expect_literal(&add_lhs, Literal::from(10_u8));
-    expect_literal(&add_rhs, Literal::from(10_u8));
-
-    let y_symbol = graph.symbol("y").expect("y symbol");
-    expect_primitive_type(&y_symbol.ty, Type::Signed { size: 32 });
-    expect_literal(
-        y_symbol.last_value.as_ref().expect("y's last value"),
-        Literal::from(11_u8),
-    );
-
-    let a_symbol = graph.symbol("a").expect("a symbol");
-    expect_primitive_type(&a_symbol.ty, Type::Unsigned { size: 32 });
-    assert!(a_symbol.last_value.is_none());
-
-    let abc_symbol = graph.symbol("abc").expect("abc symbol");
-    expect_unknown_ident(&abc_symbol.ty, "str");
-    expect_quote(
-        abc_symbol.last_value.as_ref().expect("abc's last value"),
-        "abc",
-    );
-
-    let complex_symbol = graph.symbol("complex").expect("complex symbol");
-    expect_primitive_type(
-        &complex_symbol.ty,
-        Type::Unsigned {
-            size: TARGET_PTR_SIZE,
-        },
-    );
-    let (lhs, rhs) = expect_binary(
-        complex_symbol
-            .last_value
-            .as_ref()
-            .expect("complex's last value"),
-        BinaryOp::Add,
-    );
-
-    assert!(x_value.ptr_cmp(&lhs));
-    expect_literal(&rhs, Literal::from(1_u8));
+    assert!(matches!(
+        graph,
+        Err(GraphError::AssignmentToImmutableIdent { .. })
+    ));
 }
 
 #[test]
-fn assignment_updates_variable_versions() {
-    const PROGRAM: &str = "x i32 = 1\nx = x + 1\n";
+fn mutable_symbol_assignments_use_memory_nodes() {
+    const PROGRAM: &str = "x i32 = -> 1\nx = x + 1\ny i32 = x\n";
     let mut tokenizer = tokenizer_for(PROGRAM);
     let graph = Graph::from_stream(&mut tokenizer).expect("graph");
 
-    let x_symbol = graph.symbol("x").expect("x versions");
-    expect_primitive_type(&x_symbol.ty, Type::Signed { size: 32 });
+    let x_symbol = graph.symbol("x").expect("x symbol");
+    expect_primitive_type(&x_symbol.ty, PrimitiveType::Signed { size: 32 });
+    let x_addr = expect_unary(&x_symbol.assignment, UnaryOp::Ptr);
+    expect_literal(&x_addr, Literal::from(1_u8));
 
-    let (lhs, rhs) = expect_binary(
-        x_symbol.last_value.as_ref().expect("x's last value"),
-        BinaryOp::Add,
-    );
-
-    expect_literal(&lhs, Literal::from(1_u8));
-    expect_literal(&rhs, Literal::from(1_u8));
+    let y_symbol = graph.symbol("y").expect("y symbol");
+    let (mem, y_addr) = expect_load(&y_symbol.assignment);
+    assert!(x_addr.ptr_cmp(&y_addr));
+    expect_store_chain_ends_with_addr(&mem, &x_addr);
 }
 
 #[test]
@@ -100,9 +55,9 @@ fn parses_non_decimal_literals() {
     let graph = Graph::from_stream(&mut tokenizer).expect("graph");
 
     let symbol = graph.symbol("value").expect("value symbol");
-    expect_primitive_type(&symbol.ty, Type::Signed { size: 32 });
+    expect_primitive_type(&symbol.ty, PrimitiveType::Signed { size: 32 });
     expect_literal(
-        &symbol.last_value.as_ref().expect("value's last value"),
+        &symbol.assignment,
         Literal {
             base: Base::Hexadecimal,
             digits: BigUint::from_u8(32_u8).expect("BigUint"),
@@ -123,95 +78,335 @@ fn deduplicates_types_and_literal_nodes() {
     let y_symbol = graph.symbol("y").expect("y symbol");
 
     assert!(x_symbol.ty.ptr_cmp(&y_symbol.ty));
-
-    let x_value = x_symbol.last_value.as_ref().expect("x value");
-    let y_value = y_symbol.last_value.as_ref().expect("y value");
-    assert!(x_value.ptr_cmp(y_value));
-
-    expect_literal(x_value, Literal::from(1_u8));
-
-    drop(graph);
-    drop(tokenizer);
+    assert!(x_symbol.assignment.ptr_cmp(&y_symbol.assignment));
+    expect_literal(&x_symbol.assignment, Literal::from(1_u8));
 }
 
 #[test]
-fn deduplicates_binary_nodes_for_identical_expressions() {
-    const PROGRAM: &str = "x i32 = (10 + 2) * 3\ny i32 = (10 + 2) * 3\n";
+fn if_statement_merges_memory_for_mutable_bindings() {
+    const PROGRAM: &str = r#"
+i ux = 0
+x i32 = -> 3000
+if i < 10 {
+    x = 10
+} else {
+    x = 11
+}
+y i32 = if i > 10 x else 1
+"#;
     let mut tokenizer = tokenizer_for(PROGRAM);
     let graph = Graph::from_stream(&mut tokenizer).expect("graph");
 
-    let x_value = graph
-        .symbol("x")
-        .and_then(|symbol| symbol.last_value.as_ref())
-        .expect("x value");
-    let y_value = graph
-        .symbol("y")
-        .and_then(|symbol| symbol.last_value.as_ref())
-        .expect("y value");
-
-    assert!(x_value.ptr_cmp(y_value));
-
-    let (x_mul_lhs, x_mul_rhs) = expect_binary(x_value, BinaryOp::Mul);
-    let (y_mul_lhs, y_mul_rhs) = expect_binary(y_value, BinaryOp::Mul);
-    assert!(x_mul_lhs.ptr_cmp(&y_mul_lhs));
-    assert!(x_mul_rhs.ptr_cmp(&y_mul_rhs));
-
-    let (x_add_lhs, x_add_rhs) = expect_binary(&x_mul_lhs, BinaryOp::Add);
-    let (y_add_lhs, y_add_rhs) = expect_binary(&y_mul_lhs, BinaryOp::Add);
-    assert!(x_add_lhs.ptr_cmp(&y_add_lhs));
-    assert!(x_add_rhs.ptr_cmp(&y_add_rhs));
-
-    expect_literal(&x_mul_rhs, Literal::from(3_u8));
-    expect_literal(&x_add_lhs, Literal::from(10_u8));
-    expect_literal(&x_add_rhs, Literal::from(2_u8));
-}
-
-const IF_EXAMPLE: &str = include_str!("if_example.rx");
-
-#[test]
-fn basic_phi_works() {
-    let mut tokenizer = tokenizer_for(IF_EXAMPLE);
-    let graph = Graph::from_stream(&mut tokenizer).expect("graph");
-
-    let i_symbol = graph.symbol("i").expect("i symbol");
-    expect_primitive_type(
-        &i_symbol.ty,
-        Type::Unsigned {
-            size: TARGET_PTR_SIZE,
-        },
-    );
-    let i_value = i_symbol.last_value.as_ref().expect("i' last value");
-
-    expect_literal(i_value, Literal::from(0_u8));
-
     let x_symbol = graph.symbol("x").expect("x symbol");
-    expect_primitive_type(&x_symbol.ty, Type::Signed { size: 32 });
-    let x_value = x_symbol.last_value.as_ref().expect("x's last value");
-
-    let (condition, when_true, when_false) = expect_phi(&x_value);
-    let (lhs, rhs) = expect_binary(&condition, BinaryOp::Smaller);
-
-    expect_literal(&lhs, Literal::from(0_u8));
-    expect_literal(&rhs, Literal::from(10_u8));
-
-    expect_literal(&when_true, Literal::from(10_u8));
-    expect_literal(&when_false, Literal::from(11_u8));
+    let x_addr = expect_unary(&x_symbol.assignment, UnaryOp::Ptr);
+    expect_literal(&x_addr, Literal::from(3000_u16));
 
     let y_symbol = graph.symbol("y").expect("y symbol");
-    expect_primitive_type(&y_symbol.ty, Type::Signed { size: 32 });
-    let y_value = y_symbol.last_value.as_ref().expect("y's last value");
-
-    let (condition, when_true, when_false) = expect_phi(&y_value);
+    let (condition, when_true, when_false) = expect_phi(&y_symbol.assignment);
     let (lhs, rhs) = expect_binary(&condition, BinaryOp::Greater);
-
     expect_literal(&lhs, Literal::from(0_u8));
     expect_literal(&rhs, Literal::from(10_u8));
 
-    assert!(when_true.ptr_cmp(x_value));
+    let (mem, addr) = expect_load(&when_true);
+    assert!(addr.ptr_cmp(&x_addr));
+    expect_store_chain_ends_with_addr(&mem, &x_addr);
+
     expect_literal(&when_false, Literal::from(1_u8));
 }
 
-fn expect_literal(node: &NodeId<'_>, literal: Literal<'_>) {
+#[test]
+fn loop_statement_supports_block_and_single_statement_forms() {
+    const PROGRAM: &str = r#"
+x i32 = -> 10
+y i32
+
+loop x > 0 {
+    x--
+}
+
+y = x + 1
+
+a i32 = -> 0
+loop a < 10 { a++}
+z i32 = a
+
+loop i ux = -> 0 : i < 10 : i++ { a-- }
+loop i > 0 : i-- {}
+
+result_i i32 = i
+result_a i32 = a
+"#;
+
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer).expect("graph");
+
+    let x_symbol = graph.symbol("x").expect("x symbol");
+    let x_addr = expect_unary(&x_symbol.assignment, UnaryOp::Ptr);
+    expect_literal(&x_addr, Literal::from(10_u8));
+
+    let y_symbol = graph.symbol("y").expect("y symbol");
+    let (lhs, rhs) = expect_binary(&y_symbol.assignment, BinaryOp::Add);
+    expect_literal(&rhs, Literal::from(1_u8));
+    let (y_mem, y_addr) = expect_load(&lhs);
+    assert!(y_addr.ptr_cmp(&x_addr));
+    assert!(mem_contains_store_to_addr(&y_mem, &x_addr));
+
+    let z_symbol = graph.symbol("z").expect("z symbol");
+    let (z_mem, z_addr) = expect_load(&z_symbol.assignment);
+
+    let a_symbol = graph.symbol("a").expect("a symbol");
+    let a_addr = expect_unary(&a_symbol.assignment, UnaryOp::Ptr);
+    assert!(z_addr.ptr_cmp(&a_addr));
+    assert!(mem_contains_store_to_addr(&z_mem, &a_addr));
+
+    let i_symbol = graph.symbol("i").expect("i symbol");
+    let i_addr = expect_unary(&i_symbol.assignment, UnaryOp::Ptr);
+    expect_literal(&i_addr, Literal::from(0_u8));
+
+    let result_i_symbol = graph.symbol("result_i").expect("result_i symbol");
+    let (result_i_mem, result_i_addr) = expect_load(&result_i_symbol.assignment);
+    assert!(result_i_addr.ptr_cmp(&i_addr));
+    assert!(mem_contains_store_to_addr(&result_i_mem, &i_addr));
+    assert!(mem_has_cycle(&result_i_mem));
+
+    let result_a_symbol = graph.symbol("result_a").expect("result_a symbol");
+    let (result_a_mem, result_a_addr) = expect_load(&result_a_symbol.assignment);
+    assert!(result_a_addr.ptr_cmp(&a_addr));
+    assert!(mem_contains_store_to_addr(&result_a_mem, &a_addr));
+    assert!(mem_has_cycle(&result_a_mem));
+}
+
+#[test]
+fn continue_skips_remaining_loop_body_but_keeps_backedge() {
+    const PROGRAM: &str = r#"
+i ux = -> 0
+x i32 = -> 0
+
+loop i < 3 : i++ {
+    x = 1
+    continue
+}
+
+result_i i32 = i
+result_x i32 = x
+"#;
+
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer).expect("graph");
+
+    let i_symbol = graph.symbol("i").expect("i symbol");
+    let i_addr = expect_unary(&i_symbol.assignment, UnaryOp::Ptr);
+
+    let x_symbol = graph.symbol("x").expect("x symbol");
+    let x_addr = expect_unary(&x_symbol.assignment, UnaryOp::Ptr);
+
+    let result_i_symbol = graph.symbol("result_i").expect("result_i symbol");
+    let (result_i_mem, result_i_addr) = expect_load(&result_i_symbol.assignment);
+    assert!(result_i_addr.ptr_cmp(&i_addr));
+    assert!(mem_contains_store_to_addr(&result_i_mem, &i_addr));
+    assert!(mem_has_cycle(&result_i_mem));
+
+    let result_x_symbol = graph.symbol("result_x").expect("result_x symbol");
+    let (result_x_mem, result_x_addr) = expect_load(&result_x_symbol.assignment);
+    assert!(result_x_addr.ptr_cmp(&x_addr));
+    assert!(mem_contains_store_to_addr(&result_x_mem, &x_addr));
+}
+
+#[test]
+fn break_exits_loop_without_creating_backedge() {
+    const PROGRAM: &str = r#"
+x i32 = -> 0
+loop true {
+    x = 1
+    break
+}
+result_x i32 = x
+"#;
+
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer).expect("graph");
+
+    let x_symbol = graph.symbol("x").expect("x symbol");
+    let x_addr = expect_unary(&x_symbol.assignment, UnaryOp::Ptr);
+
+    let result_x_symbol = graph.symbol("result_x").expect("result_x symbol");
+    let (result_x_mem, result_x_addr) = expect_load(&result_x_symbol.assignment);
+    assert!(result_x_addr.ptr_cmp(&x_addr));
+    assert!(mem_contains_store_to_addr(&result_x_mem, &x_addr));
+    assert!(!mem_has_cycle(&result_x_mem));
+}
+
+#[test]
+fn statements_after_continue_are_rejected() {
+    const PROGRAM: &str = r#"
+loop true {
+    continue
+    x i32 = 1
+}
+"#;
+
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer);
+
+    assert!(matches!(
+        graph,
+        Err(GraphError::UnreachableStatementAfterJump { .. })
+    ));
+}
+
+#[test]
+fn statements_after_break_are_rejected() {
+    const PROGRAM: &str = r#"
+loop true {
+    break
+    x i32 = 1
+}
+"#;
+
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer);
+
+    assert!(matches!(
+        graph,
+        Err(GraphError::UnreachableStatementAfterJump { .. })
+    ));
+}
+
+#[test]
+fn repeated_jump_keywords_target_outer_loops() {
+    const PROGRAM: &str = r#"
+outer ux = -> 0
+inner ux = -> 0
+
+loop outer < 3 : outer++ {
+    loop inner < 3 : inner++ {
+        break break
+    }
+}
+
+result_outer i32 = outer
+result_inner i32 = inner
+"#;
+
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer).expect("graph");
+
+    let outer_symbol = graph.symbol("outer").expect("outer symbol");
+    let outer_addr = expect_unary(&outer_symbol.assignment, UnaryOp::Ptr);
+    let inner_symbol = graph.symbol("inner").expect("inner symbol");
+    let inner_addr = expect_unary(&inner_symbol.assignment, UnaryOp::Ptr);
+
+    let result_outer_symbol = graph.symbol("result_outer").expect("result_outer symbol");
+    let (result_outer_mem, result_outer_addr) = expect_load(&result_outer_symbol.assignment);
+    assert!(result_outer_addr.ptr_cmp(&outer_addr));
+    assert!(matches!(
+        &result_outer_mem.kind,
+        MemNodeKind::LoopHead { .. } | MemNodeKind::Merge { .. }
+    ));
+
+    let result_inner_symbol = graph.symbol("result_inner").expect("result_inner symbol");
+    let (_result_inner_mem, result_inner_addr) = expect_load(&result_inner_symbol.assignment);
+    assert!(result_inner_addr.ptr_cmp(&inner_addr));
+}
+
+#[test]
+fn loop_condition_is_kept_on_loop_head_and_uses_loop_memory() {
+    const PROGRAM: &str = r#"
+i ux = -> 0
+loop i < 3 : i++ {}
+result_i i32 = i
+"#;
+
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer).expect("graph");
+
+    let i_symbol = graph.symbol("i").expect("i symbol");
+    let i_addr = expect_unary(&i_symbol.assignment, UnaryOp::Ptr);
+
+    let result_i_symbol = graph.symbol("result_i").expect("result_i symbol");
+    let (result_i_mem, result_i_addr) = expect_load(&result_i_symbol.assignment);
+    assert!(result_i_addr.ptr_cmp(&i_addr));
+
+    let (condition, ..) = find_first_loop_head(&result_i_mem).expect("loop head");
+    let (lhs, rhs) = expect_binary(&condition, BinaryOp::Less);
+    let (condition_mem, condition_addr) = expect_load(&lhs);
+    assert!(condition_addr.ptr_cmp(&i_addr));
+    assert!(matches!(&condition_mem.kind, MemNodeKind::LoopHead { .. }));
+    expect_literal(&rhs, Literal::from(3_u8));
+}
+
+#[test]
+fn loop_setup_can_start_with_a_block() {
+    const PROGRAM: &str = r#"
+x i32 = -> 0
+loop { x = 1 } : x < 2 : x++ {}
+result_x i32 = x
+"#;
+
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer).expect("graph");
+
+    let x_symbol = graph.symbol("x").expect("x symbol");
+    let x_addr = expect_unary(&x_symbol.assignment, UnaryOp::Ptr);
+
+    let result_x_symbol = graph.symbol("result_x").expect("result_x symbol");
+    let (result_x_mem, result_x_addr) = expect_load(&result_x_symbol.assignment);
+    assert!(result_x_addr.ptr_cmp(&x_addr));
+    assert!(mem_contains_store_to_addr(&result_x_mem, &x_addr));
+
+    let (condition, ..) = find_first_loop_head(&result_x_mem).expect("loop head");
+    let (lhs, rhs) = expect_binary(&condition, crate::tokenizing::binary_op::BinaryOp::Less);
+    let (condition_mem, condition_addr) = expect_load(&lhs);
+    assert!(condition_addr.ptr_cmp(&x_addr));
+    assert!(matches!(&condition_mem.kind, MemNodeKind::LoopHead { .. }));
+    expect_literal(&rhs, Literal::from(2_u8));
+}
+
+#[test]
+fn immutable_increment_in_loop_is_rejected() {
+    const PROGRAM: &str = r#"
+a i32 = 0
+loop a < 10 {a++}
+"#;
+
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer);
+
+    assert!(matches!(
+        graph,
+        Err(GraphError::AssignmentToImmutableIdent { .. })
+    ));
+}
+
+/*
+#[test]
+fn dump_includes_loop_backedge_and_conditional_mem_merge() {
+    const PROGRAM: &str = r#"
+i ux = -> 0
+x i32 = -> 3000
+if i < 10 {
+    x = 10
+} else {
+    x = 11
+}
+loop i < 1 { i++ }
+y i32 = x
+"#;
+    let mut tokenizer = tokenizer_for(PROGRAM);
+    let graph = Graph::from_stream(&mut tokenizer).expect("graph");
+
+    let dump = graph.dump_text();
+    assert!(dump.contains("GraphDump {"));
+    assert!(dump.contains("symbols:"));
+    assert!(dump.contains("nodes:"));
+    assert!(dump.contains("memory:"));
+    assert!(dump.contains("LoopHead(condition=n"));
+    assert!(dump.contains("backedge=m"));
+    assert!(dump.contains("Merge(condition=n"));
+}
+*/
+
+fn expect_literal(node: &NodeID<'_>, literal: Literal<'_>) {
     match &node.kind {
         NodeKind::Literal {
             literal: actual_literal,
@@ -222,14 +417,7 @@ fn expect_literal(node: &NodeId<'_>, literal: Literal<'_>) {
     }
 }
 
-fn expect_quote(node: &NodeId<'_>, requested_quote: &str) {
-    match &node.kind {
-        NodeKind::Quote { quote } => assert_eq!(quote, requested_quote),
-        other => panic!("expected quote {requested_quote}, got {other:?}"),
-    }
-}
-
-fn expect_primitive_type<'src>(node: &NodeId<'src>, requested_type: Type) {
+fn expect_primitive_type(node: &NodeID<'_>, requested_type: PrimitiveType) {
     match &node.kind {
         NodeKind::PrimitiveType { ty } => {
             assert_eq!(*ty, requested_type)
@@ -238,7 +426,7 @@ fn expect_primitive_type<'src>(node: &NodeId<'src>, requested_type: Type) {
     }
 }
 
-fn expect_binary<'src>(node: &NodeId<'src>, op: BinaryOp) -> (NodeId<'src>, NodeId<'src>) {
+fn expect_binary<'src>(node: &NodeID<'src>, op: BinaryOp) -> (NodeID<'src>, NodeID<'src>) {
     match &node.kind {
         NodeKind::Binary {
             op: actual_op,
@@ -252,8 +440,20 @@ fn expect_binary<'src>(node: &NodeId<'src>, op: BinaryOp) -> (NodeId<'src>, Node
     }
 }
 
-// returns: condition - when_true - when_false
-fn expect_phi<'src>(node: &NodeId<'src>) -> (NodeId<'src>, NodeId<'src>, NodeId<'src>) {
+fn expect_unary<'src>(node: &NodeID<'src>, op: UnaryOp) -> NodeID<'src> {
+    match &node.kind {
+        NodeKind::Unary {
+            op: actual_op,
+            input,
+        } => {
+            assert_eq!(*actual_op, op);
+            input.clone()
+        }
+        other => panic!("expected unary {op:?}, got {other:?}"),
+    }
+}
+
+fn expect_phi<'src>(node: &NodeID<'src>) -> (NodeID<'src>, NodeID<'src>, NodeID<'src>) {
     match &node.kind {
         NodeKind::Phi {
             condition,
@@ -264,9 +464,145 @@ fn expect_phi<'src>(node: &NodeId<'src>) -> (NodeId<'src>, NodeId<'src>, NodeId<
     }
 }
 
-fn expect_unknown_ident(node: &NodeId<'_>, requested_name: &str) {
+fn expect_load<'src>(node: &NodeID<'src>) -> (MemNodeID<'src>, NodeID<'src>) {
     match &node.kind {
-        NodeKind::UnknownIdent { name } => assert_eq!(*name, requested_name),
-        other => panic!("expected unknown identifier {requested_name:?}, got {other:?}"),
+        NodeKind::Load { mem, addr } => (mem.clone(), addr.clone()),
+        other => panic!("expected load-node, got {other:?}"),
+    }
+}
+
+fn expect_store_chain_ends_with_addr(mem: &MemNodeID<'_>, addr: &NodeID<'_>) {
+    let mut visited = HashSet::new();
+    assert!(
+        mem_contains_store_to_addr_with_visited(mem, addr, &mut visited),
+        "expected at least one store in memory chain"
+    );
+}
+
+fn mem_contains_store_to_addr(mem: &MemNodeID<'_>, addr: &NodeID<'_>) -> bool {
+    let mut visited = HashSet::new();
+    mem_contains_store_to_addr_with_visited(mem, addr, &mut visited)
+}
+
+fn mem_contains_store_to_addr_with_visited(
+    mem: &MemNodeID<'_>,
+    addr: &NodeID<'_>,
+    visited: &mut HashSet<usize>,
+) -> bool {
+    let mem_ptr = std::ptr::from_ref(&**mem) as usize;
+    if !visited.insert(mem_ptr) {
+        return false;
+    }
+
+    match &mem.kind {
+        MemNodeKind::ControlFlowStart => false,
+        MemNodeKind::LoopHead {
+            condition: _,
+            entry,
+            backedge,
+        } => {
+            mem_contains_store_to_addr_with_visited(entry, addr, visited)
+                || mem_contains_store_to_addr_with_visited(backedge, addr, visited)
+        }
+        MemNodeKind::StepClause { prev } => {
+            mem_contains_store_to_addr_with_visited(prev, addr, visited)
+        }
+        MemNodeKind::PlaceHolder { prev } => {
+            mem_contains_store_to_addr_with_visited(prev, addr, visited)
+        }
+        MemNodeKind::Merge {
+            condition: _,
+            when_true: a,
+            when_false: b,
+        } => {
+            mem_contains_store_to_addr_with_visited(a, addr, visited)
+                || mem_contains_store_to_addr_with_visited(b, addr, visited)
+        }
+        MemNodeKind::Store {
+            prev,
+            addr: store_addr,
+            ..
+        } => {
+            store_addr.ptr_cmp(addr) || mem_contains_store_to_addr_with_visited(prev, addr, visited)
+        }
+    }
+}
+
+fn mem_has_cycle(mem: &MemNodeID<'_>) -> bool {
+    let mut visited = HashSet::new();
+    let mut stack = HashSet::new();
+    mem_has_cycle_dfs(mem, &mut visited, &mut stack)
+}
+
+fn mem_has_cycle_dfs(
+    mem: &MemNodeID<'_>,
+    visited: &mut HashSet<usize>,
+    stack: &mut HashSet<usize>,
+) -> bool {
+    let mem_ptr = std::ptr::from_ref(&**mem) as usize;
+    if stack.contains(&mem_ptr) {
+        return true;
+    }
+    if !visited.insert(mem_ptr) {
+        return false;
+    }
+
+    stack.insert(mem_ptr);
+
+    let has_cycle = match &mem.kind {
+        MemNodeKind::ControlFlowStart => false,
+        MemNodeKind::LoopHead {
+            condition: _,
+            entry,
+            backedge,
+        } => {
+            mem_has_cycle_dfs(entry, visited, stack) || mem_has_cycle_dfs(backedge, visited, stack)
+        }
+        MemNodeKind::StepClause { prev } => mem_has_cycle_dfs(prev, visited, stack),
+        MemNodeKind::PlaceHolder { prev } => mem_has_cycle_dfs(prev, visited, stack),
+        MemNodeKind::Merge {
+            condition: _,
+            when_true: a,
+            when_false: b,
+        } => mem_has_cycle_dfs(a, visited, stack) || mem_has_cycle_dfs(b, visited, stack),
+        MemNodeKind::Store { prev, .. } => mem_has_cycle_dfs(prev, visited, stack),
+    };
+
+    stack.remove(&mem_ptr);
+    has_cycle
+}
+
+fn find_first_loop_head<'src>(
+    mem: &MemNodeID<'src>,
+) -> Option<(NodeID<'src>, MemNodeID<'src>, MemNodeID<'src>)> {
+    let mut visited = HashSet::new();
+    find_first_loop_head_with_visited(mem, &mut visited)
+}
+
+fn find_first_loop_head_with_visited<'src>(
+    mem: &MemNodeID<'src>,
+    visited: &mut HashSet<usize>,
+) -> Option<(NodeID<'src>, MemNodeID<'src>, MemNodeID<'src>)> {
+    let mem_ptr = std::ptr::from_ref(&**mem) as usize;
+    if !visited.insert(mem_ptr) {
+        return None;
+    }
+
+    match &mem.kind {
+        MemNodeKind::ControlFlowStart => None,
+        MemNodeKind::LoopHead {
+            condition,
+            entry,
+            backedge,
+        } => Some((condition.clone(), entry.clone(), backedge.clone())),
+        MemNodeKind::StepClause { prev } => find_first_loop_head_with_visited(prev, visited),
+        MemNodeKind::PlaceHolder { prev } => find_first_loop_head_with_visited(prev, visited),
+        MemNodeKind::Merge {
+            condition: _,
+            when_true,
+            when_false,
+        } => find_first_loop_head_with_visited(when_true, visited)
+            .or_else(|| find_first_loop_head_with_visited(when_false, visited)),
+        MemNodeKind::Store { prev, .. } => find_first_loop_head_with_visited(prev, visited),
     }
 }
