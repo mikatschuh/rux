@@ -172,7 +172,39 @@ pub fn parse_quote<'src>(
 
     loop {
         if text.is_empty() {
-            errors.push(span, ErrorCode::NoClosingQuotes);
+            break;
+        }
+
+        if text[0] == b'\n' {
+            span.end.next_line();
+            quote_ptr.push(text[0]);
+            slice.push_byte_over(text);
+            continue;
+        } else if is_unicode_payload_byte(text[0]) {
+            quote_ptr.push(text[0]);
+            slice.push_byte_over(text);
+            continue;
+        } else {
+            span.end += 1;
+        }
+
+        if text[0] == b'{' {
+            slice.push_byte_over(text);
+
+            state.embedded_scope_opening();
+            return (
+                Token {
+                    span,
+                    src: slice.to_str(),
+                    kind: Quote {
+                        closing_scope,
+                        opening_scope: true,
+                    },
+                },
+                quote,
+            );
+        } else if text[0] == b'\"' {
+            slice.push_byte_over(text);
 
             return (
                 Token {
@@ -189,24 +221,41 @@ pub fn parse_quote<'src>(
 
         if text[0] == b'\\' {
             slice.push_byte_over(text);
-            span.end += 1;
 
-            let c = match *text {
-                b"0" => 0,
-                b"n" => b'\n',
-                b"t" => b'\t',
+            if text.is_empty() {
+                quote_ptr.push(b'\\');
+                break;
+            }
 
-                b"b" => 8,
-                b"v" => 0xB,
-                b"f" => 0xC,
-                b"r" => 0xD,
-                b"e" => 0x1B,
+            let c = match text[0] {
+                b'0' => 0x0, // null byte
 
-                b"\\" => b'\\',
-                b"\"" => b'\"',
-                b"{" => b'{',
+                b'a' => 0x7, // alert / bell
+                b'b' => 0x8, // backspace
+                b't' => 0x9, // horizontal tab
+                b'n' => 0xA, // newline
+                b'v' => 0xB, // vertical tab
+                b'f' => 0xC, // form feed
+                b'r' => 0xD, // carriage return
 
-                _ => todo!("add error message"),
+                b'e' => 0x1B, // escape
+
+                b'\\' => b'\\', // backslash
+                b'"' => b'\"',  // quote
+                b'\'' => b'\'', // apostrophe
+                b'{' => b'{',   // open brace
+
+                _ => {
+                    errors.push(
+                        (span.end - 1) - (span.end + 1),
+                        ErrorCode::UnknownEscapeSequence {
+                            given: format!("\\{}", text[0] as char),
+                        },
+                    );
+
+                    quote_ptr.push(b'\\');
+                    continue;
+                }
             };
             quote_ptr.push(c);
 
@@ -214,45 +263,25 @@ pub fn parse_quote<'src>(
             span.end += 1;
 
             continue;
-        } else if text[0] == b'{' {
-            slice.push_byte_over(text);
-            span.end += 1; // add the closing quotes
-
-            state.embedded_scope_opening();
-            return (
-                Token {
-                    span,
-                    src: slice.to_str(),
-                    kind: Quote {
-                        closing_scope,
-                        opening_scope: true,
-                    },
-                },
-                quote,
-            );
-        } else if text[0] == b'\"' {
-            slice.push_byte_over(text);
-            span.end += 1; // add the closing quotes
-
-            return (
-                Token {
-                    span,
-                    src: slice.to_str(),
-                    kind: Quote {
-                        closing_scope,
-                        opening_scope: false,
-                    },
-                },
-                quote,
-            );
-        } else if text[0] == b'\n' {
-            span.end.next_line();
-        } else if !is_unicode_payload_byte(text[0]) {
-            span.end += 1;
         }
+
         quote_ptr.push(text[0]);
         slice.push_byte_over(text);
     }
+
+    errors.push(span, ErrorCode::NoClosingQuotes);
+
+    return (
+        Token {
+            span,
+            src: slice.to_str(),
+            kind: Quote {
+                closing_scope,
+                opening_scope: false,
+            },
+        },
+        quote,
+    );
 }
 
 fn parse_operator<'src>(

@@ -3,7 +3,7 @@ use std::path::Path;
 use num::BigUint;
 
 use crate::{
-    error::{Errors, Span},
+    error::{ErrorCode, Errors, Span},
     literals::{Base, Literal},
     tokenizing::{
         TokenStream, Tokenizer,
@@ -12,8 +12,33 @@ use crate::{
     utilities::Rc,
 };
 
+fn collect_tokens_and_quotes<'src>(
+    input: &'src str,
+) -> (Vec<Token<'src>>, Vec<String>, Rc<Errors<'static>>) {
+    let errors = Rc::new(Errors::empty(Path::new("example.rx")));
+    let mut tokenizer = Tokenizer::new(input, errors.clone(), 64);
+
+    let mut tokens = vec![];
+    let mut quotes = vec![];
+    loop {
+        let tok = tokenizer.peek();
+        if matches!(tok.kind, Quote { .. }) {
+            quotes.push(tokenizer.get_quote());
+        }
+
+        tokens.push(tok);
+        tokenizer.consume();
+
+        if tok.kind == Eof {
+            break;
+        }
+    }
+
+    (tokens, quotes, errors)
+}
+
 #[test]
-fn test() {
+fn tokenizes_basic_sequences() {
     let sequences = vec![
         (
             "",
@@ -134,26 +159,18 @@ fn test() {
     ];
 
     for seq in sequences {
-        let errors = Rc::new(Errors::empty(Path::new("example.rx")));
-        let mut tokenizer = Tokenizer::new(seq.0, errors, 64);
-
-        let mut tokens = vec![];
-        loop {
-            let tok = tokenizer.peek();
-            tokens.push(tok);
-            tokenizer.consume();
-
-            if tok.kind == Eof {
-                break;
-            }
-        }
-
-        assert_eq!(tokens, seq.1)
+        let (tokens, _, errors) = collect_tokens_and_quotes(seq.0);
+        assert_eq!(tokens, seq.1);
+        assert_eq!(*errors, Errors::empty(Path::new("example.rx")));
     }
+}
+
+#[test]
+fn tokenizes_literal_sequences() {
     // testing literal behavior:
 
     let errors = Rc::new(Errors::empty(Path::new("example.rx")));
-    let mut tokenizer = Tokenizer::new("-1.3 + 0x345", errors, 64);
+    let mut tokenizer = Tokenizer::new("-1.3 + 0x345", errors.clone(), 64);
 
     assert_eq!(
         tokenizer.peek(),
@@ -225,7 +242,173 @@ fn test() {
             src: "",
             kind: Eof
         }
-    )
+    );
+    assert_eq!(*errors, Errors::empty(Path::new("example.rx")));
+}
+
+#[test]
+fn decodes_quote_escape_sequences() {
+    let input = concat!(
+        "\"", "\\0", "\\a", "\\b", "\\t", "\\n", "\\v", "\\f", "\\r", "\\e", "\""
+    );
+    let (tokens, quotes, errors) = collect_tokens_and_quotes(input);
+
+    assert_eq!(
+        tokens,
+        vec![
+            Token {
+                span: Span::at(1, 1, input.len() + 1, 1),
+                src: input,
+                kind: Quote {
+                    closing_scope: false,
+                    opening_scope: false,
+                },
+            },
+            Token {
+                span: Span::at(input.len() + 1, 1, input.len() + 1, 1),
+                src: "",
+                kind: Eof,
+            },
+        ]
+    );
+    assert_eq!(quotes.len(), 1);
+    assert_eq!(
+        quotes[0].as_bytes(),
+        &[0x0, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0x1B]
+    );
+    assert_eq!(*errors, Errors::empty(Path::new("example.rx")));
+}
+
+#[test]
+fn decodes_escaped_structural_quote_characters() {
+    let input = concat!("\"", "x", "\\\\", "y", "\\\"", "z", "\\'", "w", "\\{", "\"");
+    let (tokens, quotes, errors) = collect_tokens_and_quotes(input);
+
+    assert_eq!(
+        tokens,
+        vec![
+            Token {
+                span: Span::at(1, 1, input.len() + 1, 1),
+                src: input,
+                kind: Quote {
+                    closing_scope: false,
+                    opening_scope: false,
+                },
+            },
+            Token {
+                span: Span::at(input.len() + 1, 1, input.len() + 1, 1),
+                src: "",
+                kind: Eof,
+            },
+        ]
+    );
+    assert_eq!(quotes, vec!["x\\y\"z'w{".to_owned()]);
+    assert_eq!(*errors, Errors::empty(Path::new("example.rx")));
+}
+
+#[test]
+fn tokenizes_embedded_quotes_across_scopes() {
+    let (tokens, quotes, errors) = collect_tokens_and_quotes("\"a{b}c\"");
+
+    assert_eq!(
+        tokens,
+        vec![
+            Token {
+                span: Span::at(1, 1, 4, 1),
+                src: "\"a{",
+                kind: Quote {
+                    closing_scope: false,
+                    opening_scope: true,
+                },
+            },
+            Token {
+                span: Span::at(4, 1, 5, 1),
+                src: "b",
+                kind: Ident,
+            },
+            Token {
+                span: Span::at(5, 1, 8, 1),
+                src: "}c\"",
+                kind: Quote {
+                    closing_scope: true,
+                    opening_scope: false,
+                },
+            },
+            Token {
+                span: Span::at(8, 1, 8, 1),
+                src: "",
+                kind: Eof,
+            },
+        ]
+    );
+    assert_eq!(quotes, vec!["a".to_owned(), "c".to_owned()]);
+    assert_eq!(*errors, Errors::empty(Path::new("example.rx")));
+}
+
+#[test]
+fn reports_unknown_escape_sequences() {
+    let (tokens, quotes, errors) = collect_tokens_and_quotes("\"\\q\"");
+
+    assert_eq!(
+        tokens,
+        vec![
+            Token {
+                span: Span::at(1, 1, 5, 1),
+                src: "\"\\q\"",
+                kind: Quote {
+                    closing_scope: false,
+                    opening_scope: false,
+                },
+            },
+            Token {
+                span: Span::at(5, 1, 5, 1),
+                src: "",
+                kind: Eof,
+            },
+        ]
+    );
+    assert_eq!(quotes, vec!["\\q".to_owned()]);
+
+    let expected = Errors::new(
+        Path::new("example.rx"),
+        Span::at(2, 1, 4, 1),
+        ErrorCode::UnknownEscapeSequence {
+            given: "\\q".to_owned(),
+        },
+    );
+    assert_eq!(*errors, expected);
+}
+
+#[test]
+fn reports_unterminated_quotes_and_keeps_trailing_backslash() {
+    let (tokens, quotes, errors) = collect_tokens_and_quotes("\"abc\\");
+
+    assert_eq!(
+        tokens,
+        vec![
+            Token {
+                span: Span::at(1, 1, 6, 1),
+                src: "\"abc\\",
+                kind: Quote {
+                    closing_scope: false,
+                    opening_scope: false,
+                },
+            },
+            Token {
+                span: Span::at(6, 1, 6, 1),
+                src: "",
+                kind: Eof,
+            },
+        ]
+    );
+    assert_eq!(quotes, vec!["abc\\".to_owned()]);
+
+    let expected = Errors::new(
+        Path::new("example.rx"),
+        Span::at(1, 1, 6, 1),
+        ErrorCode::NoClosingQuotes,
+    );
+    assert_eq!(*errors, expected);
 
     /*let tokenizer = Tokenizer::new(EXAMPLE, errors);
     let tokens = tokenizer.clone().count() as f64;

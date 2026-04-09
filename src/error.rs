@@ -80,6 +80,7 @@ pub enum ErrorCode {
     NoClosedBracket { opened: Bracket },
     WrongClosedBracket { expected: Bracket, found: Bracket },
 
+    UnknownEscapeSequence { given: String },
     LiteralParsingError(LiteralError),
     TypeParsingError(PrimitiveTypeParsingError),
     InvalidUTF8,
@@ -274,6 +275,13 @@ impl Error {
                     self.span.to_string(path),
                     "found a closed bracket {} but actually expected {}",
                     [found.display_closed(), expected.display_closed()]
+                )
+            }
+            UnknownEscapeSequence { given } => {
+                format_error!(
+                    self.span.to_string(path),
+                    "unknown escape sequence: {}",
+                    [given]
                 )
             }
             LiteralParsingError(err) => {
