@@ -26,11 +26,6 @@ impl<'src> TokenBuffer<'src> {
 }
 
 impl<'src> TokenStream<'src> for TokenBuffer<'src> {
-    #[inline]
-    fn current_pos(&self) -> Position {
-        self.last_outputted_pos
-    }
-
     fn peek(&mut self) -> Token<'src> {
         self.tokens.front().copied().unwrap_or(Token {
             span: self.last_outputted_pos.into(),
