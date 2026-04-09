@@ -1,6 +1,10 @@
 use num::BigUint;
 
-use crate::{literals, types::error::TypeResult};
+use crate::{
+    error::{ErrorCode, Errors, Span},
+    literals,
+    types::error::TypeResult,
+};
 
 mod error;
 pub use error::Error;
@@ -22,49 +26,69 @@ pub enum FloatPrecision {
     DoubleDouble = 128,
 }
 
-pub fn parse_type(mut ident: &[u8], target_ptr_size: TypeSize) -> TypeResult<PrimitiveType> {
+pub fn parse_type(
+    mut ident: &[u8],
+    span: Span,
+    errors: &mut Errors,
+
+    target_ptr_size: TypeSize,
+) -> Option<PrimitiveType> {
     match ident[0] {
         b'u' => {
             ident = &ident[1..];
 
             if ident == b"size" {
-                return Ok(PrimitiveType::Unsigned {
+                return Some(PrimitiveType::Unsigned {
                     size: target_ptr_size,
                 });
             }
 
-            Ok(PrimitiveType::Unsigned {
-                size: parse_size(&mut ident)?,
-            })
+            let size = parse_size(&mut ident)?.unwrap_or_else(|e| {
+                errors.push(span, ErrorCode::TypeParsingError(e));
+                target_ptr_size
+            });
+
+            if ident.is_empty() {
+                Some(PrimitiveType::Unsigned { size })
+            } else {
+                None
+            }
         }
         b'i' => {
             ident = &ident[1..];
 
             if ident == b"size" {
-                return Ok(PrimitiveType::Signed {
+                return Some(PrimitiveType::Signed {
                     size: target_ptr_size,
                 });
             }
 
-            Ok(PrimitiveType::Signed {
-                size: parse_size(&mut ident)?,
-            })
+            let size = parse_size(&mut ident)?.unwrap_or_else(|e| {
+                errors.push(span, ErrorCode::TypeParsingError(e));
+                target_ptr_size
+            });
+
+            if ident.is_empty() {
+                Some(PrimitiveType::Signed { size })
+            } else {
+                None
+            }
         }
 
-        _ if ident == b"f16" => Ok(PrimitiveType::Float(FloatPrecision::Half)),
-        _ if ident == b"f32" => Ok(PrimitiveType::Float(FloatPrecision::Full)),
-        _ if ident == b"f64" => Ok(PrimitiveType::Float(FloatPrecision::Double)),
-        _ if ident == b"f128" => Ok(PrimitiveType::Float(FloatPrecision::DoubleDouble)),
+        _ if ident == b"f16" => Some(PrimitiveType::Float(FloatPrecision::Half)),
+        _ if ident == b"f32" => Some(PrimitiveType::Float(FloatPrecision::Full)),
+        _ if ident == b"f64" => Some(PrimitiveType::Float(FloatPrecision::Double)),
+        _ if ident == b"f128" => Some(PrimitiveType::Float(FloatPrecision::DoubleDouble)),
 
-        _ => Err(Error::NotAType),
+        _ => None,
     }
 }
 
-fn parse_size(input: &mut &[u8]) -> TypeResult<u128> {
+fn parse_size(input: &mut &[u8]) -> Option<TypeResult<u128>> {
     match literals::parse_integer(input) {
-        (_, Some(integer)) => {
-            <BigUint as TryInto<u128>>::try_into(integer).map_err(|_| Error::TooLargeIntegerSize)
-        }
-        _ => Err(Error::NotAType),
+        (_, Some(integer)) => Some(
+            <BigUint as TryInto<u128>>::try_into(integer).map_err(|_| Error::TooLargeIntegerSize),
+        ),
+        _ => None,
     }
 }

@@ -94,7 +94,10 @@ fn test() {
                 Token {
                     span: Span::at(4, 2, 2, 3),
                     src: "\"Hallo\n\"",
-                    kind: Quote,
+                    kind: Quote {
+                        closing_scope: false,
+                        opening_scope: false,
+                    },
                 },
                 Token {
                     span: Span::at(2, 3, 3, 3),

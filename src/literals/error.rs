@@ -1,10 +1,10 @@
 use std::fmt;
 
-pub(super) type LiteralResult<T> = Result<T, (usize, Error)>;
+/// Number of bytes correct and the error message
+pub(super) type LiteralResult<T> = Result<T, Error>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
-    NotALiteral,
     MissingExponent,
 }
 
@@ -14,7 +14,6 @@ impl fmt::Display for Error {
             f,
             "{}",
             match self {
-                Self::NotALiteral => "didn't have digits".to_string(),
                 Self::MissingExponent => "after `e` or `p` there wasn't a number".to_string(),
             }
         )

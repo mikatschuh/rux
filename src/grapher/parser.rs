@@ -123,7 +123,10 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 self.advance();
                 Ok(self.graph.add_literal(literal))
             }
-            TokenKind::Quote => {
+            TokenKind::Quote {
+                closing_scope,
+                opening_scope,
+            } => {
                 let quote = self.tokens.get_quote();
                 self.advance();
                 Ok(self.graph.add_quote(quote))

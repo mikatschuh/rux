@@ -1,5 +1,8 @@
 use crate::{
-    byte_parsing::whitespace_at_start_or_empty,
+    byte_parsing::{
+        TextState, TokenSlice, is_empty_after_spaces_consumed, is_unicode_payload_byte,
+        whitespace_at_start_or_empty,
+    },
     error::{ErrorCode, Errors, Position, Span},
     literals::Literal,
     tokenizing::{
@@ -12,10 +15,7 @@ use crate::{
     types::PrimitiveType,
     utilities::Rc,
 };
-use std::{
-    mem::{self},
-    slice,
-};
+use std::mem::{self};
 
 pub mod binary_op;
 pub mod binding_pow;
@@ -112,35 +112,37 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
         if let StateMachine::AlreadyProcessed { tok, .. } = self.state {
             return tok;
         }
+        // right now self.text can't be empty as this is an invalid state
+        let tok = match self.text[0] {
+            b'"' => {
+                let (tok, quote) = parse_quote(&mut self.text, self.pos, &mut self.errors);
+                self.data = Some(Data::Quote(quote));
+                self.pos = tok.span.start;
+                self.next_pos = tok.span.end;
+                tok
+            }
+            _ => {
+                let (tok, data) = parse_tok::parse_token(
+                    &mut self.text,
+                    self.pos,
+                    &mut self.errors,
+                    self.target_ptr_size,
+                );
+                self.pos = tok.span.start;
+                self.next_pos = tok.span.end;
 
-        loop {
-            let tok = match parse_tok::parse_token(self.pos, self.text, self.target_ptr_size) {
-                Ok((tok, data)) => {
-                    self.pos = tok.span.start;
-                    self.next_pos = tok.span.end;
+                self.data = data;
+                tok
+            }
+        };
 
-                    self.data = data;
-                    tok
-                }
-                Err(err) => {
-                    self.pos = err.span.end;
+        self.state = generate_new_state(&mut self.text, &mut self.next_pos, &mut self.errors);
+        self.state = StateMachine::AlreadyProcessed {
+            tok,
+            last: self.state != StateMachine::NotYetProcessed,
+        };
 
-                    self.errors.push_err(err);
-
-                    self.state =
-                        generate_new_state(&mut self.text, &mut self.pos, &mut self.errors);
-                    continue;
-                }
-            };
-
-            self.state = generate_new_state(&mut self.text, &mut self.next_pos, &mut self.errors);
-            self.state = StateMachine::AlreadyProcessed {
-                tok,
-                last: self.state != StateMachine::NotYetProcessed,
-            };
-
-            return tok;
-        }
+        return tok;
     }
 
     fn get_literal(&mut self) -> Literal<'src> {
@@ -200,7 +202,7 @@ fn generate_new_state<'src>(
     let text_state = is_empty_after_spaces_consumed(text, pos);
 
     match text_state {
-        TextState::TokenReached => StateMachine::NotYetProcessed,
+        TextState::SpacesConsumed => StateMachine::NotYetProcessed,
         _ => {
             let span = (*pos).into();
             if text_state == TextState::UncontinuedUTF8 {
@@ -217,163 +219,76 @@ fn generate_new_state<'src>(
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TextState {
-    TokenReached,
-    UncontinuedUTF8,
-    Empty,
-}
-fn is_empty_after_spaces_consumed(text: &mut &[u8], pos: &mut Position) -> TextState {
-    use TextState::*;
-    'outer: loop {
+fn parse_quote<'src>(
+    text: &mut &'src [u8],
+    pos: Position,
+    errors: &mut Errors,
+) -> (Token<'src>, String) {
+    let mut quote = String::new();
+    let quote_ptr = unsafe { quote.as_mut_vec() };
+
+    let mut slice = TokenSlice::new(&text[0..0]);
+    slice.push_byte_over(text); // add the opening quote
+
+    let mut span: Span = pos.into();
+    span.end += 1; // add the opening quote
+
+    loop {
         if text.is_empty() {
-            return Empty;
-        }
+            errors.push(span, ErrorCode::NoClosingQuotes);
 
-        match text[0] {
-            b'\n' => {
-                *text = &text[1..];
-                pos.next_line();
-                continue; // skip incrementation of collum
-            }
-            0x09..=0x0D | 0x20 => *text = &text[1..],
-
-            0xC2 => {
-                if text.len() < 2 {
-                    return UncontinuedUTF8;
-                }
-                match text[1] {
-                    0x85 | 0xA0 => {
-                        *text = &text[2..];
-                    }
-                    _ => return TokenReached,
-                }
-            }
-            0xE1 => {
-                if text.len() < 3 {
-                    return UncontinuedUTF8;
-                }
-                if text[1] == 0x9A && text[2] == 0x80 {
-                    *text = &text[2..];
-                } else {
-                    return TokenReached;
-                }
-            }
-            0xE2 => {
-                if text.len() < 3 {
-                    return UncontinuedUTF8;
-                }
-                if (text[1] == 0x80 && matches!(text[2], 0x80..=0x8A | 0xA8 | 0xA9 | 0xAF))
-                    || (text[1] == 0x81 && text[2] == 0x9F)
-                {
-                    *text = &text[2..];
-                } else {
-                    return TokenReached;
-                }
-            }
-            0xE3 => {
-                if text.len() < 3 {
-                    return UncontinuedUTF8;
-                }
-                if text[1] == 0x80 && text[2] == 0x80 {
-                    *text = &text[2..];
-                } else {
-                    return TokenReached;
-                }
-            }
-            b'/' if text.len() > 1 && text[1] == b'/' => {
-                *text = &text[2..];
-                *pos += 2;
-
-                loop {
-                    if text.is_empty() {
-                        return Empty;
-                    }
-                    if text[0] == b'\n' {
-                        *text = &text[1..];
-                        pos.next_line();
-
-                        continue 'outer;
-                    }
-                    if text[0] & 0b1100_0000 != 0b1000_0000 {
-                        *pos += 1;
-                    }
-                    *text = &text[1..];
-                }
-            }
-            _ => return TokenReached,
-        }
-        *pos += 1;
-    }
-}
-
-impl<'src> Tokenizer<'src> {
-    fn parse_quote(&mut self) -> Token<'src> {
-        let mut quote = String::new();
-        let quote_ptr = unsafe { quote.as_mut_vec() };
-
-        let ptr = self.text.as_ptr();
-        let mut len = 1; // beginning quote
-
-        let mut span: Span = self.pos.into();
-        span.end += 1; // add the quote
-
-        self.text = &self.text[1..];
-
-        loop {
-            if self.text.is_empty() {
-                self.errors.push(span, ErrorCode::NoClosingQuotes);
-
-                self.pos = span.end;
-                self.data = Some(Data::Quote(quote));
-                return Token {
+            return (
+                Token {
                     span,
-                    src: unsafe { str::from_utf8_unchecked(slice::from_raw_parts(ptr, len)) },
-                    kind: Quote,
-                };
-            }
-
-            if self.text[0] == b'\\' {
-                self.text = &self.text[1..];
-                span.end += 1;
-                len += 1;
-
-                let c = match self.text[0] {
-                    b'0' => 0,
-                    b'n' => b'\n',
-                    b't' => b'\t',
-
-                    _ => todo!("add error message"),
-                };
-                quote_ptr.push(c);
-
-                self.text = &self.text[1..];
-                span.end += 1;
-                len += 1;
-
-                continue;
-            } else if self.text[0] == b'\"' {
-                self.text = &self.text[1..];
-                len += 1;
-                span.end += 1; // add the closing quotes
-
-                self.next_pos = span.end;
-                self.data = Some(Data::Quote(quote));
-                return Token {
-                    span,
-                    src: unsafe { str::from_utf8_unchecked(slice::from_raw_parts(ptr, len)) },
-                    kind: Quote,
-                };
-            } else if self.text[0] == b'\n' {
-                span.end.next_line();
-            } else if self.text[0] & 0b1100_0000 != 0b1000_0000 {
-                span.end += 1;
-            }
-            quote_ptr.push(self.text[0]);
-
-            self.text = &self.text[1..];
-            len += 1;
+                    src: slice.to_str(),
+                    kind: Quote {
+                        closing_scope: false,
+                        opening_scope: false,
+                    },
+                },
+                quote,
+            );
         }
+
+        if text[0] == b'\\' {
+            slice.push_byte_over(text);
+            span.end += 1;
+
+            let c = match text[0] {
+                b'0' => 0,
+                b'n' => b'\n',
+                b't' => b'\t',
+
+                _ => todo!("add error message"),
+            };
+            quote_ptr.push(c);
+
+            slice.push_byte_over(text);
+            span.end += 1;
+
+            continue;
+        } else if text[0] == b'\"' {
+            slice.push_byte_over(text);
+            span.end += 1; // add the closing quotes
+
+            return (
+                Token {
+                    span,
+                    src: slice.to_str(),
+                    kind: Quote {
+                        closing_scope: false,
+                        opening_scope: false,
+                    },
+                },
+                quote,
+            );
+        } else if text[0] == b'\n' {
+            span.end.next_line();
+        } else if !is_unicode_payload_byte(text[0]) {
+            span.end += 1;
+        }
+        quote_ptr.push(text[0]);
+        slice.push_byte_over(text);
     }
 }
 
