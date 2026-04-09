@@ -8,7 +8,7 @@ use crate::{
     tokenizing::{
         slicing::TokenBuffer,
         token::{
-            Token,
+            Bracket, Token,
             TokenKind::{self, *},
         },
     },
@@ -47,7 +47,7 @@ pub trait TokenStream<'src> {
 
             match tok.kind {
                 Literal => buffer.literals.push_back(self.get_literal()),
-                Quote => buffer.quotes.push_back(self.get_quote()),
+                Quote { .. } => buffer.quotes.push_back(self.get_quote()),
                 Type => buffer.types.push_back(self.get_type()),
                 _ => {}
             }
@@ -62,7 +62,11 @@ pub trait TokenStream<'src> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum StateMachine<'src> {
     NotYetProcessed,
-    AlreadyProcessed { tok: Token<'src>, last: bool },
+    AlreadyProcessed {
+        tok: Token<'src>,
+        data: Option<Data<'src>>,
+        last: bool,
+    },
 }
 
 pub struct Tokenizer<'src> {
@@ -71,7 +75,7 @@ pub struct Tokenizer<'src> {
     next_pos: Position,
 
     state: StateMachine<'src>,
-    data: Option<Data<'src>>,
+    open_braces_after_formatting_quote: Option<usize>,
 
     errors: Rc<Errors<'src>>,
     target_ptr_size: u128, // necessary for type parsing
@@ -91,11 +95,12 @@ impl<'src> Tokenizer<'src> {
 
         Self {
             state: generate_new_state(&mut text, &mut pos, &mut errors),
-            data: None,
 
             text,
             pos,
             next_pos: pos,
+
+            open_braces_after_formatting_quote: None,
 
             errors,
             target_ptr_size,
@@ -113,13 +118,11 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
             return tok;
         }
         // right now self.text can't be empty as this is an invalid state
-        let tok = match self.text[0] {
-            b'"' => {
-                let (tok, quote) = parse_quote(&mut self.text, self.pos, &mut self.errors);
-                self.data = Some(Data::Quote(quote));
-                self.pos = tok.span.start;
-                self.next_pos = tok.span.end;
-                tok
+        let (tok, data) = match self.text[0] {
+            b'"' => self.parse_quote(false),
+            b'}' if self.open_braces_after_formatting_quote == Some(0) => {
+                self.open_braces_after_formatting_quote = None;
+                self.parse_quote(true)
             }
             _ => {
                 let (tok, data) = parse_tok::parse_token(
@@ -131,14 +134,24 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
                 self.pos = tok.span.start;
                 self.next_pos = tok.span.end;
 
-                self.data = data;
-                tok
+                if let Some(open_braces_after_formatting_quote) =
+                    &mut self.open_braces_after_formatting_quote
+                {
+                    if tok.kind == Open(Bracket::Curly) {
+                        *open_braces_after_formatting_quote += 1;
+                    } else if tok.kind == Closed(Bracket::Curly) {
+                        *open_braces_after_formatting_quote -= 1;
+                    }
+                }
+
+                (tok, data)
             }
         };
 
         self.state = generate_new_state(&mut self.text, &mut self.next_pos, &mut self.errors);
         self.state = StateMachine::AlreadyProcessed {
             tok,
+            data,
             last: self.state != StateMachine::NotYetProcessed,
         };
 
@@ -146,43 +159,52 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
     }
 
     fn get_literal(&mut self) -> Literal<'src> {
-        match mem::take(&mut self.data) {
-            Some(Data::Lit(lit)) => lit,
-            _ => unreachable!(),
+        match &mut self.state {
+            StateMachine::NotYetProcessed => unreachable!(),
+            StateMachine::AlreadyProcessed { data, .. } => match mem::take(data) {
+                Some(Data::Lit(lit)) => lit,
+                _ => unreachable!(),
+            },
         }
     }
 
     fn get_quote(&mut self) -> String {
-        match mem::take(&mut self.data) {
-            Some(Data::Quote(quote)) => quote,
-            _ => unreachable!(),
+        match &mut self.state {
+            StateMachine::NotYetProcessed => unreachable!(),
+            StateMachine::AlreadyProcessed { data, .. } => match mem::take(data) {
+                Some(Data::Quote(quote)) => quote,
+                _ => unreachable!(),
+            },
         }
     }
 
     fn get_type(&mut self) -> PrimitiveType {
-        match mem::take(&mut self.data) {
-            Some(Data::Type(ty)) => ty,
-            _ => unreachable!(),
+        match &mut self.state {
+            StateMachine::NotYetProcessed => unreachable!(),
+            StateMachine::AlreadyProcessed { data, .. } => match mem::take(data) {
+                Some(Data::Type(ty)) => ty,
+                _ => unreachable!(),
+            },
         }
     }
 
     fn consume(&mut self) {
         self.pos = self.next_pos;
-        self.data = None;
 
-        match self.state {
-            StateMachine::AlreadyProcessed { tok, last } => {
+        match &self.state {
+            StateMachine::AlreadyProcessed { tok, last, .. } => {
                 if tok.kind == Eof {
                     return;
                 }
 
-                if last {
+                if *last {
                     self.state = StateMachine::AlreadyProcessed {
                         tok: Token {
                             span: self.next_pos.into(),
                             src: "",
                             kind: Eof,
                         },
+                        data: None,
                         last: true,
                     };
                 } else {
@@ -191,6 +213,24 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
             }
             _ => unreachable!("`consume` should never be called without peek being called before"),
         }
+    }
+}
+
+impl<'src> Tokenizer<'src> {
+    fn parse_quote(&mut self, closing_scope: bool) -> (Token<'src>, Option<Data<'src>>) {
+        let (tok, quote) = parse_quote(&mut self.text, self.pos, closing_scope, &mut self.errors);
+        self.pos = tok.span.start;
+        self.next_pos = tok.span.end;
+        self.open_braces_after_formatting_quote = if let Quote {
+            opening_scope: true,
+            ..
+        } = tok.kind
+        {
+            Some(0)
+        } else {
+            None
+        };
+        (tok, Some(Data::Quote(quote)))
     }
 }
 
@@ -209,12 +249,15 @@ fn generate_new_state<'src>(
                 errors.push(span, ErrorCode::InvalidUTF8);
             }
 
-            let tok = Token {
-                span,
-                src: "",
-                kind: Eof,
-            };
-            StateMachine::AlreadyProcessed { tok, last: true }
+            StateMachine::AlreadyProcessed {
+                tok: Token {
+                    span,
+                    src: "",
+                    kind: Eof,
+                },
+                data: None,
+                last: true,
+            }
         }
     }
 }
@@ -222,6 +265,7 @@ fn generate_new_state<'src>(
 fn parse_quote<'src>(
     text: &mut &'src [u8],
     pos: Position,
+    closing_scope: bool,
     errors: &mut Errors,
 ) -> (Token<'src>, String) {
     let mut quote = String::new();
@@ -242,7 +286,7 @@ fn parse_quote<'src>(
                     span,
                     src: slice.to_str(),
                     kind: Quote {
-                        closing_scope: false,
+                        closing_scope,
                         opening_scope: false,
                     },
                 },
@@ -254,10 +298,20 @@ fn parse_quote<'src>(
             slice.push_byte_over(text);
             span.end += 1;
 
-            let c = match text[0] {
-                b'0' => 0,
-                b'n' => b'\n',
-                b't' => b'\t',
+            let c = match *text {
+                b"0" => 0,
+                b"n" => b'\n',
+                b"t" => b'\t',
+
+                b"b" => 8,
+                b"v" => 0xB,
+                b"f" => 0xC,
+                b"r" => 0xD,
+                b"e" => 0x1B,
+
+                b"\\" => b'\\',
+                b"\"" => b'\"',
+                b"{" => b'{',
 
                 _ => todo!("add error message"),
             };
@@ -267,6 +321,21 @@ fn parse_quote<'src>(
             span.end += 1;
 
             continue;
+        } else if text[0] == b'{' {
+            slice.push_byte_over(text);
+            span.end += 1; // add the closing quotes
+
+            return (
+                Token {
+                    span,
+                    src: slice.to_str(),
+                    kind: Quote {
+                        closing_scope,
+                        opening_scope: true,
+                    },
+                },
+                quote,
+            );
         } else if text[0] == b'\"' {
             slice.push_byte_over(text);
             span.end += 1; // add the closing quotes
@@ -276,7 +345,7 @@ fn parse_quote<'src>(
                     span,
                     src: slice.to_str(),
                     kind: Quote {
-                        closing_scope: false,
+                        closing_scope,
                         opening_scope: false,
                     },
                 },

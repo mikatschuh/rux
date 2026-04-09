@@ -1,8 +1,5 @@
 use std::fmt;
 
-/// Number of bytes correct and the error message
-pub(super) type LiteralResult<T> = Result<T, Error>;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
     MissingExponent,
