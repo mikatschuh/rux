@@ -21,20 +21,20 @@ pub fn starts_with_none_identifier_char(text: &[u8]) -> bool {
         || TokenKind::new(text[0]).is_some()
 }
 
-pub fn push_over_until_none_identifier_char<'src>(
-    text: &mut &'src [u8],
+pub fn push_over_until_none_identifier_char<'a, 'src>(
+    text: &'a mut &'src [u8],
     span: &mut Span,
-) -> TokenSlice<'src> {
-    let mut slice = TokenSlice::new(&text[0..0]);
+) -> TokenSlice<'a, 'src> {
+    let mut slice = TokenSlice::new(text, 0);
     loop {
-        if starts_with_none_identifier_char(text) {
+        if starts_with_none_identifier_char(slice.larger_slice()) {
             break;
         }
-        if !is_unicode_payload_byte(text[0]) {
+        if !is_unicode_payload_byte(slice.current_byte()) {
             span.end += 1
         }
 
-        slice.push_byte_over(text);
+        slice.push_byte_over();
     }
 
     slice
@@ -164,32 +164,32 @@ pub fn parse_quote<'src>(
     let mut quote = String::new();
     let quote_ptr = unsafe { quote.as_mut_vec() };
 
-    let mut slice = TokenSlice::new(&text[0..0]);
-    slice.push_byte_over(text); // add the opening quote
+    let mut slice = TokenSlice::new(text, 0);
+    slice.push_byte_over(); // add the opening quote
 
     let mut span: Span = pos.into();
     span.end += 1; // add the opening quote
 
     loop {
-        if text.is_empty() {
+        if slice.no_bytes_left() {
             break;
         }
 
-        if text[0] == b'\n' {
+        if slice.current_byte() == b'\n' {
             span.end.next_line();
-            quote_ptr.push(text[0]);
-            slice.push_byte_over(text);
+            quote_ptr.push(slice.current_byte());
+            slice.push_byte_over();
             continue;
-        } else if is_unicode_payload_byte(text[0]) {
-            quote_ptr.push(text[0]);
-            slice.push_byte_over(text);
+        } else if is_unicode_payload_byte(slice.current_byte()) {
+            quote_ptr.push(slice.current_byte());
+            slice.push_byte_over();
             continue;
         } else {
             span.end += 1;
         }
 
-        if text[0] == b'{' {
-            slice.push_byte_over(text);
+        if slice.current_byte() == b'{' {
+            slice.push_byte_over();
 
             state.embedded_scope_opening();
             return (
@@ -203,8 +203,8 @@ pub fn parse_quote<'src>(
                 },
                 quote,
             );
-        } else if text[0] == b'\"' {
-            slice.push_byte_over(text);
+        } else if slice.current_byte() == b'\"' {
+            slice.push_byte_over();
 
             return (
                 Token {
@@ -219,15 +219,15 @@ pub fn parse_quote<'src>(
             );
         }
 
-        if text[0] == b'\\' {
-            slice.push_byte_over(text);
+        if slice.current_byte() == b'\\' {
+            slice.push_byte_over();
 
-            if text.is_empty() {
+            if slice.no_bytes_left() {
                 quote_ptr.push(b'\\');
                 break;
             }
 
-            let c = match text[0] {
+            let c = match slice.current_byte() {
                 b'0' => 0x0, // null byte
 
                 b'a' => 0x7, // alert / bell
@@ -249,7 +249,7 @@ pub fn parse_quote<'src>(
                     errors.push(
                         (span.end - 1) - (span.end + 1),
                         ErrorCode::UnknownEscapeSequence {
-                            given: format!("\\{}", text[0] as char),
+                            given: format!("\\{}", slice.current_byte() as char),
                         },
                     );
 
@@ -259,14 +259,14 @@ pub fn parse_quote<'src>(
             };
             quote_ptr.push(c);
 
-            slice.push_byte_over(text);
+            slice.push_byte_over();
             span.end += 1;
 
             continue;
         }
 
-        quote_ptr.push(text[0]);
-        slice.push_byte_over(text);
+        quote_ptr.push(slice.current_byte());
+        slice.push_byte_over();
     }
 
     errors.push(span, ErrorCode::NoClosingQuotes);
@@ -291,14 +291,14 @@ fn parse_operator<'src>(
 
     mut tok_kind: TokenKind,
 ) -> Token<'src> {
-    let mut slice = TokenSlice::new(&text[0..0]);
-    slice.push_byte_over(text);
+    let mut slice = TokenSlice::new(text, 0);
+    slice.push_byte_over();
     span.end += 1;
 
     loop {
         let next_state: Option<TokenKind>;
-        if text.is_empty() || {
-            next_state = tok_kind.add(text[0]);
+        if slice.no_bytes_left() || {
+            next_state = tok_kind.add(slice.current_byte());
             next_state.is_none()
         } {
             if tok_kind == Open(Bracket::Curly) {
@@ -312,10 +312,10 @@ fn parse_operator<'src>(
         }
         let next_state = next_state.unwrap();
 
-        if !is_unicode_payload_byte(text[0]) {
+        if !is_unicode_payload_byte(slice.current_byte()) {
             span.end += 1
         }
-        slice.push_byte_over(text);
+        slice.push_byte_over();
 
         tok_kind = next_state;
     }

@@ -1,34 +1,46 @@
-use std::{marker::PhantomData, slice::from_raw_parts};
+use std::slice::from_raw_parts;
 
 use crate::error::Position;
 
-pub struct TokenSlice<'src> {
-    phantom: PhantomData<&'src ()>,
+pub struct TokenSlice<'a, 'b> {
+    larger_slice: &'a mut &'b [u8],
 
     ptr: *const u8,
     len: usize,
 }
 
-impl<'src> TokenSlice<'src> {
-    pub fn new(slice: &'src [u8]) -> Self {
+impl<'a, 'b> TokenSlice<'a, 'b> {
+    pub fn new(larger_slice: &'a mut &'b [u8], len: usize) -> Self {
         Self {
-            phantom: PhantomData::default(),
+            ptr: larger_slice.as_ptr(),
+            len,
 
-            ptr: slice.as_ptr(),
-            len: slice.len(),
+            larger_slice,
         }
     }
 
-    pub fn push_byte_over(&mut self, b: &mut &'src [u8]) {
-        self.len += 1;
-        *b = &b[1..];
+    pub fn no_bytes_left(&self) -> bool {
+        self.larger_slice.is_empty()
     }
 
-    pub fn to_slice(self) -> &'src [u8] {
+    pub fn push_byte_over(&mut self) {
+        self.len += 1;
+        *self.larger_slice = &self.larger_slice[1..];
+    }
+
+    pub fn current_byte(&self) -> u8 {
+        self.larger_slice[0]
+    }
+
+    pub fn larger_slice(&self) -> &'b [u8] {
+        self.larger_slice
+    }
+
+    pub fn to_slice(self) -> &'b [u8] {
         unsafe { from_raw_parts(self.ptr, self.len) }
     }
 
-    pub fn to_str(self) -> &'src str {
+    pub fn to_str(self) -> &'b str {
         unsafe { str::from_utf8_unchecked(self.to_slice()) }
     }
 }
