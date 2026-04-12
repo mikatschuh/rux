@@ -57,7 +57,7 @@ impl<'src> Token<'src> {
             | RightArrow
             | Underscore
             | DashDashDash
-            | Ident
+            | Name
             | Not
             | Literal
             | Quote { .. }

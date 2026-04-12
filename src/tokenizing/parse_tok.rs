@@ -128,7 +128,7 @@ pub(super) fn parse_token<'src>(
                 _ if src.trim_start_matches('_').is_empty() => TokenKind::Underscore,
                 _ => Keyword::from_str(src)
                     .map(TokenKind::Keyword)
-                    .unwrap_or(TokenKind::Ident),
+                    .unwrap_or(TokenKind::Name),
             },
         },
         None,

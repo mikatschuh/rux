@@ -1,0 +1,146 @@
+use std::collections::HashMap;
+
+use crate::{
+    grapher::{
+        Graph, GraphError, GraphResult,
+        graph::{MemNodeID, NodeID, NodeKind, Scope, Symbol},
+    },
+    literals::Literal,
+    tokenizing::{TokenStream, token::Token, unary_op::UnaryOp},
+    types::AtomicType,
+};
+
+mod parsing;
+
+#[derive(Clone)]
+pub struct LoopContext<'src> {
+    pub loop_head: MemNodeID<'src>,
+    pub break_mem: Option<MemNodeID<'src>>,
+    pub continue_mem: Option<MemNodeID<'src>>,
+}
+
+#[derive(Clone)]
+pub struct ParserState<'src> {
+    pub symbols: HashMap<&'src str, Symbol<'src>>,
+    pub mem: MemNodeID<'src>,
+    pub loops: Vec<LoopContext<'src>>,
+    pub reachable: bool,
+    pub last_jump: Option<Token<'src>>,
+}
+
+pub struct GraphBuilder<'tokens, 'src, T: TokenStream<'src>> {
+    tokens: &'tokens mut T,
+    pub graph: Graph<'src>,
+    pub scope: Scope<'src>,
+
+    pub loops: Vec<LoopContext<'src>>,
+    pub reachable: bool,
+    pub last_jump: Option<Token<'src>>,
+}
+
+impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
+    pub fn new(tokens: &'tokens mut T) -> Self {
+        Self {
+            tokens,
+            graph: Graph::new(),
+            scope: Scope::new(),
+
+            loops: Vec::new(),
+            reachable: true,
+            last_jump: None,
+        }
+    }
+
+    pub fn advance(&mut self) -> Token<'src> {
+        let tok = self.tokens.peek();
+        self.tokens.consume();
+        tok
+    }
+
+    pub fn peek(&mut self) -> Token<'src> {
+        self.tokens.peek()
+    }
+
+    pub fn get_literal(&mut self) -> Literal<'src> {
+        self.tokens.get_literal()
+    }
+
+    pub fn get_quote(&mut self) -> String {
+        self.tokens.get_quote()
+    }
+
+    pub fn get_type(&mut self) -> AtomicType {
+        self.tokens.get_type()
+    }
+
+    pub fn declare_variable(
+        &mut self,
+        name: Token<'src>,
+        type_: NodeID<'src>,
+        value: Option<NodeID<'src>>,
+    ) {
+        let assignment = value.unwrap_or_else(|| self.graph.add_unitialized());
+
+        self.scope
+            .symbols
+            .insert(name.src, Symbol { type_, assignment });
+    }
+
+    /*
+    pub fn assign_variable(
+        &mut self,
+        name: Token<'src>,
+        value: NodeID<'src>,
+    ) -> GraphResult<'src, ()> {
+        let Some(existing) = self.symbols.get(name.src) else {
+            return Err(GraphError::AssignmentToUnknownIdent { ident: name });
+        };
+        let existing_assignment = existing.assignment.clone();
+
+        if existing_assignment.kind == NodeKind::UnInitialized {
+            if let Some(symbol) = self.symbols.get_mut(name.src) {
+                symbol.assignment = value;
+            }
+            return Ok(());
+        }
+
+        let NodeKind::Unary {
+            op: UnaryOp::Ptr,
+            input,
+        } = &existing_assignment.kind
+        else {
+            return Err(GraphError::AssignmentToImmutableIdent { ident: name });
+        };
+
+        let new_mem = self.add_store(input.clone(), value);
+        self.latest_mem = new_mem;
+        Ok(())
+    }*/
+
+    pub fn read_variable(&mut self, name: Token<'src>) -> GraphResult<'src, NodeID<'src>> {
+        let Some(symbol) = self.scope.symbols.get(name.src) else {
+            let unknown_id = self.graph.add_unknown_name(name.src);
+            return Ok(unknown_id);
+        };
+
+        if symbol.assignment.kind == NodeKind::UnInitialized {
+            Err(GraphError::TriedToReadUnitialized { ident: name })
+        } else if let NodeKind::Unary {
+            op: UnaryOp::Ptr,
+            input,
+        } = &symbol.assignment.kind
+        {
+            Ok(self.graph.add_load(input.clone()))
+        } else {
+            Ok(symbol.assignment.clone())
+        }
+    }
+
+    pub fn snapshot_symbols(&self) -> HashMap<&'src str, Symbol<'src>> {
+        self.scope.symbols.clone()
+    }
+
+    pub fn replace_symbols(&mut self, snapshot: HashMap<&'src str, Symbol<'src>>) {
+        self.scope.symbols = snapshot;
+    }
+}

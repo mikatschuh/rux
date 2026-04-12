@@ -38,7 +38,7 @@ fn mutable_symbol_assignments_use_memory_nodes() {
     let graph = Graph::from_stream(&mut tokenizer).expect("graph");
 
     let x_symbol = graph.symbol("x").expect("x symbol");
-    expect_primitive_type(&x_symbol.ty, PrimitiveType::Signed { size: 32 });
+    expect_primitive_type(&x_symbol.type_, PrimitiveType::Signed { size: 32 });
     let x_addr = expect_unary(&x_symbol.assignment, UnaryOp::Ptr);
     expect_literal(&x_addr, Literal::from(1_u8));
 
@@ -55,7 +55,7 @@ fn parses_non_decimal_literals() {
     let graph = Graph::from_stream(&mut tokenizer).expect("graph");
 
     let symbol = graph.symbol("value").expect("value symbol");
-    expect_primitive_type(&symbol.ty, PrimitiveType::Signed { size: 32 });
+    expect_primitive_type(&symbol.type_, PrimitiveType::Signed { size: 32 });
     expect_literal(
         &symbol.assignment,
         Literal {
@@ -77,7 +77,7 @@ fn deduplicates_types_and_literal_nodes() {
     let x_symbol = graph.symbol("x").expect("x symbol");
     let y_symbol = graph.symbol("y").expect("y symbol");
 
-    assert!(x_symbol.ty.ptr_cmp(&y_symbol.ty));
+    assert!(x_symbol.type_.ptr_cmp(&y_symbol.type_));
     assert!(x_symbol.assignment.ptr_cmp(&y_symbol.assignment));
     expect_literal(&x_symbol.assignment, Literal::from(1_u8));
 }

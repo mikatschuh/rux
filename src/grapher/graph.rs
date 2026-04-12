@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use bumpalo::Bump;
 
 use crate::{
-    grapher::{GraphError, GraphResult, parser::GraphBuilder},
+    grapher::{GraphResult, parser::GraphBuilder},
     literals::Literal,
-    tokenizing::{TokenStream, binary_op::BinaryOp, token::Token, unary_op::UnaryOp},
-    types::PrimitiveType,
+    tokenizing::{TokenStream, binary_op::BinaryOp, unary_op::UnaryOp},
+    types::AtomicType,
     utilities::{NoDealloc, Rc},
 };
 
@@ -59,7 +59,7 @@ pub enum NodeKind<'src> {
         quote: String,
     },
     PrimitiveType {
-        ty: PrimitiveType,
+        ty: AtomicType,
     },
 
     Unary {
@@ -84,7 +84,7 @@ pub enum NodeKind<'src> {
         when_false: NodeID<'src>,
     },
 
-    UnknownIdent {
+    UnknownName {
         name: &'src str,
     },
 }
@@ -98,7 +98,7 @@ enum NodeKey<'src> {
         quote: String,
     },
     PrimitiveType {
-        ty: PrimitiveType,
+        ty: AtomicType,
     },
     Unary {
         op: UnaryOp,
@@ -124,20 +124,12 @@ enum NodeKey<'src> {
     },
 }
 
-#[derive(Debug, Clone)]
-pub struct Symbol<'src> {
-    pub ty: NodeID<'src>,
-    pub assignment: NodeID<'src>,
-}
-
 #[derive(Debug)]
 pub struct Graph<'src> {
     arena: Bump,
-    symbols: HashMap<&'src str, Symbol<'src>>,
     node_cache: HashMap<NodeKey<'src>, NodeID<'src>>,
     pub latest_mem: MemNodeID<'src>,
 }
-
 impl<'src> Graph<'src> {
     pub fn new() -> Self {
         let arena = Bump::new();
@@ -150,7 +142,6 @@ impl<'src> Graph<'src> {
 
         Self {
             arena,
-            symbols: HashMap::new(),
             node_cache: HashMap::new(),
             latest_mem: current_mem,
         }
@@ -160,10 +151,6 @@ impl<'src> Graph<'src> {
         tokens: &'tokens mut impl TokenStream<'src>,
     ) -> GraphResult<'src, Graph<'src>> {
         GraphBuilder::new(tokens).build()
-    }
-
-    pub fn symbol(&self, name: &str) -> Option<&Symbol<'src>> {
-        self.symbols.get(name)
     }
 
     fn push_node(&mut self, kind: NodeKind<'src>) -> NodeID<'src> {
@@ -220,7 +207,7 @@ impl<'src> Graph<'src> {
         self.push_mem_node(MemNodeKind::PlaceHolder { prev: entry })
     }
 
-    fn add_store(&mut self, addr: NodeID<'src>, val: NodeID<'src>) -> MemNodeID<'src> {
+    pub fn add_store(&mut self, addr: NodeID<'src>, val: NodeID<'src>) -> MemNodeID<'src> {
         self.push_mem_node(MemNodeKind::Store {
             prev: self.latest_mem(),
             addr,
@@ -228,7 +215,7 @@ impl<'src> Graph<'src> {
         })
     }
 
-    fn add_load(&mut self, addr: NodeID<'src>) -> NodeID<'src> {
+    pub fn add_load(&mut self, addr: NodeID<'src>) -> NodeID<'src> {
         self.push_node(NodeKind::Load {
             mem: self.latest_mem(),
             addr,
@@ -269,77 +256,16 @@ impl<'src> Graph<'src> {
         self.push_node(NodeKind::Quote { quote })
     }
 
-    pub fn add_type(&mut self, ty: PrimitiveType) -> NodeID<'src> {
-        self.push_node(NodeKind::PrimitiveType { ty })
+    pub fn add_type(&mut self, type_: AtomicType) -> NodeID<'src> {
+        self.push_node(NodeKind::PrimitiveType { ty: type_ })
     }
 
-    pub fn declare_variable(&mut self, name: Token<'src>, ty: NodeID<'src>) {
-        let not_assigned = self.push_node(NodeKind::UnInitialized);
-
-        self.symbols.insert(
-            name.src,
-            Symbol {
-                ty,
-                assignment: not_assigned,
-            },
-        );
+    pub fn add_unitialized(&mut self) -> NodeID<'src> {
+        self.push_node(NodeKind::UnInitialized)
     }
 
-    pub fn assign_variable(
-        &mut self,
-        name: Token<'src>,
-        value: NodeID<'src>,
-    ) -> GraphResult<'src, ()> {
-        let Some(existing) = self.symbols.get(name.src) else {
-            return Err(GraphError::AssignmentToUnknownIdent { ident: name });
-        };
-        let existing_assignment = existing.assignment.clone();
-
-        if existing_assignment.kind == NodeKind::UnInitialized {
-            if let Some(symbol) = self.symbols.get_mut(name.src) {
-                symbol.assignment = value;
-            }
-            return Ok(());
-        }
-
-        let NodeKind::Unary {
-            op: UnaryOp::Ptr,
-            input,
-        } = &existing_assignment.kind
-        else {
-            return Err(GraphError::AssignmentToImmutableIdent { ident: name });
-        };
-
-        let new_mem = self.add_store(input.clone(), value);
-        self.latest_mem = new_mem;
-        Ok(())
-    }
-
-    pub fn read_variable(&mut self, ident: Token<'src>) -> GraphResult<'src, NodeID<'src>> {
-        let Some(symbol) = self.symbols.get(ident.src) else {
-            let unknown_id = self.push_node(NodeKind::UnknownIdent { name: ident.src });
-            return Ok(unknown_id);
-        };
-
-        if symbol.assignment.kind == NodeKind::UnInitialized {
-            Err(GraphError::BindingMissingAssignment { ident })
-        } else if let NodeKind::Unary {
-            op: UnaryOp::Ptr,
-            input,
-        } = &symbol.assignment.kind
-        {
-            Ok(self.add_load(input.clone()))
-        } else {
-            Ok(symbol.assignment.clone())
-        }
-    }
-
-    pub fn snapshot_symbols(&self) -> HashMap<&'src str, Symbol<'src>> {
-        self.symbols.clone()
-    }
-
-    pub fn replace_symbols(&mut self, snapshot: HashMap<&'src str, Symbol<'src>>) {
-        self.symbols = snapshot;
+    pub fn add_unknown_name(&mut self, name: &'src str) -> NodeID<'src> {
+        self.push_node(NodeKind::UnknownName { name })
     }
 
     pub fn latest_mem(&self) -> MemNodeID<'src> {
@@ -380,7 +306,7 @@ impl<'src> NodeKind<'src> {
                 when_true: when_true.addr(),
                 when_false: when_false.addr(),
             }),
-            NodeKind::UnknownIdent { name } => Some(NodeKey::UnknownIdent { name }),
+            NodeKind::UnknownName { name } => Some(NodeKey::UnknownIdent { name }),
         }
     }
 }
@@ -411,6 +337,27 @@ impl<'src> MemNode<'src> {
             MemNodeKind::StepClause { prev, .. } => *prev = entry,
             MemNodeKind::PlaceHolder { prev } => *prev = entry,
             _ => panic!("attempted to set step clause prev on non-step-clause memory node"),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Symbol<'src> {
+    pub type_: NodeID<'src>,
+    pub assignment: NodeID<'src>,
+}
+
+#[derive(Debug)]
+pub struct Scope<'src> {
+    pub symbols: HashMap<&'src str, Symbol<'src>>,
+    pub unknown_names: Vec<&'src str>,
+}
+
+impl<'src> Scope<'src> {
+    pub fn new() -> Self {
+        Self {
+            symbols: HashMap::new(),
+            unknown_names: vec![],
         }
     }
 }

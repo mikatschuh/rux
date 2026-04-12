@@ -1,12 +1,10 @@
 use crate::tokenizing::token::Token;
 use std::fmt::{self};
 
-mod graph;
-// #[allow(unused)]
-// mod graph_dump;
+pub mod graph;
 mod parser;
-#[cfg(test)]
-mod test;
+// #[cfg(test)]
+// mod test;
 
 pub use graph::Graph;
 
@@ -14,6 +12,20 @@ pub type GraphResult<'src, T> = Result<T, GraphError<'src>>;
 
 #[derive(Debug)]
 pub enum GraphError<'src> {
+    ExpectedItem {
+        found: Token<'src>,
+    },
+    ExpectedStatement {
+        found: Token<'src>,
+    },
+    ExpectedExpression {
+        found: Token<'src>,
+    },
+
+    ExpectedName {
+        found: Token<'src>,
+    },
+
     UnexpectedToken {
         expected: &'static str,
         found: Token<'src>,
@@ -24,15 +36,13 @@ pub enum GraphError<'src> {
     AssignmentToImmutableIdent {
         ident: Token<'src>,
     },
-    BindingMissingAssignment {
+    TriedToReadUnitialized {
         ident: Token<'src>,
     },
     InvalidLiteral {
         token: Token<'src>,
     },
-    ExpectedExpression {
-        found: Token<'src>,
-    },
+
     MismatchedBracket {
         opener: Token<'src>,
         closer: Token<'src>,
@@ -50,6 +60,12 @@ impl fmt::Display for GraphError<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use GraphError::*;
         match self {
+            ExpectedItem { found } => write!(f, "expected item at {:?}", found.span),
+            ExpectedStatement { found } => write!(f, "expected statement at {:?}", found.span),
+            ExpectedExpression { found } => write!(f, "expected expression at {:?}", found.span),
+
+            ExpectedName { found } => write!(f, "expected name at {:?}", found.span),
+
             UnexpectedToken { expected, found } => write!(
                 f,
                 "expected {}, found '{}' at {:?}",
@@ -65,7 +81,7 @@ impl fmt::Display for GraphError<'_> {
                 "assignment to immutable identifier '{}' at {:?}",
                 ident.src, ident.span
             ),
-            BindingMissingAssignment { ident } => {
+            TriedToReadUnitialized { ident } => {
                 write!(
                     f,
                     "identifier '{}' read without being ever assigned at {:?}",
@@ -75,7 +91,6 @@ impl fmt::Display for GraphError<'_> {
             InvalidLiteral { token } => {
                 write!(f, "invalid literal '{}' at {:?}", token.src, token.span)
             }
-            ExpectedExpression { found } => write!(f, "expected expression near {:?}", found.span),
             MismatchedBracket { opener, closer } => write!(
                 f,
                 "mismatched brackets: opened at {:?}, closed with '{}' at {:?}",

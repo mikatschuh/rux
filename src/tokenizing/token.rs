@@ -92,7 +92,7 @@ pub enum TokenKind {
 
     Comma, // ,
 
-    Ident,      // x
+    Name,       // x
     Underscore, // _
     Literal,    // 1001010101
     Quote {
@@ -133,54 +133,60 @@ impl Bracket {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Keyword {
-    Move,
-
+    Const,
     Fn,
-    Loop,
+    Enum,
+    Struct,
+
+    Let,
+    Var,
+
     If,
     Else,
-    OrElse,
+    Loop,
+    In,
     Continue,
-    OrContinue,
     Break,
-    OrBreak,
     Return,
-    OrReturn,
 }
 
 impl Keyword {
     pub fn display(&self) -> &'static str {
         match self {
-            Move => "move",
-
+            Const => "const",
             Fn => "fn",
-            Loop => "loop",
+            Enum => "enum",
+            Struct => "struct",
+
+            Let => "let",
+            Var => "var",
+
             If => "if",
             Else => "else",
-            OrElse => "orelse",
+            Loop => "loop",
+            In => "in",
             Continue => "continue",
-            OrContinue => "orcontinue",
             Break => "break",
-            OrBreak => "orbreak",
             Return => "return",
-            OrReturn => "orreturn",
         }
     }
     pub fn from_str(string: &str) -> Option<Self> {
         Some(match string {
-            "move" => Move,
-
+            "const" => Const,
             "fn" => Fn,
-            "loop" => Loop,
+            "enum" => Enum,
+            "struct" => Struct,
+
+            "let" => Let,
+            "var" => Var,
+
             "if" => If,
             "else" => Else,
-            "orelse" => OrElse,
+            "loop" => Loop,
+            "in" => In,
             "continue" => Continue,
-            "orcontinue" => OrContinue,
             "break" => Break,
-            "orbreak" => OrBreak,
             "return" => Return,
-            "orreturn" => OrReturn,
             _ => return None,
         })
     }

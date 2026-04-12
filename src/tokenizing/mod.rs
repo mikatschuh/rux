@@ -11,7 +11,7 @@ use crate::{
             TokenKind::{self, *},
         },
     },
-    types::{PrimitiveType, TypeSize},
+    types::{AtomicType, TypeSize},
     utilities::Rc,
 };
 use std::mem::{self};
@@ -33,7 +33,7 @@ pub trait TokenStream<'src> {
     fn peek(&mut self) -> Token<'src>; // has to be free
     fn get_literal(&mut self) -> Literal<'src>;
     fn get_quote(&mut self) -> String;
-    fn get_type(&mut self) -> PrimitiveType;
+    fn get_type(&mut self) -> AtomicType;
     fn consume(&mut self);
 
     fn buffer_if(&mut self, mut predicate: impl FnMut(Token) -> bool) -> TokenBuffer<'src> {
@@ -74,7 +74,7 @@ pub struct Tokenizer<'src> {
 enum Data<'src> {
     Lit(Literal<'src>),
     Quote(String),
-    Type(PrimitiveType),
+    Type(AtomicType),
 }
 
 impl<'src> Tokenizer<'src> {
@@ -120,7 +120,7 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
         }
     }
 
-    fn get_type(&mut self) -> PrimitiveType {
+    fn get_type(&mut self) -> AtomicType {
         match mem::take(&mut self.data) {
             Some(Data::Type(ty)) => ty,
             _ => unreachable!(),
