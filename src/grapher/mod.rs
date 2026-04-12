@@ -1,4 +1,4 @@
-use crate::tokenizing::token::Token;
+use crate::{error::Span, tokenizing::token::Token};
 use std::fmt::{self};
 
 mod graph;
@@ -22,8 +22,10 @@ pub enum GraphError<'src> {
     ExpectedExpression {
         found: Token<'src>,
     },
-
     ExpectedName {
+        found: Token<'src>,
+    },
+    ExpectedAssignment {
         found: Token<'src>,
     },
 
@@ -31,6 +33,20 @@ pub enum GraphError<'src> {
         expected: &'static str,
         found: Token<'src>,
     },
+
+    ConstShadowing {
+        name: &'src str,
+        decl: Span,
+    },
+    ShadowingConst {
+        name: &'src str,
+        decl: Span,
+    },
+    ConflictingItems {
+        name: &'src str,
+        decl: Span,
+    },
+
     AssignmentToUnknownIdent {
         ident: Token<'src>,
     },
@@ -64,14 +80,25 @@ impl fmt::Display for GraphError<'_> {
             ExpectedItem { found } => write!(f, "expected item at {:?}", found.span),
             ExpectedStatement { found } => write!(f, "expected statement at {:?}", found.span),
             ExpectedExpression { found } => write!(f, "expected expression at {:?}", found.span),
-
             ExpectedName { found } => write!(f, "expected name at {:?}", found.span),
+            ExpectedAssignment { found } => write!(f, "expected an assignment at {:?}", found.span),
 
             UnexpectedToken { expected, found } => write!(
                 f,
                 "expected {}, found '{}' at {:?}",
                 expected, found.src, found.span
             ),
+
+            ConstShadowing { name, decl } => {
+                write!(f, "const {name} shadowing variable at {:?}", decl)
+            }
+            ShadowingConst { name, decl } => {
+                write!(f, "variable {name} shadowing const at {:?}", decl)
+            }
+            ConflictingItems { name, decl } => {
+                write!(f, "const {name} conflicting with const at {:?}", decl)
+            }
+
             AssignmentToUnknownIdent { ident } => write!(
                 f,
                 "assignment to unknown identifier '{}' at {:?}",

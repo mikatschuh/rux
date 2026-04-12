@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use crate::grapher::{Graph, graph::NodeID};
+use crate::{
+    error::Span,
+    grapher::{Graph, GraphError, GraphResult, graph::NodeID},
+};
 
 #[derive(Debug, Clone)]
 pub struct Symbol<'src> {
@@ -10,7 +13,8 @@ pub struct Symbol<'src> {
 
 #[derive(Debug)]
 struct Scope<'src> {
-    symbols: HashMap<&'src str, Symbol<'src>>,
+    variables: HashMap<&'src str, Symbol<'src>>,
+    constants: HashMap<&'src str, Symbol<'src>>,
     unknowns: HashMap<&'src str, Vec<NodeID<'src>>>, // all nodes that represent the unknown
 }
 
@@ -21,7 +25,8 @@ pub struct Scopes<'src> {
 impl<'src> Scope<'src> {
     fn new() -> Self {
         Self {
-            symbols: HashMap::new(),
+            variables: HashMap::new(),
+            constants: HashMap::new(),
             unknowns: HashMap::new(),
         }
     }
@@ -52,7 +57,10 @@ impl<'src> Scopes<'src> {
         name: &'src str,
     ) -> Result<Symbol<'src>, NodeID<'src>> {
         for scope in self.scopes.iter().rev() {
-            if let Some(symbol) = scope.symbols.get(name) {
+            if let Some(symbol) = scope.variables.get(name) {
+                return Ok(symbol.clone());
+            }
+            if let Some(symbol) = scope.constants.get(name) {
                 return Ok(symbol.clone());
             }
         }
@@ -70,8 +78,41 @@ impl<'src> Scopes<'src> {
         }
     }
 
-    pub fn add_symbol(&mut self, name: &'src str, symbol: Symbol<'src>) {
-        self.current().symbols.insert(name, symbol);
+    pub fn add_variable(
+        &mut self,
+        decl: Span,
+        name: &'src str,
+        symbol: Symbol<'src>,
+    ) -> GraphResult<'src, ()> {
+        if self.current().constants.contains_key(name) {
+            return Err(GraphError::ShadowingConst { name, decl });
+        }
+
+        self.current().variables.insert(name, symbol);
+        Ok(())
+    }
+
+    pub fn add_constant(
+        &mut self,
+        decl: Span,
+        name: &'src str,
+        symbol: Symbol<'src>,
+    ) -> GraphResult<'src, ()> {
+        if self.current().variables.contains_key(name) {
+            return Err(GraphError::ConstShadowing { name, decl });
+        }
+        if self.current().constants.contains_key(name) {
+            return Err(GraphError::ConflictingItems { name, decl });
+        }
+
+        if let Some(nodes) = self.current().unknowns.remove(name) {
+            for mut node in nodes {
+                *node = (*symbol.assignment).clone() // overwrite every node referring to this unknown with the const's value
+            }
+        }
+
+        self.current().variables.insert(name, symbol);
+        Ok(())
     }
 
     pub fn close_scope(&mut self) {

@@ -1,17 +1,10 @@
 use crate::{
-    grapher::{
-        Graph, GraphError, GraphResult,
-        graph::{MemNodeID, NodeID, NodeKind},
-        parser::{GraphBuilder, LoopContext, ParserState},
-        scope::Symbol,
-    },
-    literals::Literal,
+    grapher::{Graph, GraphError, GraphResult, graph::NodeID, parser::GraphBuilder},
     tokenizing::{
-        TokenStream, binding_pow,
+        TokenStream,
         token::{Bracket, Keyword, Token, TokenKind},
     },
 };
-use std::collections::HashMap;
 
 impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     pub fn build(mut self) -> GraphResult<'src, Graph<'src>> {
@@ -28,7 +21,10 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     fn parse_item(&mut self) -> GraphResult<'src, ()> {
         match self.peek().kind {
             TokenKind::Keyword(keyword) => match keyword {
-                Keyword::Const => todo!(),
+                Keyword::Const => {
+                    let const_ = self.advance();
+                    self.parse_const(const_)
+                }
                 Keyword::Fn => todo!(),
                 Keyword::Enum => todo!(),
                 Keyword::Struct => todo!(),
@@ -51,11 +47,14 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 self.parse_pattern_name(name)
             }
             TokenKind::Open(Bracket::Curly) => {
-                let open_curly = self.advance();
-                self.parse_block(open_curly)
+                self.advance();
+                self.parse_block()
             }
             TokenKind::Keyword(keyword) => match keyword {
-                Keyword::Const => todo!(),
+                Keyword::Const => {
+                    let const_ = self.advance();
+                    self.parse_const(const_)
+                }
                 Keyword::Fn => todo!(),
                 Keyword::Enum => todo!(),
                 Keyword::Struct => todo!(),
@@ -96,9 +95,9 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 Ok(self.graph.add_quote(quote))
             }
             TokenKind::Type => {
-                let ty = self.get_type();
+                let type_ = self.get_type();
                 self.advance();
-                Ok(self.graph.add_type(ty))
+                Ok(self.graph.add_type(type_))
             }
             TokenKind::Name => {
                 let name = self.advance();
@@ -155,29 +154,25 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_block(&mut self, opener: Token<'src>) -> GraphResult<'src, ()> {
+    fn parse_block(&mut self) -> GraphResult<'src, ()> {
+        self.symbols.open_scope();
         loop {
-            let token = self.peek();
-            match token.kind {
-                TokenKind::Closed(closed) if closed == Bracket::Curly => {
+            match self.peek().kind {
+                TokenKind::Closed(Bracket::Curly) => {
                     self.advance();
+                    self.symbols.close_scope();
                     return Ok(());
                 }
-                TokenKind::Closed(_) | TokenKind::Eof => {
-                    return Err(GraphError::MismatchedBracket {
-                        opener,
-                        closer: token,
-                    });
-                }
                 _ => {
+                    /*
                     if !self.reachable {
                         return Err(GraphError::UnreachableStatementAfterJump {
                             jump: self
                                 .last_jump
                                 .expect("jump token recorded for unreachable path"),
-                            statement: token,
+                            statement: self.peek(),
                         });
-                    }
+                    }*/
 
                     self.parse_statement()?;
                 }
@@ -185,12 +180,8 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_let(&mut self, _let: Token<'src>) -> GraphResult<'src, ()> {
-        let name = if self.peek().kind == TokenKind::Name {
-            self.advance()
-        } else {
-            return Err(GraphError::ExpectedName { found: self.peek() });
-        };
+    fn parse_let(&mut self, let_: Token<'src>) -> GraphResult<'src, ()> {
+        let name = self.expect_name()?;
 
         if self.peek().kind == TokenKind::Equal {
             // type inference
@@ -203,12 +194,32 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 self.advance();
                 let value = self.parse_expr(0)?;
 
-                self.declare_variable(name, type_, Some(value));
+                self.declare_variable(let_.span - self.last_pos(), name, type_, Some(value))
             } else {
-                self.declare_variable(name, type_, None);
+                self.declare_variable(let_.span - self.last_pos(), name, type_, None)
             }
         }
-        Ok(())
+    }
+
+    fn parse_const(&mut self, const_: Token<'src>) -> GraphResult<'src, ()> {
+        let name = self.expect_name()?;
+
+        if self.peek().kind == TokenKind::Equal {
+            // type inference
+            todo!()
+        } else {
+            // no type inference
+            let type_ = self.parse_expr(0)?;
+
+            if self.peek().kind == TokenKind::Equal {
+                self.advance();
+                let value = self.parse_expr(0)?;
+
+                self.declare_const(const_.span - self.last_pos(), name, type_, value)
+            } else {
+                Err(GraphError::ExpectedAssignment { found: self.peek() })
+            }
+        }
     }
 
     fn parse_pattern_name(&mut self, name: &'src str) -> GraphResult<'src, ()> {

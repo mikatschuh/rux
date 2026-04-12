@@ -1,13 +1,18 @@
 use std::collections::HashMap;
 
 use crate::{
+    error::{Position, Span},
     grapher::{
         Graph, GraphError, GraphResult,
         graph::{MemNodeID, NodeID, NodeKind},
         scope::{Scopes, Symbol},
     },
     literals::Literal,
-    tokenizing::{TokenStream, token::Token, unary_op::UnaryOp},
+    tokenizing::{
+        TokenStream,
+        token::{Token, TokenKind},
+        unary_op::UnaryOp,
+    },
     types::AtomicType,
 };
 
@@ -33,22 +38,21 @@ pub struct GraphBuilder<'tokens, 'src, T: TokenStream<'src>> {
     tokens: &'tokens mut T,
     pub graph: Graph<'src>,
     pub symbols: Scopes<'src>,
-
-    pub loops: Vec<LoopContext<'src>>,
-    pub reachable: bool,
-    pub last_jump: Option<Token<'src>>,
+    // pub loops: Vec<LoopContext<'src>>,
+    // pub reachable: bool,
+    // pub last_jump: Option<Token<'src>>,
 }
 
+#[allow(dead_code)]
 impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     pub fn new(tokens: &'tokens mut T) -> Self {
         Self {
             tokens,
             graph: Graph::new(),
             symbols: Scopes::new(),
-
-            loops: Vec::new(),
-            reachable: true,
-            last_jump: None,
+            // loops: Vec::new(),
+            // reachable: true,
+            // last_jump: None,
         }
     }
 
@@ -60,6 +64,18 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
     pub fn peek(&self) -> Token<'src> {
         self.tokens.peek()
+    }
+
+    pub fn expect_name(&mut self) -> GraphResult<'src, &'src str> {
+        if self.peek().kind == TokenKind::Name {
+            Ok(self.advance().src)
+        } else {
+            Err(GraphError::ExpectedItem { found: self.peek() })
+        }
+    }
+
+    pub fn last_pos(&self) -> Position {
+        self.tokens.last_pos()
     }
 
     pub fn get_literal(&mut self) -> Literal<'src> {
@@ -76,14 +92,32 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
     pub fn declare_variable(
         &mut self,
-        name: Token<'src>,
+        decl: Span,
+        name: &'src str,
         type_: NodeID<'src>,
         value: Option<NodeID<'src>>,
-    ) {
+    ) -> GraphResult<'src, ()> {
         let assignment = value.unwrap_or_else(|| self.graph.add_unitialized());
 
         self.symbols
-            .add_symbol(name.src, Symbol { type_, assignment });
+            .add_variable(decl, name, Symbol { type_, assignment })
+    }
+
+    pub fn declare_const(
+        &mut self,
+        decl: Span,
+        name: &'src str,
+        type_: NodeID<'src>,
+        value: NodeID<'src>,
+    ) -> GraphResult<'src, ()> {
+        self.symbols.add_constant(
+            decl,
+            name,
+            Symbol {
+                type_,
+                assignment: value,
+            },
+        )
     }
 
     /*
