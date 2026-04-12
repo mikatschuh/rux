@@ -133,55 +133,12 @@ pub struct Symbol<'src> {
 #[derive(Debug)]
 pub struct Graph<'src> {
     arena: Bump,
-    pub symbols: HashMap<&'src str, Symbol<'src>>,
+    symbols: HashMap<&'src str, Symbol<'src>>,
     node_cache: HashMap<NodeKey<'src>, NodeID<'src>>,
     pub latest_mem: MemNodeID<'src>,
 }
 
 impl<'src> Graph<'src> {
-    pub fn node_ptr_id(node: &NodeID<'src>) -> usize {
-        std::ptr::from_ref(&**node) as usize
-    }
-    pub fn mem_ptr_id(mem: &MemNodeID<'src>) -> usize {
-        std::ptr::from_ref(&**mem) as usize
-    }
-
-    fn node_key(kind: &NodeKind<'src>) -> Option<NodeKey<'src>> {
-        match kind {
-            NodeKind::Literal { literal } => Some(NodeKey::Literal {
-                literal: literal.clone(),
-            }),
-            NodeKind::Quote { quote } => Some(NodeKey::Quote {
-                quote: quote.clone(),
-            }),
-            NodeKind::PrimitiveType { ty } => Some(NodeKey::PrimitiveType { ty: *ty }),
-            NodeKind::Unary { op, input } => Some(NodeKey::Unary {
-                op: *op,
-                input: Self::node_ptr_id(input),
-            }),
-            NodeKind::Binary { op, lhs, rhs } => Some(NodeKey::Binary {
-                op: *op,
-                lhs: Self::node_ptr_id(lhs),
-                rhs: Self::node_ptr_id(rhs),
-            }),
-            NodeKind::Load { mem, addr } => Some(NodeKey::Load {
-                mem: Self::mem_ptr_id(mem),
-                addr: Self::node_ptr_id(addr),
-            }),
-            NodeKind::UnInitialized => Some(NodeKey::UnInitialized),
-            NodeKind::Phi {
-                condition,
-                when_true,
-                when_false,
-            } => Some(NodeKey::Phi {
-                condition: Self::node_ptr_id(condition),
-                when_true: Self::node_ptr_id(when_true),
-                when_false: Self::node_ptr_id(when_false),
-            }),
-            NodeKind::UnknownIdent { name } => Some(NodeKey::UnknownIdent { name }),
-        }
-    }
-
     pub fn new() -> Self {
         let arena = Bump::new();
         let current_mem = Rc::<MemNode<'src>, NoDealloc>::new_in_bump(
@@ -210,7 +167,7 @@ impl<'src> Graph<'src> {
     }
 
     fn push_node(&mut self, kind: NodeKind<'src>) -> NodeID<'src> {
-        let key = Self::node_key(&kind);
+        let key = kind.node_key();
         if let Some(ref key) = key {
             if let Some(existing) = self.node_cache.get(key) {
                 return existing.clone();
@@ -365,7 +322,7 @@ impl<'src> Graph<'src> {
         };
 
         if symbol.assignment.kind == NodeKind::UnInitialized {
-            Err(GraphError::IdentWithoutAssignment { ident })
+            Err(GraphError::BindingMissingAssignment { ident })
         } else if let NodeKind::Unary {
             op: UnaryOp::Ptr,
             input,
@@ -387,6 +344,44 @@ impl<'src> Graph<'src> {
 
     pub fn latest_mem(&self) -> MemNodeID<'src> {
         self.latest_mem.clone()
+    }
+}
+
+impl<'src> NodeKind<'src> {
+    fn node_key(&self) -> Option<NodeKey<'src>> {
+        match self {
+            NodeKind::Literal { literal } => Some(NodeKey::Literal {
+                literal: literal.clone(),
+            }),
+            NodeKind::Quote { quote } => Some(NodeKey::Quote {
+                quote: quote.clone(),
+            }),
+            NodeKind::PrimitiveType { ty } => Some(NodeKey::PrimitiveType { ty: *ty }),
+            NodeKind::Unary { op, input } => Some(NodeKey::Unary {
+                op: *op,
+                input: input.addr(),
+            }),
+            NodeKind::Binary { op, lhs, rhs } => Some(NodeKey::Binary {
+                op: *op,
+                lhs: lhs.addr(),
+                rhs: rhs.addr(),
+            }),
+            NodeKind::Load { mem, addr } => Some(NodeKey::Load {
+                mem: mem.addr(),
+                addr: addr.addr(),
+            }),
+            NodeKind::UnInitialized => Some(NodeKey::UnInitialized),
+            NodeKind::Phi {
+                condition,
+                when_true,
+                when_false,
+            } => Some(NodeKey::Phi {
+                condition: condition.addr(),
+                when_true: when_true.addr(),
+                when_false: when_false.addr(),
+            }),
+            NodeKind::UnknownIdent { name } => Some(NodeKey::UnknownIdent { name }),
+        }
     }
 }
 

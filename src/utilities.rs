@@ -120,6 +120,10 @@ impl<T, A: CustomAllocator> Rc<T, A> {
         unsafe { (*self.ptr.as_ptr()).strong.load(Ordering::SeqCst) }
     }
 
+    pub fn addr(&self) -> usize {
+        self.ptr.as_ptr() as usize
+    }
+
     #[allow(dead_code)]
     pub fn ptr_cmp(&self, other: &Self) -> bool {
         self.ptr == other.ptr

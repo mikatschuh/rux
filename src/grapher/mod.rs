@@ -24,7 +24,7 @@ pub enum GraphError<'src> {
     AssignmentToImmutableIdent {
         ident: Token<'src>,
     },
-    IdentWithoutAssignment {
+    BindingMissingAssignment {
         ident: Token<'src>,
     },
     InvalidLiteral {
@@ -65,7 +65,7 @@ impl fmt::Display for GraphError<'_> {
                 "assignment to immutable identifier '{}' at {:?}",
                 ident.src, ident.span
             ),
-            IdentWithoutAssignment { ident } => {
+            BindingMissingAssignment { ident } => {
                 write!(
                     f,
                     "identifier '{}' read without being ever assigned at {:?}",

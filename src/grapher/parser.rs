@@ -58,8 +58,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     }
 
     fn parse_statement(&mut self) -> GraphResult<'src, ()> {
-        let token = self.peek();
-        match token.kind {
+        match self.peek().kind {
             TokenKind::Eof => return Ok(()),
             TokenKind::Semicolon => {
                 self.advance();
@@ -79,7 +78,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             TokenKind::Keyword(Keyword::Break) => self.parse_break_statement(),
             _ => Err(GraphError::UnexpectedToken {
                 expected: "statement",
-                found: token,
+                found: self.peek(),
             }),
         }
     }
