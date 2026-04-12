@@ -59,7 +59,7 @@ pub trait TokenStream<'src> {
 }
 
 pub struct Tokenizer<'src> {
-    text: &'src [u8], // valid UTF-8
+    text: &'src [u8],
 
     tok: Token<'src>,
     data: Option<Data<'src>>,
@@ -78,8 +78,7 @@ enum Data<'src> {
 }
 
 impl<'src> Tokenizer<'src> {
-    pub fn new(text: &'src str, mut errors: Rc<Errors<'src>>, target_ptr_size: u128) -> Self {
-        let mut text = text.as_bytes();
+    pub fn new(mut text: &'src [u8], mut errors: Rc<Errors<'src>>, target_ptr_size: u128) -> Self {
         let mut state = EmbeddingSyntax::default();
 
         let (tok, data) = parse_token(
