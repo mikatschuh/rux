@@ -84,9 +84,7 @@ pub enum NodeKind<'src> {
         when_false: NodeID<'src>,
     },
 
-    UnknownName {
-        name: &'src str,
-    },
+    Unknown,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -118,9 +116,6 @@ enum NodeKey<'src> {
         condition: usize,
         when_true: usize,
         when_false: usize,
-    },
-    UnknownIdent {
-        name: &'src str,
     },
 }
 
@@ -167,6 +162,10 @@ impl<'src> Graph<'src> {
             self.node_cache.insert(key, node_id.clone());
         }
         node_id
+    }
+
+    fn push_node_no_dedup(&mut self, kind: NodeKind<'src>) -> NodeID<'src> {
+        Rc::<Node<'src>, NoDealloc>::new_in_bump(Node { kind }, &self.arena)
     }
 
     fn push_mem_node(&mut self, kind: MemNodeKind<'src>) -> MemNodeID<'src> {
@@ -264,8 +263,8 @@ impl<'src> Graph<'src> {
         self.push_node(NodeKind::UnInitialized)
     }
 
-    pub fn add_unknown_name(&mut self, name: &'src str) -> NodeID<'src> {
-        self.push_node(NodeKind::UnknownName { name })
+    pub fn add_unknown(&mut self) -> NodeID<'src> {
+        self.push_node_no_dedup(NodeKind::Unknown)
     }
 
     pub fn latest_mem(&self) -> MemNodeID<'src> {
@@ -306,7 +305,7 @@ impl<'src> NodeKind<'src> {
                 when_true: when_true.addr(),
                 when_false: when_false.addr(),
             }),
-            NodeKind::UnknownName { name } => Some(NodeKey::UnknownIdent { name }),
+            NodeKind::Unknown => None,
         }
     }
 }
@@ -337,27 +336,6 @@ impl<'src> MemNode<'src> {
             MemNodeKind::StepClause { prev, .. } => *prev = entry,
             MemNodeKind::PlaceHolder { prev } => *prev = entry,
             _ => panic!("attempted to set step clause prev on non-step-clause memory node"),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Symbol<'src> {
-    pub type_: NodeID<'src>,
-    pub assignment: NodeID<'src>,
-}
-
-#[derive(Debug)]
-pub struct Scope<'src> {
-    pub symbols: HashMap<&'src str, Symbol<'src>>,
-    pub unknown_names: Vec<&'src str>,
-}
-
-impl<'src> Scope<'src> {
-    pub fn new() -> Self {
-        Self {
-            symbols: HashMap::new(),
-            unknown_names: vec![],
         }
     }
 }

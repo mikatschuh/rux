@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use crate::{
     grapher::{
         Graph, GraphError, GraphResult,
-        graph::{MemNodeID, NodeID, NodeKind, Scope, Symbol},
+        graph::{MemNodeID, NodeID, NodeKind},
+        scope::{Scopes, Symbol},
     },
     literals::Literal,
     tokenizing::{TokenStream, token::Token, unary_op::UnaryOp},
@@ -31,7 +32,7 @@ pub struct ParserState<'src> {
 pub struct GraphBuilder<'tokens, 'src, T: TokenStream<'src>> {
     tokens: &'tokens mut T,
     pub graph: Graph<'src>,
-    pub scope: Scope<'src>,
+    pub symbols: Scopes<'src>,
 
     pub loops: Vec<LoopContext<'src>>,
     pub reachable: bool,
@@ -43,7 +44,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         Self {
             tokens,
             graph: Graph::new(),
-            scope: Scope::new(),
+            symbols: Scopes::new(),
 
             loops: Vec::new(),
             reachable: true,
@@ -57,7 +58,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         tok
     }
 
-    pub fn peek(&mut self) -> Token<'src> {
+    pub fn peek(&self) -> Token<'src> {
         self.tokens.peek()
     }
 
@@ -81,9 +82,8 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     ) {
         let assignment = value.unwrap_or_else(|| self.graph.add_unitialized());
 
-        self.scope
-            .symbols
-            .insert(name.src, Symbol { type_, assignment });
+        self.symbols
+            .add_symbol(name.src, Symbol { type_, assignment });
     }
 
     /*
@@ -118,29 +118,30 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     }*/
 
     pub fn read_variable(&mut self, name: Token<'src>) -> GraphResult<'src, NodeID<'src>> {
-        let Some(symbol) = self.scope.symbols.get(name.src) else {
-            let unknown_id = self.graph.add_unknown_name(name.src);
-            return Ok(unknown_id);
-        };
-
-        if symbol.assignment.kind == NodeKind::UnInitialized {
-            Err(GraphError::TriedToReadUnitialized { ident: name })
-        } else if let NodeKind::Unary {
-            op: UnaryOp::Ptr,
-            input,
-        } = &symbol.assignment.kind
-        {
-            Ok(self.graph.add_load(input.clone()))
-        } else {
-            Ok(symbol.assignment.clone())
+        match self.symbols.get_symbol(&mut self.graph, name.src) {
+            Ok(symbol) => {
+                if symbol.assignment.kind == NodeKind::UnInitialized {
+                    Err(GraphError::TriedToReadUnitialized { ident: name })
+                } else if let NodeKind::Unary {
+                    op: UnaryOp::Ptr,
+                    input,
+                } = &symbol.assignment.kind
+                {
+                    Ok(self.graph.add_load(input.clone()))
+                } else {
+                    Ok(symbol.assignment.clone())
+                }
+            }
+            Err(node) => Ok(node),
         }
     }
 
+    /*
     pub fn snapshot_symbols(&self) -> HashMap<&'src str, Symbol<'src>> {
         self.scope.symbols.clone()
     }
 
     pub fn replace_symbols(&mut self, snapshot: HashMap<&'src str, Symbol<'src>>) {
         self.scope.symbols = snapshot;
-    }
+    }*/
 }

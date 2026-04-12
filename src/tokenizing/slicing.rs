@@ -26,7 +26,7 @@ impl<'src> TokenBuffer<'src> {
 }
 
 impl<'src> TokenStream<'src> for TokenBuffer<'src> {
-    fn peek(&mut self) -> Token<'src> {
+    fn peek(&self) -> Token<'src> {
         self.tokens.front().copied().unwrap_or(Token {
             span: self.last_outputted_pos.into(),
             src: "",

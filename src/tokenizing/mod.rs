@@ -30,7 +30,7 @@ pub mod token;
 pub mod unary_op;
 
 pub trait TokenStream<'src> {
-    fn peek(&mut self) -> Token<'src>; // has to be free
+    fn peek(&self) -> Token<'src>; // has to be free
     fn get_literal(&mut self) -> Literal<'src>;
     fn get_quote(&mut self) -> String;
     fn get_type(&mut self) -> AtomicType;
@@ -101,7 +101,7 @@ impl<'src> Tokenizer<'src> {
 }
 
 impl<'src> TokenStream<'src> for Tokenizer<'src> {
-    fn peek(&mut self) -> Token<'src> {
+    fn peek(&self) -> Token<'src> {
         self.tok
     }
 

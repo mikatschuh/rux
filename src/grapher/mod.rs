@@ -1,8 +1,9 @@
 use crate::tokenizing::token::Token;
 use std::fmt::{self};
 
-pub mod graph;
+mod graph;
 mod parser;
+mod scope;
 // #[cfg(test)]
 // mod test;
 
