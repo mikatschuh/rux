@@ -5,7 +5,6 @@ use crate::{
     tokenizing::{
         embedding::EmbeddingSyntax,
         parse_tok::parse_token,
-        slicing::TokenBuffer,
         token::{
             Token,
             TokenKind::{self, *},
@@ -20,8 +19,6 @@ pub mod binary_op;
 pub mod binding_pow;
 mod embedding;
 pub mod parse_tok;
-#[allow(dead_code)]
-pub mod slicing;
 #[cfg(test)]
 #[allow(dead_code)]
 pub mod test;
@@ -31,11 +28,14 @@ pub mod unary_op;
 
 pub trait TokenStream<'src> {
     fn peek(&self) -> Token<'src>; // has to be free
+    fn last_pos(&self) -> Position; // has to be free
+
     fn get_literal(&mut self) -> Literal<'src>;
     fn get_quote(&mut self) -> String;
     fn get_type(&mut self) -> AtomicType;
     fn consume(&mut self);
 
+    /*
     fn buffer_if(&mut self, mut predicate: impl FnMut(Token) -> bool) -> TokenBuffer<'src> {
         let mut buffer = TokenBuffer::new(self.peek().span.start);
         loop {
@@ -55,12 +55,13 @@ pub trait TokenStream<'src> {
             self.consume();
         }
         buffer
-    }
+    }*/
 }
 
 pub struct Tokenizer<'src> {
     text: &'src [u8],
 
+    last_pos: Position,
     tok: Token<'src>,
     data: Option<Data<'src>>,
 
@@ -91,6 +92,7 @@ impl<'src> Tokenizer<'src> {
 
         Self {
             text,
+            last_pos: Position::beginning(),
             tok,
             data,
             state,
@@ -103,6 +105,9 @@ impl<'src> Tokenizer<'src> {
 impl<'src> TokenStream<'src> for Tokenizer<'src> {
     fn peek(&self) -> Token<'src> {
         self.tok
+    }
+    fn last_pos(&self) -> Position {
+        self.last_pos
     }
 
     fn get_literal(&mut self) -> Literal<'src> {
@@ -130,6 +135,8 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
         if self.tok.kind == Eof {
             return;
         }
+
+        self.last_pos = self.tok.span.end;
 
         let (tok, data) = parse_token(
             &mut self.text,
