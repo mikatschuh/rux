@@ -14,6 +14,8 @@ pub struct Symbol<'src> {
 #[derive(Debug)]
 struct Scope<'src> {
     variables: HashMap<&'src str, Symbol<'src>>,
+    mutables: HashMap<&'src str, Symbol<'src>>,
+
     constants: HashMap<&'src str, Symbol<'src>>,
     unknowns: HashMap<&'src str, Vec<NodeID<'src>>>, // all nodes that represent the unknown
 }
@@ -26,6 +28,7 @@ impl<'src> Scope<'src> {
     fn new() -> Self {
         Self {
             variables: HashMap::new(),
+            mutables: HashMap::new(),
             constants: HashMap::new(),
             unknowns: HashMap::new(),
         }
@@ -60,6 +63,9 @@ impl<'src> Scopes<'src> {
             if let Some(symbol) = scope.variables.get(name) {
                 return Ok(symbol.clone());
             }
+            if let Some(symbol) = scope.mutables.get(name) {
+                return Ok(symbol.clone());
+            }
             if let Some(symbol) = scope.constants.get(name) {
                 return Ok(symbol.clone());
             }
@@ -87,8 +93,24 @@ impl<'src> Scopes<'src> {
         if self.current().constants.contains_key(name) {
             return Err(GraphError::ShadowingConst { name, decl });
         }
+        self.current().mutables.remove(name);
 
         self.current().variables.insert(name, symbol);
+        Ok(())
+    }
+
+    pub fn add_mutable(
+        &mut self,
+        decl: Span,
+        name: &'src str,
+        symbol: Symbol<'src>,
+    ) -> GraphResult<'src, ()> {
+        if self.current().constants.contains_key(name) {
+            return Err(GraphError::ShadowingConst { name, decl });
+        }
+        self.current().variables.remove(name);
+
+        self.current().mutables.insert(name, symbol);
         Ok(())
     }
 
@@ -111,7 +133,7 @@ impl<'src> Scopes<'src> {
             }
         }
 
-        self.current().variables.insert(name, symbol);
+        self.current().constants.insert(name, symbol);
         Ok(())
     }
 

@@ -37,7 +37,7 @@ pub struct ParserState<'src> {
 pub struct GraphBuilder<'tokens, 'src, T: TokenStream<'src>> {
     tokens: &'tokens mut T,
     pub graph: Graph<'src>,
-    pub symbols: Scopes<'src>,
+    symbols: Scopes<'src>,
     // pub loops: Vec<LoopContext<'src>>,
     // pub reachable: bool,
     // pub last_jump: Option<Token<'src>>,
@@ -101,6 +101,20 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
         self.symbols
             .add_variable(decl, name, Symbol { type_, assignment })
+    }
+
+    pub fn declare_mutable(
+        &mut self,
+        decl: Span,
+        name: &'src str,
+
+        type_: NodeID<'src>,
+        value: Option<NodeID<'src>>,
+    ) -> GraphResult<'src, ()> {
+        let assignment = value.unwrap_or_else(|| self.graph.add_unitialized());
+
+        self.symbols
+            .add_mutable(decl, name, Symbol { type_, assignment })
     }
 
     pub fn declare_const(

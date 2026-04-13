@@ -63,7 +63,10 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                     let let_ = self.advance();
                     self.parse_let(let_)
                 }
-                Keyword::Var => todo!(),
+                Keyword::Var => {
+                    let var = self.advance();
+                    self.parse_var(var)
+                }
 
                 Keyword::If => todo!(),
                 Keyword::Loop => todo!(),
@@ -197,6 +200,27 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 self.declare_variable(let_.span - self.last_pos(), name, type_, Some(value))
             } else {
                 self.declare_variable(let_.span - self.last_pos(), name, type_, None)
+            }
+        }
+    }
+
+    fn parse_var(&mut self, var: Token<'src>) -> GraphResult<'src, ()> {
+        let name = self.expect_name()?;
+
+        if self.peek().kind == TokenKind::Equal {
+            // type inference
+            todo!()
+        } else {
+            // no type inference
+            let type_ = self.parse_expr(0)?;
+
+            if self.peek().kind == TokenKind::Equal {
+                self.advance();
+                let value = self.parse_expr(0)?;
+
+                self.declare_mutable(var.span - self.last_pos(), name, type_, Some(value))
+            } else {
+                self.declare_mutable(var.span - self.last_pos(), name, type_, None)
             }
         }
     }
