@@ -2,7 +2,7 @@ use super::files::*;
 use crate::{
     error::{CliError, Errors},
     format_time,
-    grapher::Graph,
+    grapher::{Graph, build_graph},
     tokenizing::Tokenizer,
     utilities::Rc,
 };
@@ -105,7 +105,7 @@ impl Task {
 
                 // lazy tokenizing
                 let mut tokenizer = Tokenizer::new(&content, parsing_errors.clone(), 64);
-                let graph = Graph::from_stream(&mut tokenizer);
+                let graph = build_graph(&mut tokenizer);
 
                 // Debug Print
                 let time = now.elapsed().as_nanos();

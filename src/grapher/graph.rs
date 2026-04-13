@@ -3,9 +3,8 @@ use std::collections::HashMap;
 use bumpalo::Bump;
 
 use crate::{
-    grapher::{GraphResult, parser::GraphBuilder},
     literals::Literal,
-    tokenizing::{TokenStream, binary_op::BinaryOp, unary_op::UnaryOp},
+    tokenizing::{binary_op::BinaryOp, unary_op::UnaryOp},
     types::AtomicType,
     utilities::{NoDealloc, Rc},
 };
@@ -140,12 +139,6 @@ impl<'src> Graph<'src> {
             node_cache: HashMap::new(),
             latest_mem: current_mem,
         }
-    }
-
-    pub fn from_stream<'tokens>(
-        tokens: &'tokens mut impl TokenStream<'src>,
-    ) -> GraphResult<'src, Graph<'src>> {
-        GraphBuilder::new(tokens).build()
     }
 
     fn push_node(&mut self, kind: NodeKind<'src>) -> NodeID<'src> {

@@ -1,5 +1,5 @@
 use crate::{
-    grapher::{Graph, GraphError, GraphResult, graph::NodeID, parser::GraphBuilder},
+    grapher::{GraphError, GraphResult, graph::NodeID, parser::GraphBuilder},
     tokenizing::{
         TokenStream,
         token::{Bracket, Keyword, Token, TokenKind},
@@ -7,11 +7,11 @@ use crate::{
 };
 
 impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
-    pub fn build(mut self) -> GraphResult<'src, Graph<'src>> {
+    pub fn parse_file(&mut self) -> GraphResult<'src, ()> {
         loop {
             let token = self.peek();
             if token.kind == TokenKind::Eof {
-                return Ok(self.graph);
+                return Ok(());
             }
 
             self.parse_statement()?;

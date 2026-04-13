@@ -56,6 +56,16 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
+    pub fn build(mut self) -> GraphResult<'src, Graph<'src>> {
+        self.parse_file()?;
+        Ok(self.graph)
+    }
+
+    pub fn debug_build(mut self) -> GraphResult<'src, (Graph<'src>, Scopes<'src>)> {
+        self.parse_file()?;
+        Ok((self.graph, self.symbols))
+    }
+
     pub fn advance(&mut self) -> Token<'src> {
         let tok = self.tokens.peek();
         self.tokens.consume();
@@ -166,7 +176,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     }*/
 
     pub fn read_variable(&mut self, name: Token<'src>) -> GraphResult<'src, NodeID<'src>> {
-        match self.symbols.get_symbol(&mut self.graph, name.src) {
+        match self.symbols.register_symbol(&mut self.graph, name.src) {
             Ok(symbol) => {
                 if symbol.assignment.kind == NodeKind::UnInitialized {
                     Err(GraphError::TriedToReadUnitialized { ident: name })

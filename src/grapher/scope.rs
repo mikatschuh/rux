@@ -54,7 +54,7 @@ impl<'src> Scopes<'src> {
         self.scopes.push(Scope::new());
     }
 
-    pub fn get_symbol(
+    pub fn register_symbol(
         &mut self,
         graph: &mut Graph<'src>,
         name: &'src str,
@@ -147,5 +147,51 @@ impl<'src> Scopes<'src> {
                 self.current().unknowns.insert(unknown.0, unknown.1);
             }
         }
+    }
+
+    pub fn symbol(&self, name: &'src str) -> Option<Symbol<'src>> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(symbol) = scope.variables.get(name) {
+                return Some(symbol.clone());
+            }
+            if let Some(symbol) = scope.mutables.get(name) {
+                return Some(symbol.clone());
+            }
+            if let Some(symbol) = scope.constants.get(name) {
+                return Some(symbol.clone());
+            }
+        }
+
+        None
+    }
+
+    pub fn variable(&self, name: &'src str) -> Option<Symbol<'src>> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(symbol) = scope.variables.get(name) {
+                return Some(symbol.clone());
+            }
+        }
+
+        None
+    }
+
+    pub fn mutable(&self, name: &'src str) -> Option<Symbol<'src>> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(symbol) = scope.mutables.get(name) {
+                return Some(symbol.clone());
+            }
+        }
+
+        None
+    }
+
+    pub fn constant(&self, name: &'src str) -> Option<Symbol<'src>> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(symbol) = scope.constants.get(name) {
+                return Some(symbol.clone());
+            }
+        }
+
+        None
     }
 }
