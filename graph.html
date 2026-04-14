@@ -3,7 +3,8 @@
     <head>
         <meta charset="utf-8" />
         <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/cytoscape-cose-bilkent/cytoscape-cose-bilkent.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/webcola/WebCola/cola.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/cytoscape-cola/cytoscape-cola.js"></script>
         <style>
             body {
                 margin: 0;
@@ -17,36 +18,38 @@
     </head>
     <body>
         <div id="cy"></div>
-        <script src="https://cdn.jsdelivr.net/npm/layout-base/layout-base.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/cose-base/cose-base.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/cytoscape-cose-bilkent/cytoscape-cose-bilkent.js"></script>
         <script>
-            cytoscape.use(cytoscapeCoseBilkent);
-
+            cytoscape.use(cytoscapeCola);
             const cy = cytoscape({
+                userZoomingEnabled: true,
+                userPanningEnabled: true,
                 container: document.getElementById("cy"),
-                elements: [{ data: { id: '0', label: 'b', group: 'variable' } },
-{ data: { id: '1', label: 'lit Literal { base: Decimal, digits: 100, num_digits_after_dot: 0, exponent: None, suffix: "" }', group: 'literal' } },
-{ data: { id: '2', label: 'c', group: 'variable' } },
-{ data: { id: '3', label: 'lit Literal { base: Decimal, digits: 10, num_digits_after_dot: 0, exponent: None, suffix: "" }', group: 'literal' } },
-{ data: { id: '4', label: 'lit Literal { base: Decimal, digits: 2, num_digits_after_dot: 0, exponent: None, suffix: "" }', group: 'literal' } },
-{ data: { id: '5', label: 'binary /', group: 'binary' } },
-{ data: { id: '6', label: 'binary +', group: 'binary' } },
-{ data: { id: '7', label: 'a', group: 'variable' } },
+                elements: [{ data: { id: '0', label: 'a', group: 'variable' } },
+{ data: { id: '1', label: 'lit Literal { base: Decimal, digits: 10, num_digits_after_dot: 0, exponent: None, suffix: "" }', group: 'literal' } },
+{ data: { id: '2', label: 'b', group: 'variable' } },
+{ data: { id: '3', label: 'lit Literal { base: Decimal, digits: 100, num_digits_after_dot: 0, exponent: None, suffix: "" }', group: 'literal' } },
+{ data: { id: '4', label: 'c', group: 'variable' } },
+{ data: { id: '5', label: 'lit Literal { base: Decimal, digits: 2, num_digits_after_dot: 0, exponent: None, suffix: "" }', group: 'literal' } },
+{ data: { id: '6', label: 'binary /', group: 'binary' } },
+{ data: { id: '7', label: 'binary +', group: 'binary' } },
 { data: { source: '0', target: '1', label: 'variable' } },
-{ data: { source: '5', target: '1', label: '1' } },
-{ data: { source: '5', target: '4', label: '2' } },
+{ data: { source: '2', target: '3', label: 'variable' } },
 { data: { source: '6', target: '3', label: '1' } },
 { data: { source: '6', target: '5', label: '2' } },
-{ data: { source: '2', target: '6', label: 'variable' } },
-{ data: { source: '7', target: '3', label: 'variable' } },
+{ data: { source: '7', target: '1', label: '1' } },
+{ data: { source: '7', target: '6', label: '2' } },
+{ data: { source: '4', target: '7', label: 'variable' } },
 ],
                 layout: {
-                    name: "cose-bilkent",
-                    animate: "end",
-                    nodeRepulsion: 2000,
-                    idealEdgeLength: 40,
-                    gravity: 0.1,
+                    name: "cola",
+                    animate: true,
+                    infinite: true,
+                    nodeSpacing: 40,
+                    edgeLength: 100,
+                    pull: 0.001,
+                    handleDisconnected: true,
+                    convergenceThreshold: 0.01,
+                    fit: false,
                 },
                 style: [
                     {
@@ -94,19 +97,31 @@
                     },
                 ],
             });
-
-            cy.zoom(2);
-            cy.center();
-
-            cy.on("dragfree", "node", () => {
-                cy.layout({
-                    name: "cose-bilkent",
-                    animate: true,
-                    randomize: false,
-                    nodeRepulsion: 2000,
-                    idealEdgeLength: 40,
-                }).run();
+            cy.one("layoutstop", () => {
+                cy.fit(undefined, 50);
+                cy.zoom(Math.min(cy.zoom(), 2));
             });
+
+            cy.on("grab", "node", () =>
+                cy.layout({ name: "cola", animate: false }).stop(),
+            );
+            cy.on("free", "node", () =>
+                cy
+                    .layout({
+                        name: "cola",
+                        animate: true,
+                        infinite: true,
+                        nodeSpacing: 40,
+                        edgeLength: 100,
+                        pull: 0.001,
+                        handleDisconnected: true,
+                        convergenceThreshold: 0.01,
+                        fit: false,
+                        refresh: 2,
+                        maxSimulationTime: 4000,
+                    })
+                    .run(),
+            );
         </script>
     </body>
 </html>

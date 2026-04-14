@@ -3,7 +3,8 @@
     <head>
         <meta charset="utf-8" />
         <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/cytoscape-cose-bilkent/cytoscape-cose-bilkent.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/webcola/WebCola/cola.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/cytoscape-cola/cytoscape-cola.js"></script>
         <style>
             body {
                 margin: 0;
@@ -17,21 +18,23 @@
     </head>
     <body>
         <div id="cy"></div>
-        <script src="https://cdn.jsdelivr.net/npm/layout-base/layout-base.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/cose-base/cose-base.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/cytoscape-cose-bilkent/cytoscape-cose-bilkent.js"></script>
         <script>
-            cytoscape.use(cytoscapeCoseBilkent);
-
+            cytoscape.use(cytoscapeCola);
             const cy = cytoscape({
+                userZoomingEnabled: true,
+                userPanningEnabled: true,
                 container: document.getElementById("cy"),
                 elements: [__ELEMENTS__],
                 layout: {
-                    name: "cose-bilkent",
-                    animate: "end",
-                    nodeRepulsion: 2000,
-                    idealEdgeLength: 40,
-                    gravity: 0.1,
+                    name: "cola",
+                    animate: true,
+                    infinite: true,
+                    nodeSpacing: 40,
+                    edgeLength: 100,
+                    pull: 0.001,
+                    handleDisconnected: true,
+                    convergenceThreshold: 0.01,
+                    fit: false,
                 },
                 style: [
                     {
@@ -79,19 +82,31 @@
                     },
                 ],
             });
-
-            cy.zoom(2);
-            cy.center();
-
-            cy.on("dragfree", "node", () => {
-                cy.layout({
-                    name: "cose-bilkent",
-                    animate: true,
-                    randomize: false,
-                    nodeRepulsion: 2000,
-                    idealEdgeLength: 40,
-                }).run();
+            cy.one("layoutstop", () => {
+                cy.fit(undefined, 50);
+                cy.zoom(Math.min(cy.zoom(), 2));
             });
+
+            cy.on("grab", "node", () =>
+                cy.layout({ name: "cola", animate: false }).stop(),
+            );
+            cy.on("free", "node", () =>
+                cy
+                    .layout({
+                        name: "cola",
+                        animate: true,
+                        infinite: true,
+                        nodeSpacing: 40,
+                        edgeLength: 100,
+                        pull: 0.001,
+                        handleDisconnected: true,
+                        convergenceThreshold: 0.01,
+                        fit: false,
+                        refresh: 2,
+                        maxSimulationTime: 4000,
+                    })
+                    .run(),
+            );
         </script>
     </body>
 </html>
