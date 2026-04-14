@@ -69,7 +69,7 @@ pub enum ValueKind<'src> {
     Quote {
         quote: String,
     },
-    PrimitiveType {
+    AtomicType {
         ty: AtomicType,
     },
     Unit,
@@ -249,7 +249,7 @@ impl<'src> Graph<'src> {
     }
 
     pub fn add_type(&mut self, type_: AtomicType) -> ValueID<'src> {
-        self.push_node(ValueKind::PrimitiveType { ty: type_ })
+        self.push_node(ValueKind::AtomicType { ty: type_ })
     }
 
     pub fn add_unitialized(&mut self) -> ValueID<'src> {
@@ -278,7 +278,7 @@ impl<'src> ValueKind<'src> {
             ValueKind::Quote { quote } => Some(ValueNodeKey::Quote {
                 quote: quote.clone(),
             }),
-            ValueKind::PrimitiveType { ty } => Some(ValueNodeKey::PrimitiveType { ty: *ty }),
+            ValueKind::AtomicType { ty } => Some(ValueNodeKey::PrimitiveType { ty: *ty }),
             ValueKind::Unit => Some(ValueNodeKey::Unit),
             ValueKind::Unary { op, input } => Some(ValueNodeKey::Unary {
                 op: *op,

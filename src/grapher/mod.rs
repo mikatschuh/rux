@@ -1,11 +1,12 @@
 use crate::{
     error::Span,
-    grapher::parser::GraphBuilder,
+    grapher::{parser::GraphBuilder, scope::Scopes},
     tokenizing::{TokenStream, token::Token},
 };
 use std::fmt::{self};
 
 mod graph;
+pub mod graph_dump;
 mod parser;
 mod scope;
 #[cfg(test)]
@@ -15,6 +16,12 @@ pub use graph::Graph;
 
 pub fn build_graph<'src>(tokens: &mut impl TokenStream<'src>) -> GraphResult<'src, Graph<'src>> {
     GraphBuilder::new(tokens).build()
+}
+
+pub fn build_debug_graph<'src>(
+    tokens: &mut impl TokenStream<'src>,
+) -> GraphResult<'src, (Graph<'src>, Scopes<'src>)> {
+    GraphBuilder::new(tokens).debug_build()
 }
 
 pub type GraphResult<'src, T> = Result<T, GraphError<'src>>;

@@ -183,6 +183,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
                     let value = self.parse_statement()?;
                     if self.peek().kind == TokenKind::Closed(Bracket::Curly) {
+                        self.symbols.close_scope();
                         return Ok(value);
                     }
                 }

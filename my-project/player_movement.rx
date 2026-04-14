@@ -1,0 +1,13 @@
+Camera :: .{
+    comp friction f32,
+    vel 2*f32_mps,
+    pos 2*f32_s,
+}
+
+tick :: proc(cam -> Camera, acc vec2, delta_time f32_s) {
+    cam.vel. += acc * delta_time
+
+    cam.vel. *= exp(EULER, -cam.friction * delta_time)
+
+    cam.pos. += vel * delta_time
+}

@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::{
+    collections::{HashMap, hash_map::IntoIter},
+    iter::Chain,
+};
 
 use crate::{
     error::Span,
@@ -12,7 +15,7 @@ pub struct Symbol<'src> {
 }
 
 #[derive(Debug)]
-struct Scope<'src> {
+pub struct Scope<'src> {
     variables: HashMap<&'src str, Symbol<'src>>,
     mutables: HashMap<&'src str, Symbol<'src>>,
 
@@ -209,4 +212,20 @@ impl<'src> Scopes<'src> {
 
         None
     }
+
+    pub fn all_symbols(mut self) -> SymbolDump<'src> {
+        let mut current = self.pop_scope();
+
+        SymbolDump {
+            constants: current.constants.drain().collect(),
+            variables: current.variables.drain().collect(),
+            mutables: current.mutables.drain().collect(),
+        }
+    }
+}
+
+pub struct SymbolDump<'src> {
+    pub constants: Vec<(&'src str, Symbol<'src>)>,
+    pub variables: Vec<(&'src str, Symbol<'src>)>,
+    pub mutables: Vec<(&'src str, Symbol<'src>)>,
 }

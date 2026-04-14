@@ -1,0 +1,113 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/cytoscape-cose-bilkent/cytoscape-cose-bilkent.js"></script>
+        <style>
+            body {
+                margin: 0;
+            }
+            #cy {
+                width: 100vw;
+                height: 100vh;
+                background: #1a1a2e;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="cy"></div>
+        <script src="https://cdn.jsdelivr.net/npm/layout-base/layout-base.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/cose-base/cose-base.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/cytoscape-cose-bilkent/cytoscape-cose-bilkent.js"></script>
+        <script>
+            cytoscape.use(cytoscapeCoseBilkent);
+
+            const cy = cytoscape({
+                container: document.getElementById("cy"),
+                elements: [{ data: { id: '0', label: 'b', group: 'variable' } },
+{ data: { id: '1', label: 'lit Literal { base: Decimal, digits: 100, num_digits_after_dot: 0, exponent: None, suffix: "" }', group: 'literal' } },
+{ data: { id: '2', label: 'c', group: 'variable' } },
+{ data: { id: '3', label: 'lit Literal { base: Decimal, digits: 10, num_digits_after_dot: 0, exponent: None, suffix: "" }', group: 'literal' } },
+{ data: { id: '4', label: 'lit Literal { base: Decimal, digits: 2, num_digits_after_dot: 0, exponent: None, suffix: "" }', group: 'literal' } },
+{ data: { id: '5', label: 'binary /', group: 'binary' } },
+{ data: { id: '6', label: 'binary +', group: 'binary' } },
+{ data: { id: '7', label: 'a', group: 'variable' } },
+{ data: { source: '0', target: '1', label: 'variable' } },
+{ data: { source: '5', target: '1', label: '1' } },
+{ data: { source: '5', target: '4', label: '2' } },
+{ data: { source: '6', target: '3', label: '1' } },
+{ data: { source: '6', target: '5', label: '2' } },
+{ data: { source: '2', target: '6', label: 'variable' } },
+{ data: { source: '7', target: '3', label: 'variable' } },
+],
+                layout: {
+                    name: "cose-bilkent",
+                    animate: "end",
+                    nodeRepulsion: 2000,
+                    idealEdgeLength: 40,
+                    gravity: 0.1,
+                },
+                style: [
+                    {
+                        selector: "node",
+                        style: {
+                            label: "data(label)",
+                            color: "#fff",
+                            "font-size": "12px",
+                            "text-valign": "center",
+                            "text-halign": "center",
+                            width: "label",
+                            height: "label",
+                            padding: "10px",
+                            shape: "roundrectangle",
+                            "background-color": "#6c63ff",
+                        },
+                    },
+                    {
+                        selector: 'node[group="binary"]',
+                        style: { "background-color": "#e17055" },
+                    },
+                    {
+                        selector: 'node[group="literal"]',
+                        style: { "background-color": "#00b894" },
+                    },
+                    {
+                        selector: 'node[group="variable"]',
+                        style: { "background-color": "#6c63ff" },
+                    },
+                    {
+                        selector: "edge",
+                        style: {
+                            width: 2,
+                            "line-color": "#a29bfe",
+                            "target-arrow-color": "#a29bfe",
+                            "target-arrow-shape": "triangle",
+                            "curve-style": "bezier",
+                            label: "data(label)",
+                            color: "#ccc",
+                            "font-size": "10px",
+                            "text-background-color": "#1a1a2e",
+                            "text-background-opacity": 1,
+                            "text-background-padding": "3px",
+                        },
+                    },
+                ],
+            });
+
+            cy.zoom(2);
+            cy.center();
+
+            cy.on("dragfree", "node", () => {
+                cy.layout({
+                    name: "cose-bilkent",
+                    animate: true,
+                    randomize: false,
+                    nodeRepulsion: 2000,
+                    idealEdgeLength: 40,
+                }).run();
+            });
+        </script>
+    </body>
+</html>
+

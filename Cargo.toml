@@ -9,7 +9,7 @@ colored = "2.0"
 num_cpus = "1.15"
 crossbeam = "0.8.4"
 num = "*"
-arrayvec = "*"
+petgraph = "*"
 bumpalo = { version = "*", features = ["boxed"] }
 
 # Enable a small amount of optimization in the dev profile.

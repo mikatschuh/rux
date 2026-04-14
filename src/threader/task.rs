@@ -2,7 +2,7 @@ use super::files::*;
 use crate::{
     error::{CliError, Errors},
     format_time,
-    grapher::{Graph, build_graph},
+    grapher::{Graph, build_debug_graph, build_graph},
     tokenizing::Tokenizer,
     utilities::Rc,
 };
@@ -105,17 +105,12 @@ impl Task {
 
                 // lazy tokenizing
                 let mut tokenizer = Tokenizer::new(&content, parsing_errors.clone(), 64);
-                let graph = build_graph(&mut tokenizer);
+                let (graph, scope) = build_debug_graph(&mut tokenizer).expect("graph");
 
                 // Debug Print
                 let time = now.elapsed().as_nanos();
 
-                println!(
-                    "\n\n{}",
-                    // graph.map_or_else(|err| err.to_string(), |graph| graph.dump_text()),
-                    *parsing_errors
-                );
-                println!("\n\n{}", format_time(time));
+                println!("{}", graph.dump_text(scope));
             }
         }
         Ok(())

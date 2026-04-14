@@ -1,0 +1,3 @@
+let a i32 = 10
+let b i32 = 100
+let c i32 = a + b / 2

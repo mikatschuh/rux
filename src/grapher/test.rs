@@ -429,7 +429,7 @@ fn expect_literal(node: &ValueID<'_>, literal: Literal<'_>) {
 
 fn expect_primitive_type(node: &ValueID<'_>, requested_type: AtomicType) {
     match &node.kind {
-        ValueKind::PrimitiveType { ty } => {
+        ValueKind::AtomicType { ty } => {
             assert_eq!(*ty, requested_type)
         }
         other => panic!("expected primitive type {requested_type:?}, got {other:?}"),

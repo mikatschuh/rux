@@ -1,294 +1,158 @@
-use std::collections::{HashMap, HashSet};
-use std::fmt::Write;
+use std::collections::HashMap;
 
-use crate::grapher::graph::Graph;
+use petgraph::{graph::NodeIndex, visit::EdgeRef};
+
+use crate::grapher::{
+    Graph,
+    graph::{MemID, ValueID, ValueKind},
+    scope::{Scopes, SymbolDump},
+};
+
+type GraphDump = petgraph::Graph<String, &'static str>;
+type VisitedValueNodes<'src> = HashMap<ValueID<'src>, NodeIndex>;
+type VisitedMemoryNodes<'src> = HashMap<MemID<'src>, NodeIndex>;
 
 impl<'src> Graph<'src> {
-    pub fn dump_text(&self) -> String {
-        let mut visited_nodes = HashSet::new();
-        let mut visited_mem = HashSet::new();
-        let mut nodes = HashMap::new();
-        let mut mem = HashMap::new();
+    pub fn dump_text(&self, scope: Scopes<'src>) -> String {
+        let mut visited_value_nodes: VisitedValueNodes<'src> = HashMap::new();
+        let mut visited_memory_nodes: VisitedMemoryNodes<'src> = HashMap::new();
 
-        let mut symbol_names: Vec<_> = self.symbols.keys().copied().collect();
-        symbol_names.sort_unstable();
+        let mut graph: GraphDump = petgraph::Graph::new();
 
-        for name in &symbol_names {
-            if let Some(symbol) = self.symbols.get(name) {
-                self.collect_node_dump(
-                    &symbol.ty,
-                    &mut visited_nodes,
-                    &mut visited_mem,
-                    &mut nodes,
-                    &mut mem,
-                );
-                self.collect_node_dump(
-                    &symbol.assignment,
-                    &mut visited_nodes,
-                    &mut visited_mem,
-                    &mut nodes,
-                    &mut mem,
-                );
-            }
+        let SymbolDump {
+            constants,
+            variables,
+            mutables,
+        } = scope.all_symbols();
+
+        for (name, symbol) in constants {
+            let name = graph.add_node(name.to_string());
+            let value = process_value_node(
+                &mut graph,
+                &mut visited_value_nodes,
+                &mut visited_memory_nodes,
+                symbol.assignment,
+            );
+            graph.add_edge(name, value, "constants");
+        }
+        for (name, symbol) in variables {
+            let name = graph.add_node(name.to_string());
+            let value = process_value_node(
+                &mut graph,
+                &mut visited_value_nodes,
+                &mut visited_memory_nodes,
+                symbol.assignment,
+            );
+            graph.add_edge(name, value, "variable");
+        }
+        for (name, symbol) in mutables {
+            let name = graph.add_node(name.to_string());
+            let value = process_value_node(
+                &mut graph,
+                &mut visited_value_nodes,
+                &mut visited_memory_nodes,
+                symbol.assignment,
+            );
+            graph.add_edge(name, value, "mutables");
         }
 
-        self.collect_mem_dump(
-            &self.current_mem,
-            &mut visited_nodes,
-            &mut visited_mem,
-            &mut nodes,
-            &mut mem,
+        dump_cytoscape(&graph)
+    }
+}
+
+pub fn process_value_node<'src>(
+    graph: &mut GraphDump,
+
+    visited_value_nodes: &mut VisitedValueNodes<'src>,
+    visited_memory_nodes: &mut VisitedMemoryNodes<'src>,
+    node: ValueID<'src>,
+) -> NodeIndex {
+    if let Some(idx) = visited_value_nodes.get(&node) {
+        return *idx;
+    }
+    use ValueKind::*;
+    let idx = match node.kind.clone() {
+        Literal { literal } => graph.add_node(format!("lit {:?}", literal)),
+        Quote { quote } => graph.add_node(format!("quote {:?}", quote)),
+        AtomicType { ty } => graph.add_node(format!("atomic-type {:?}", ty)),
+        Unit => graph.add_node(format!("unit")),
+
+        Unary { op, input } => {
+            let input = process_value_node(graph, visited_value_nodes, visited_memory_nodes, input);
+            let op = graph.add_node(format!("unary {}", op));
+            graph.add_edge(op, input, "1");
+            op
+        }
+        Binary { op, lhs, rhs } => {
+            let lhs = process_value_node(graph, visited_value_nodes, visited_memory_nodes, lhs);
+            let rhs = process_value_node(graph, visited_value_nodes, visited_memory_nodes, rhs);
+            let op = graph.add_node(format!("binary {}", op));
+            graph.add_edge(op, lhs, "1");
+            graph.add_edge(op, rhs, "2");
+            op
+        }
+        Load { mem, addr } => todo!(),
+
+        UnInitialized => graph.add_node(format!("unitialized")),
+
+        Phi {
+            condition,
+            when_true,
+            when_false,
+        } => {
+            let condition =
+                process_value_node(graph, visited_value_nodes, visited_memory_nodes, condition);
+            let when_true =
+                process_value_node(graph, visited_value_nodes, visited_memory_nodes, when_true);
+            let when_false =
+                process_value_node(graph, visited_value_nodes, visited_memory_nodes, when_false);
+            let phi = graph.add_node(format!("phi"));
+            graph.add_edge(phi, condition, "condition");
+            graph.add_edge(phi, when_true, "when true");
+            graph.add_edge(phi, when_false, "when false");
+            phi
+        }
+
+        Unknown => graph.add_node(format!("unknown")),
+    };
+    visited_value_nodes.insert(node, idx);
+    idx
+}
+
+fn dump_cytoscape(g: &GraphDump) -> String {
+    let elements = build_elements(g);
+    let template = include_str!("graph_template.html");
+    template.replace("__ELEMENTS__", &elements)
+}
+
+fn build_elements(g: &GraphDump) -> String {
+    let mut out = String::new();
+
+    for idx in g.node_indices() {
+        let label = g[idx].replace('\'', "\\'");
+        let group = if label.starts_with("binary") {
+            "binary"
+        } else if label.starts_with("lit") {
+            "literal"
+        } else {
+            "variable"
+        };
+        out += &format!(
+            "{{ data: {{ id: '{}', label: '{}', group: '{}' }} }},\n",
+            idx.index(),
+            label,
+            group
         );
-
-        let node_indices = Self::make_indices(nodes.keys().copied().collect());
-        let mem_indices = Self::make_indices(mem.keys().copied().collect());
-
-        let mut out = String::new();
-        writeln!(&mut out, "GraphDump {{").expect("write String");
-        writeln!(&mut out, "  symbols:").expect("write String");
-        for name in symbol_names {
-            let symbol = self.symbols.get(name).expect("symbol exists");
-            writeln!(
-                &mut out,
-                "    {}: ty=n{} value=n{}",
-                name,
-                node_indices[&Self::node_ptr_id(&symbol.ty)],
-                node_indices[&Self::node_ptr_id(&symbol.assignment)]
-            )
-            .expect("write String");
-        }
-        writeln!(
-            &mut out,
-            "  current_mem: m{}",
-            mem_indices[&Self::mem_ptr_id(&self.current_mem)]
-        )
-        .expect("write String");
-
-        let mut node_ids: Vec<_> = nodes.keys().copied().collect();
-        node_ids.sort_unstable();
-        writeln!(&mut out, "  nodes:").expect("write String");
-        for ptr_id in node_ids {
-            let node = nodes.get(&ptr_id).expect("node exists");
-            writeln!(
-                &mut out,
-                "    n{} = {}",
-                node_indices[&ptr_id],
-                self.format_node_dump(node, &node_indices, &mem_indices)
-            )
-            .expect("write String");
-        }
-
-        let mut mem_ids: Vec<_> = mem.keys().copied().collect();
-        mem_ids.sort_unstable();
-        writeln!(&mut out, "  memory:").expect("write String");
-        for ptr_id in mem_ids {
-            let mem_node = mem.get(&ptr_id).expect("mem exists");
-            writeln!(
-                &mut out,
-                "    m{} = {}",
-                mem_indices[&ptr_id],
-                self.format_mem_dump(mem_node, &node_indices, &mem_indices)
-            )
-            .expect("write String");
-        }
-        writeln!(&mut out, "}}").expect("write String");
-
-        out
     }
 
-    fn make_indices(mut ptr_ids: Vec<usize>) -> HashMap<usize, usize> {
-        ptr_ids.sort_unstable();
-        ptr_ids
-            .into_iter()
-            .enumerate()
-            .map(|(index, ptr_id)| (ptr_id, index))
-            .collect()
+    for edge in g.edge_references() {
+        out += &format!(
+            "{{ data: {{ source: '{}', target: '{}', label: '{}' }} }},\n",
+            edge.source().index(),
+            edge.target().index(),
+            edge.weight().replace('\'', "\\'")
+        );
     }
 
-    fn collect_node_dump(
-        &self,
-        node: &NodeID<'src>,
-        visited_nodes: &mut HashSet<usize>,
-        visited_mem: &mut HashSet<usize>,
-        nodes: &mut HashMap<usize, NodeID<'src>>,
-        mem: &mut HashMap<usize, MemNodeID<'src>>,
-    ) {
-        let node_id = Self::node_ptr_id(node);
-        if !visited_nodes.insert(node_id) {
-            return;
-        }
-
-        nodes.insert(node_id, node.clone());
-
-        match &node.kind {
-            NodeKind::Literal { .. }
-            | NodeKind::Quote { .. }
-            | NodeKind::PrimitiveType { .. }
-            | NodeKind::UnInitialized
-            | NodeKind::UnknownIdent { .. } => {}
-            NodeKind::Unary { input, .. } => {
-                self.collect_node_dump(input, visited_nodes, visited_mem, nodes, mem);
-            }
-            NodeKind::Binary { lhs, rhs, .. } => {
-                self.collect_node_dump(lhs, visited_nodes, visited_mem, nodes, mem);
-                self.collect_node_dump(rhs, visited_nodes, visited_mem, nodes, mem);
-            }
-            NodeKind::Load {
-                mem: load_mem,
-                addr,
-            } => {
-                self.collect_mem_dump(load_mem, visited_nodes, visited_mem, nodes, mem);
-                self.collect_node_dump(addr, visited_nodes, visited_mem, nodes, mem);
-            }
-            NodeKind::Phi {
-                condition,
-                when_true,
-                when_false,
-            } => {
-                self.collect_node_dump(condition, visited_nodes, visited_mem, nodes, mem);
-                self.collect_node_dump(when_true, visited_nodes, visited_mem, nodes, mem);
-                self.collect_node_dump(when_false, visited_nodes, visited_mem, nodes, mem);
-            }
-        }
-    }
-
-    fn collect_mem_dump(
-        &self,
-        mem_node: &MemNodeID<'src>,
-        visited_nodes: &mut HashSet<usize>,
-        visited_mem: &mut HashSet<usize>,
-        nodes: &mut HashMap<usize, NodeID<'src>>,
-        mem: &mut HashMap<usize, MemNodeID<'src>>,
-    ) {
-        let mem_id = Self::mem_ptr_id(mem_node);
-        if !visited_mem.insert(mem_id) {
-            return;
-        }
-
-        mem.insert(mem_id, mem_node.clone());
-
-        match &mem_node.kind {
-            MemNodeKind::ControlFlowStart => {}
-            MemNodeKind::LoopHead {
-                condition,
-                entry,
-                backedge,
-            } => {
-                self.collect_node_dump(condition, visited_nodes, visited_mem, nodes, mem);
-                self.collect_mem_dump(entry, visited_nodes, visited_mem, nodes, mem);
-                self.collect_mem_dump(backedge, visited_nodes, visited_mem, nodes, mem);
-            }
-            MemNodeKind::StepClause { prev } => {
-                self.collect_mem_dump(prev, visited_nodes, visited_mem, nodes, mem);
-            }
-            MemNodeKind::Merge {
-                condition,
-                when_true,
-                when_false,
-            } => {
-                self.collect_node_dump(condition, visited_nodes, visited_mem, nodes, mem);
-                self.collect_mem_dump(when_true, visited_nodes, visited_mem, nodes, mem);
-                self.collect_mem_dump(when_false, visited_nodes, visited_mem, nodes, mem);
-            }
-            MemNodeKind::Store { prev, addr, val } => {
-                self.collect_mem_dump(prev, visited_nodes, visited_mem, nodes, mem);
-                self.collect_node_dump(addr, visited_nodes, visited_mem, nodes, mem);
-                self.collect_node_dump(val, visited_nodes, visited_mem, nodes, mem);
-            }
-        }
-    }
-
-    fn format_node_dump(
-        &self,
-        node: &NodeID<'src>,
-        node_indices: &HashMap<usize, usize>,
-        mem_indices: &HashMap<usize, usize>,
-    ) -> String {
-        match &node.kind {
-            NodeKind::Literal { literal } => format!("Literal({literal:?})"),
-            NodeKind::Quote { quote } => format!("Quote({quote:?})"),
-            NodeKind::PrimitiveType { ty } => format!("PrimitiveType({ty:?})"),
-            NodeKind::Unary { op, input } => {
-                format!(
-                    "Unary({op:?}, n{})",
-                    node_indices[&Self::node_ptr_id(input)]
-                )
-            }
-            NodeKind::Binary { op, lhs, rhs } => {
-                format!(
-                    "Binary({op:?}, lhs=n{}, rhs=n{})",
-                    node_indices[&Self::node_ptr_id(lhs)],
-                    node_indices[&Self::node_ptr_id(rhs)]
-                )
-            }
-            NodeKind::Load { mem, addr } => {
-                format!(
-                    "Load(mem=m{}, addr=n{})",
-                    mem_indices[&Self::mem_ptr_id(mem)],
-                    node_indices[&Self::node_ptr_id(addr)]
-                )
-            }
-            NodeKind::UnInitialized => "UnInitialized".to_string(),
-            NodeKind::Phi {
-                condition,
-                when_true,
-                when_false,
-            } => {
-                format!(
-                    "Phi(cond=n{}, true=n{}, false=n{})",
-                    node_indices[&Self::node_ptr_id(condition)],
-                    node_indices[&Self::node_ptr_id(when_true)],
-                    node_indices[&Self::node_ptr_id(when_false)]
-                )
-            }
-            NodeKind::UnknownIdent { name } => format!("UnknownIdent({name})"),
-        }
-    }
-
-    fn format_mem_dump(
-        &self,
-        mem_node: &MemNodeID<'src>,
-        node_indices: &HashMap<usize, usize>,
-        mem_indices: &HashMap<usize, usize>,
-    ) -> String {
-        match &mem_node.kind {
-            MemNodeKind::ControlFlowStart => "ControlFlowStart".to_string(),
-            MemNodeKind::LoopHead {
-                condition,
-                entry,
-                backedge,
-            } => {
-                let backedge_text = format!("m{}", mem_indices[&Self::mem_ptr_id(backedge)]);
-                format!(
-                    "LoopHead(condition=n{}, entry=m{}, backedge={})",
-                    node_indices[&Self::node_ptr_id(condition)],
-                    mem_indices[&Self::mem_ptr_id(entry)],
-                    backedge_text
-                )
-            }
-            MemNodeKind::StepClause { prev } => {
-                format!("StepClause(prev=m{})", mem_indices[&Self::mem_ptr_id(prev)])
-            }
-            MemNodeKind::Merge {
-                condition,
-                when_true,
-                when_false,
-            } => {
-                format!(
-                    "Merge(condition=n{}, a=m{}, b=m{})",
-                    node_indices[&Self::node_ptr_id(condition)],
-                    mem_indices[&Self::mem_ptr_id(when_true)],
-                    mem_indices[&Self::mem_ptr_id(when_false)]
-                )
-            }
-            MemNodeKind::Store { prev, addr, val } => {
-                format!(
-                    "Store(prev=m{}, addr=n{}, val=n{})",
-                    mem_indices[&Self::mem_ptr_id(prev)],
-                    node_indices[&Self::node_ptr_id(addr)],
-                    node_indices[&Self::node_ptr_id(val)]
-                )
-            }
-        }
-    }
+    out
 }

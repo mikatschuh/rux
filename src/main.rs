@@ -55,9 +55,9 @@ fn main() {
                     threadpool.launch(None);
                     threadpool.drop()
                 })() {
-                    println!("{e}");
+                    // println!("{e}");
                 } else if !parsed.mute {
-                    print_time(now.elapsed().as_nanos(), "compiling", "no optimizations");
+                    // print_time(now.elapsed().as_nanos(), "compiling", "no optimizations");
                 }
             }
             None => println!("{}", *ABOUT),
