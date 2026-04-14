@@ -55,8 +55,9 @@ pub enum GraphError<'src> {
         decl: Span,
     },
 
-    AssignmentToUnknownIdent {
-        ident: Token<'src>,
+    AssignmentToUnknownVar {
+        name: &'src str,
+        span: Span,
     },
     AssignmentToImmutableIdent {
         ident: Token<'src>,
@@ -107,10 +108,10 @@ impl fmt::Display for GraphError<'_> {
                 write!(f, "const {name} conflicting with const at {:?}", decl)
             }
 
-            AssignmentToUnknownIdent { ident } => write!(
+            AssignmentToUnknownVar { name, span } => write!(
                 f,
                 "assignment to unknown identifier '{}' at {:?}",
-                ident.src, ident.span
+                name, span
             ),
             AssignmentToImmutableIdent { ident } => write!(
                 f,

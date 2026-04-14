@@ -1,5 +1,5 @@
 use crate::{
-    grapher::{GraphError, GraphResult, graph::ValID, parser::GraphBuilder},
+    grapher::{GraphError, GraphResult, graph::ValueID, parser::GraphBuilder},
     tokenizing::{
         TokenStream,
         token::{Bracket, Keyword, Token, TokenKind},
@@ -35,16 +35,17 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_statement(&mut self) -> GraphResult<'src, ()> {
+    fn parse_statement(&mut self) -> GraphResult<'src, ValueID<'src>> {
         match self.peek().kind {
-            TokenKind::Eof => return Ok(()),
+            TokenKind::Eof => return Ok(self.graph.add_unit()),
             TokenKind::Semicolon => {
                 self.advance();
-                Ok(())
+                Ok(self.graph.add_unit())
             }
             TokenKind::Name => {
                 let name = self.advance().src;
-                self.parse_pattern_name(name)
+                self.parse_pattern_name(name)?;
+                Ok(self.graph.add_unit())
             }
             TokenKind::Open(Bracket::Curly) => {
                 self.advance();
@@ -53,7 +54,8 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             TokenKind::Keyword(keyword) => match keyword {
                 Keyword::Const => {
                     let const_ = self.advance();
-                    self.parse_const(const_)
+                    self.parse_const(const_)?;
+                    Ok(self.graph.add_unit())
                 }
                 Keyword::Fn => todo!(),
                 Keyword::Enum => todo!(),
@@ -61,11 +63,13 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
                 Keyword::Let => {
                     let let_ = self.advance();
-                    self.parse_let(let_)
+                    self.parse_let(let_)?;
+                    Ok(self.graph.add_unit())
                 }
                 Keyword::Var => {
                     let var = self.advance();
-                    self.parse_var(var)
+                    self.parse_var(var)?;
+                    Ok(self.graph.add_unit())
                 }
 
                 Keyword::If => todo!(),
@@ -80,12 +84,12 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_expr(&mut self, min_bp: u8) -> GraphResult<'src, ValID<'src>> {
+    fn parse_expr(&mut self, min_bp: u8) -> GraphResult<'src, ValueID<'src>> {
         let lhs = self.parse_primary()?;
         self.parse_expr_tail(lhs, min_bp)
     }
 
-    fn parse_primary(&mut self) -> GraphResult<'src, ValID<'src>> {
+    fn parse_primary(&mut self) -> GraphResult<'src, ValueID<'src>> {
         match self.peek().kind {
             TokenKind::Literal => {
                 let literal = self.get_literal();
@@ -135,9 +139,9 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
     fn parse_expr_tail(
         &mut self,
-        mut lhs: ValID<'src>,
+        mut lhs: ValueID<'src>,
         min_bp: u8,
-    ) -> GraphResult<'src, ValID<'src>> {
+    ) -> GraphResult<'src, ValueID<'src>> {
         loop {
             if self.peek().binding_pow() < min_bp {
                 return Ok(lhs);
@@ -157,14 +161,14 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_block(&mut self) -> GraphResult<'src, ()> {
+    fn parse_block(&mut self) -> GraphResult<'src, ValueID<'src>> {
         self.symbols.open_scope();
         loop {
             match self.peek().kind {
                 TokenKind::Closed(Bracket::Curly) => {
                     self.advance();
                     self.symbols.close_scope();
-                    return Ok(());
+                    return Ok(self.graph.add_unit());
                 }
                 _ => {
                     /*
@@ -177,7 +181,10 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                         });
                     }*/
 
-                    self.parse_statement()?;
+                    let value = self.parse_statement()?;
+                    if self.peek().kind == TokenKind::Closed(Bracket::Curly) {
+                        return Ok(value);
+                    }
                 }
             }
         }
@@ -250,7 +257,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         if self.peek().kind == TokenKind::Equal {
             self.advance();
             let value = self.parse_expr(0)?;
-            todo!();
+            todo!()
             // self.assign_variable(name, value)?;
         }
         Ok(())

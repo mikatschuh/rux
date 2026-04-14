@@ -4,7 +4,7 @@ use crate::{
     error::{Position, Span},
     grapher::{
         Graph, GraphError, GraphResult,
-        graph::{MemID, ValID, ValKind},
+        graph::{MemID, ValueID, ValueKind},
         scope::{Scopes, Symbol},
     },
     literals::Literal,
@@ -104,8 +104,8 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         &mut self,
         decl: Span,
         name: &'src str,
-        type_: ValID<'src>,
-        value: Option<ValID<'src>>,
+        type_: ValueID<'src>,
+        value: Option<ValueID<'src>>,
     ) -> GraphResult<'src, ()> {
         let assignment = value.unwrap_or_else(|| self.graph.add_unitialized());
 
@@ -118,8 +118,8 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         decl: Span,
         name: &'src str,
 
-        type_: ValID<'src>,
-        value: Option<ValID<'src>>,
+        type_: ValueID<'src>,
+        value: Option<ValueID<'src>>,
     ) -> GraphResult<'src, ()> {
         let assignment = value.unwrap_or_else(|| self.graph.add_unitialized());
 
@@ -131,8 +131,8 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         &mut self,
         decl: Span,
         name: &'src str,
-        type_: ValID<'src>,
-        value: ValID<'src>,
+        type_: ValueID<'src>,
+        value: ValueID<'src>,
     ) -> GraphResult<'src, ()> {
         self.symbols.add_constant(
             decl,
@@ -148,21 +148,21 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     pub fn assign_variable(
         &mut self,
         name: Token<'src>,
-        value: NodeID<'src>,
+        value: ValID<'src>,
     ) -> GraphResult<'src, ()> {
-        let Some(existing) = self.symbols.get(name.src) else {
-            return Err(GraphError::AssignmentToUnknownIdent { ident: name });
+        let Some(existing) = self.symbols.mutable(name.src) else {
+            return Err(GraphError::AssignmentToUnknownVar { ident: name });
         };
         let existing_assignment = existing.assignment.clone();
 
-        if existing_assignment.kind == NodeKind::UnInitialized {
+        if existing_assignment.kind == ValKind::UnInitialized {
             if let Some(symbol) = self.symbols.get_mut(name.src) {
                 symbol.assignment = value;
             }
             return Ok(());
         }
 
-        let NodeKind::Unary {
+        let ValKind::Unary {
             op: UnaryOp::Ptr,
             input,
         } = &existing_assignment.kind
@@ -175,12 +175,12 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         Ok(())
     }*/
 
-    pub fn read_variable(&mut self, name: Token<'src>) -> GraphResult<'src, ValID<'src>> {
+    pub fn read_variable(&mut self, name: Token<'src>) -> GraphResult<'src, ValueID<'src>> {
         match self.symbols.register_symbol(&mut self.graph, name.src) {
             Ok(symbol) => {
-                if symbol.assignment.kind == ValKind::UnInitialized {
+                if symbol.assignment.kind == ValueKind::UnInitialized {
                     Err(GraphError::TriedToReadUnitialized { ident: name })
-                } else if let ValKind::Unary {
+                } else if let ValueKind::Unary {
                     op: UnaryOp::Ptr,
                     input,
                 } = &symbol.assignment.kind

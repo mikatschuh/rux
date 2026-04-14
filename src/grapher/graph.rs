@@ -9,13 +9,13 @@ use crate::{
     utilities::{NoDealloc, Rc},
 };
 
-pub type ValID<'src> = Rc<ValNode<'src>, NoDealloc>;
+pub type ValueID<'src> = Rc<ValueNode<'src>, NoDealloc>;
 pub type MemID<'src> = Rc<MemNode<'src>, NoDealloc>;
 pub type BranchID<'src> = Rc<Branch<'src>, NoDealloc>;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct ValNode<'src> {
-    pub kind: ValKind<'src>,
+pub struct ValueNode<'src> {
+    pub kind: ValueKind<'src>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -26,7 +26,7 @@ pub struct MemNode<'src> {
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Branch<'src> {
     ctrl: MemKind<'src>,
-    condition: ValID<'src>,
+    condition: ValueID<'src>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -40,7 +40,7 @@ pub enum MemKind<'src> {
     },
     LoopHead {
         ctrl: MemID<'src>,
-        condition: ValID<'src>,
+        condition: ValueID<'src>,
         backedge: MemID<'src>,
     },
     StepClause {
@@ -56,13 +56,13 @@ pub enum MemKind<'src> {
     Store {
         mem: MemID<'src>,
 
-        addr: ValID<'src>,
-        val: ValID<'src>,
+        addr: ValueID<'src>,
+        val: ValueID<'src>,
     },
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub enum ValKind<'src> {
+pub enum ValueKind<'src> {
     Literal {
         literal: Literal<'src>,
     },
@@ -72,34 +72,35 @@ pub enum ValKind<'src> {
     PrimitiveType {
         ty: AtomicType,
     },
+    Unit,
 
     Unary {
         op: UnaryOp,
-        input: ValID<'src>,
+        input: ValueID<'src>,
     },
     Binary {
         op: BinaryOp,
-        lhs: ValID<'src>,
-        rhs: ValID<'src>,
+        lhs: ValueID<'src>,
+        rhs: ValueID<'src>,
     },
     Load {
         mem: MemID<'src>,
-        addr: ValID<'src>,
+        addr: ValueID<'src>,
     },
 
     UnInitialized,
 
     Phi {
-        condition: ValID<'src>,
-        when_true: ValID<'src>,
-        when_false: ValID<'src>,
+        condition: ValueID<'src>,
+        when_true: ValueID<'src>,
+        when_false: ValueID<'src>,
     },
 
     Unknown,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-enum NodeKey<'src> {
+enum ValueNodeKey<'src> {
     Literal {
         literal: Literal<'src>,
     },
@@ -109,6 +110,7 @@ enum NodeKey<'src> {
     PrimitiveType {
         ty: AtomicType,
     },
+    Unit,
     Unary {
         op: UnaryOp,
         input: usize,
@@ -133,7 +135,7 @@ enum NodeKey<'src> {
 #[derive(Debug)]
 pub struct Graph<'src> {
     arena: Bump,
-    node_cache: HashMap<NodeKey<'src>, ValID<'src>>,
+    node_cache: HashMap<ValueNodeKey<'src>, ValueID<'src>>,
     pub current_mem: MemID<'src>,
 }
 impl<'src> Graph<'src> {
@@ -152,7 +154,7 @@ impl<'src> Graph<'src> {
         }
     }
 
-    fn push_node(&mut self, kind: ValKind<'src>) -> ValID<'src> {
+    fn push_node(&mut self, kind: ValueKind<'src>) -> ValueID<'src> {
         let key = kind.node_key();
         if let Some(ref key) = key {
             if let Some(existing) = self.node_cache.get(key) {
@@ -160,16 +162,16 @@ impl<'src> Graph<'src> {
             }
         }
 
-        let node: ValNode<'src> = ValNode { kind };
-        let node_id = Rc::<ValNode<'src>, NoDealloc>::new_in_bump(node, &self.arena);
+        let node: ValueNode<'src> = ValueNode { kind };
+        let node_id = Rc::<ValueNode<'src>, NoDealloc>::new_in_bump(node, &self.arena);
         if let Some(key) = key {
             self.node_cache.insert(key, node_id.clone());
         }
         node_id
     }
 
-    fn push_node_no_dedup(&mut self, kind: ValKind<'src>) -> ValID<'src> {
-        Rc::<ValNode<'src>, NoDealloc>::new_in_bump(ValNode { kind }, &self.arena)
+    fn push_node_no_dedup(&mut self, kind: ValueKind<'src>) -> ValueID<'src> {
+        Rc::<ValueNode<'src>, NoDealloc>::new_in_bump(ValueNode { kind }, &self.arena)
     }
 
     fn push_mem_node(&mut self, kind: MemKind<'src>) -> MemID<'src> {
@@ -181,7 +183,7 @@ impl<'src> Graph<'src> {
         self.push_mem_node(MemKind::Merge { branch })
     }
 
-    pub fn add_loop_head(&mut self, condition: ValID<'src>, ctrl: MemID<'src>) -> MemID<'src> {
+    pub fn add_loop_head(&mut self, condition: ValueID<'src>, ctrl: MemID<'src>) -> MemID<'src> {
         self.push_mem_node(MemKind::LoopHead {
             condition,
             ctrl,
@@ -197,7 +199,7 @@ impl<'src> Graph<'src> {
         self.push_mem_node(MemKind::PlaceHolder { ctrl })
     }
 
-    pub fn add_store(&mut self, addr: ValID<'src>, val: ValID<'src>) -> MemID<'src> {
+    pub fn add_store(&mut self, addr: ValueID<'src>, val: ValueID<'src>) -> MemID<'src> {
         self.push_mem_node(MemKind::Store {
             mem: self.latest_mem(),
             addr,
@@ -205,52 +207,61 @@ impl<'src> Graph<'src> {
         })
     }
 
-    pub fn add_load(&mut self, addr: ValID<'src>) -> ValID<'src> {
-        self.push_node(ValKind::Load {
+    pub fn add_load(&mut self, addr: ValueID<'src>) -> ValueID<'src> {
+        self.push_node(ValueKind::Load {
             mem: self.latest_mem(),
             addr,
         })
     }
 
-    pub fn add_literal(&mut self, literal: Literal<'src>) -> ValID<'src> {
-        self.push_node(ValKind::Literal { literal })
+    pub fn add_literal(&mut self, literal: Literal<'src>) -> ValueID<'src> {
+        self.push_node(ValueKind::Literal { literal })
     }
 
-    pub fn add_unary(&mut self, op: UnaryOp, input: ValID<'src>) -> ValID<'src> {
-        self.push_node(ValKind::Unary { op, input })
+    pub fn add_unary(&mut self, op: UnaryOp, input: ValueID<'src>) -> ValueID<'src> {
+        self.push_node(ValueKind::Unary { op, input })
     }
 
-    pub fn add_binary(&mut self, op: BinaryOp, lhs: ValID<'src>, rhs: ValID<'src>) -> ValID<'src> {
-        self.push_node(ValKind::Binary { op, lhs, rhs })
+    pub fn add_binary(
+        &mut self,
+        op: BinaryOp,
+        lhs: ValueID<'src>,
+        rhs: ValueID<'src>,
+    ) -> ValueID<'src> {
+        self.push_node(ValueKind::Binary { op, lhs, rhs })
     }
 
     pub fn add_phi(
         &mut self,
-        condition: ValID<'src>,
-        when_true: ValID<'src>,
-        when_false: ValID<'src>,
-    ) -> ValID<'src> {
-        self.push_node(ValKind::Phi {
+        condition: ValueID<'src>,
+        when_true: ValueID<'src>,
+        when_false: ValueID<'src>,
+    ) -> ValueID<'src> {
+        self.push_node(ValueKind::Phi {
             condition,
             when_true,
             when_false,
         })
     }
 
-    pub fn add_quote(&mut self, quote: String) -> ValID<'src> {
-        self.push_node(ValKind::Quote { quote })
+    pub fn add_quote(&mut self, quote: String) -> ValueID<'src> {
+        self.push_node(ValueKind::Quote { quote })
     }
 
-    pub fn add_type(&mut self, type_: AtomicType) -> ValID<'src> {
-        self.push_node(ValKind::PrimitiveType { ty: type_ })
+    pub fn add_type(&mut self, type_: AtomicType) -> ValueID<'src> {
+        self.push_node(ValueKind::PrimitiveType { ty: type_ })
     }
 
-    pub fn add_unitialized(&mut self) -> ValID<'src> {
-        self.push_node(ValKind::UnInitialized)
+    pub fn add_unitialized(&mut self) -> ValueID<'src> {
+        self.push_node(ValueKind::UnInitialized)
     }
 
-    pub fn add_unknown(&mut self) -> ValID<'src> {
-        self.push_node_no_dedup(ValKind::Unknown)
+    pub fn add_unknown(&mut self) -> ValueID<'src> {
+        self.push_node_no_dedup(ValueKind::Unknown)
+    }
+
+    pub fn add_unit(&mut self) -> ValueID<'src> {
+        self.push_node(ValueKind::Unit)
     }
 
     pub fn latest_mem(&self) -> MemID<'src> {
@@ -258,40 +269,41 @@ impl<'src> Graph<'src> {
     }
 }
 
-impl<'src> ValKind<'src> {
-    fn node_key(&self) -> Option<NodeKey<'src>> {
+impl<'src> ValueKind<'src> {
+    fn node_key(&self) -> Option<ValueNodeKey<'src>> {
         match self {
-            ValKind::Literal { literal } => Some(NodeKey::Literal {
+            ValueKind::Literal { literal } => Some(ValueNodeKey::Literal {
                 literal: literal.clone(),
             }),
-            ValKind::Quote { quote } => Some(NodeKey::Quote {
+            ValueKind::Quote { quote } => Some(ValueNodeKey::Quote {
                 quote: quote.clone(),
             }),
-            ValKind::PrimitiveType { ty } => Some(NodeKey::PrimitiveType { ty: *ty }),
-            ValKind::Unary { op, input } => Some(NodeKey::Unary {
+            ValueKind::PrimitiveType { ty } => Some(ValueNodeKey::PrimitiveType { ty: *ty }),
+            ValueKind::Unit => Some(ValueNodeKey::Unit),
+            ValueKind::Unary { op, input } => Some(ValueNodeKey::Unary {
                 op: *op,
                 input: input.addr(),
             }),
-            ValKind::Binary { op, lhs, rhs } => Some(NodeKey::Binary {
+            ValueKind::Binary { op, lhs, rhs } => Some(ValueNodeKey::Binary {
                 op: *op,
                 lhs: lhs.addr(),
                 rhs: rhs.addr(),
             }),
-            ValKind::Load { mem, addr } => Some(NodeKey::Load {
+            ValueKind::Load { mem, addr } => Some(ValueNodeKey::Load {
                 mem: mem.addr(),
                 addr: addr.addr(),
             }),
-            ValKind::UnInitialized => Some(NodeKey::UnInitialized),
-            ValKind::Phi {
+            ValueKind::UnInitialized => Some(ValueNodeKey::UnInitialized),
+            ValueKind::Phi {
                 condition,
                 when_true,
                 when_false,
-            } => Some(NodeKey::Phi {
+            } => Some(ValueNodeKey::Phi {
                 condition: condition.addr(),
                 when_true: when_true.addr(),
                 when_false: when_false.addr(),
             }),
-            ValKind::Unknown => None,
+            ValueKind::Unknown => None,
         }
     }
 }
@@ -307,7 +319,7 @@ impl<'src> MemNode<'src> {
         }
     }
 
-    pub fn set_condition(&mut self, condition: ValID<'src>) {
+    pub fn set_condition(&mut self, condition: ValueID<'src>) {
         match &mut self.kind {
             MemKind::LoopHead {
                 condition: placeholder_condition,

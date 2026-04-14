@@ -2,13 +2,13 @@ use std::collections::HashMap;
 
 use crate::{
     error::Span,
-    grapher::{Graph, GraphError, GraphResult, graph::ValID},
+    grapher::{Graph, GraphError, GraphResult, graph::ValueID},
 };
 
 #[derive(Debug, Clone)]
 pub struct Symbol<'src> {
-    pub type_: ValID<'src>,
-    pub assignment: ValID<'src>,
+    pub type_: ValueID<'src>,
+    pub assignment: ValueID<'src>,
 }
 
 #[derive(Debug)]
@@ -17,7 +17,7 @@ struct Scope<'src> {
     mutables: HashMap<&'src str, Symbol<'src>>,
 
     constants: HashMap<&'src str, Symbol<'src>>,
-    unknowns: HashMap<&'src str, Vec<ValID<'src>>>, // all nodes that represent the unknown
+    unknowns: HashMap<&'src str, Vec<ValueID<'src>>>, // all nodes that represent the unknown
 }
 
 pub struct Scopes<'src> {
@@ -58,7 +58,7 @@ impl<'src> Scopes<'src> {
         &mut self,
         graph: &mut Graph<'src>,
         name: &'src str,
-    ) -> Result<Symbol<'src>, ValID<'src>> {
+    ) -> Result<Symbol<'src>, ValueID<'src>> {
         for scope in self.scopes.iter().rev() {
             if let Some(symbol) = scope.variables.get(name) {
                 return Ok(symbol.clone());
@@ -135,6 +135,21 @@ impl<'src> Scopes<'src> {
 
         self.current().constants.insert(name, symbol);
         Ok(())
+    }
+
+    pub fn write_mutable(
+        &mut self,
+        span: Span,
+        name: &'src str,
+        value: ValueID<'src>,
+    ) -> GraphResult<'src, ()> {
+        for scope in self.scopes.iter_mut().rev() {
+            if let Some(mutable) = scope.mutables.get_mut(name) {
+                mutable.assignment = value;
+                return Ok(());
+            }
+        }
+        Err(GraphError::AssignmentToUnknownVar { name, span })
     }
 
     pub fn close_scope(&mut self) {

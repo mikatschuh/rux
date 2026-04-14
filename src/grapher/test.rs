@@ -5,7 +5,7 @@ use crate::{
     error::Errors,
     grapher::{
         GraphResult,
-        graph::{MemID, MemKind, ValID, ValKind},
+        graph::{MemID, MemKind, ValueID, ValueKind},
         parser::GraphBuilder,
         scope::Scopes,
     },
@@ -416,9 +416,9 @@ y i32 = x
 }
 */
 
-fn expect_literal(node: &ValID<'_>, literal: Literal<'_>) {
+fn expect_literal(node: &ValueID<'_>, literal: Literal<'_>) {
     match &node.kind {
-        ValKind::Literal {
+        ValueKind::Literal {
             literal: actual_literal,
         } => {
             assert_eq!(*actual_literal, literal);
@@ -427,18 +427,18 @@ fn expect_literal(node: &ValID<'_>, literal: Literal<'_>) {
     }
 }
 
-fn expect_primitive_type(node: &ValID<'_>, requested_type: AtomicType) {
+fn expect_primitive_type(node: &ValueID<'_>, requested_type: AtomicType) {
     match &node.kind {
-        ValKind::PrimitiveType { ty } => {
+        ValueKind::PrimitiveType { ty } => {
             assert_eq!(*ty, requested_type)
         }
         other => panic!("expected primitive type {requested_type:?}, got {other:?}"),
     }
 }
 
-fn expect_binary<'src>(node: &ValID<'src>, op: BinaryOp) -> (ValID<'src>, ValID<'src>) {
+fn expect_binary<'src>(node: &ValueID<'src>, op: BinaryOp) -> (ValueID<'src>, ValueID<'src>) {
     match &node.kind {
-        ValKind::Binary {
+        ValueKind::Binary {
             op: actual_op,
             lhs,
             rhs,
@@ -450,9 +450,9 @@ fn expect_binary<'src>(node: &ValID<'src>, op: BinaryOp) -> (ValID<'src>, ValID<
     }
 }
 
-fn expect_unary<'src>(node: &ValID<'src>, op: UnaryOp) -> ValID<'src> {
+fn expect_unary<'src>(node: &ValueID<'src>, op: UnaryOp) -> ValueID<'src> {
     match &node.kind {
-        ValKind::Unary {
+        ValueKind::Unary {
             op: actual_op,
             input,
         } => {
@@ -463,9 +463,9 @@ fn expect_unary<'src>(node: &ValID<'src>, op: UnaryOp) -> ValID<'src> {
     }
 }
 
-fn expect_phi<'src>(node: &ValID<'src>) -> (ValID<'src>, ValID<'src>, ValID<'src>) {
+fn expect_phi<'src>(node: &ValueID<'src>) -> (ValueID<'src>, ValueID<'src>, ValueID<'src>) {
     match &node.kind {
-        ValKind::Phi {
+        ValueKind::Phi {
             condition,
             when_true,
             when_false,
@@ -474,9 +474,9 @@ fn expect_phi<'src>(node: &ValID<'src>) -> (ValID<'src>, ValID<'src>, ValID<'src
     }
 }
 
-fn expect_load<'src>(node: &ValID<'src>) -> (MemID<'src>, ValID<'src>) {
+fn expect_load<'src>(node: &ValueID<'src>) -> (MemID<'src>, ValueID<'src>) {
     match &node.kind {
-        ValKind::Load { mem, addr } => (mem.clone(), addr.clone()),
+        ValueKind::Load { mem, addr } => (mem.clone(), addr.clone()),
         other => panic!("expected load-node, got {other:?}"),
     }
 }
