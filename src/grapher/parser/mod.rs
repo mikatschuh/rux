@@ -4,7 +4,7 @@ use crate::{
     error::{Position, Span},
     grapher::{
         Graph, GraphError, GraphResult,
-        graph::{MemNodeID, NodeID, NodeKind},
+        graph::{MemID, ValID, ValKind},
         scope::{Scopes, Symbol},
     },
     literals::Literal,
@@ -20,15 +20,15 @@ mod parsing;
 
 #[derive(Clone)]
 pub struct LoopContext<'src> {
-    pub loop_head: MemNodeID<'src>,
-    pub break_mem: Option<MemNodeID<'src>>,
-    pub continue_mem: Option<MemNodeID<'src>>,
+    pub loop_head: MemID<'src>,
+    pub break_mem: Option<MemID<'src>>,
+    pub continue_mem: Option<MemID<'src>>,
 }
 
 #[derive(Clone)]
 pub struct ParserState<'src> {
     pub symbols: HashMap<&'src str, Symbol<'src>>,
-    pub mem: MemNodeID<'src>,
+    pub mem: MemID<'src>,
     pub loops: Vec<LoopContext<'src>>,
     pub reachable: bool,
     pub last_jump: Option<Token<'src>>,
@@ -104,8 +104,8 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         &mut self,
         decl: Span,
         name: &'src str,
-        type_: NodeID<'src>,
-        value: Option<NodeID<'src>>,
+        type_: ValID<'src>,
+        value: Option<ValID<'src>>,
     ) -> GraphResult<'src, ()> {
         let assignment = value.unwrap_or_else(|| self.graph.add_unitialized());
 
@@ -118,8 +118,8 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         decl: Span,
         name: &'src str,
 
-        type_: NodeID<'src>,
-        value: Option<NodeID<'src>>,
+        type_: ValID<'src>,
+        value: Option<ValID<'src>>,
     ) -> GraphResult<'src, ()> {
         let assignment = value.unwrap_or_else(|| self.graph.add_unitialized());
 
@@ -131,8 +131,8 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         &mut self,
         decl: Span,
         name: &'src str,
-        type_: NodeID<'src>,
-        value: NodeID<'src>,
+        type_: ValID<'src>,
+        value: ValID<'src>,
     ) -> GraphResult<'src, ()> {
         self.symbols.add_constant(
             decl,
@@ -175,12 +175,12 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         Ok(())
     }*/
 
-    pub fn read_variable(&mut self, name: Token<'src>) -> GraphResult<'src, NodeID<'src>> {
+    pub fn read_variable(&mut self, name: Token<'src>) -> GraphResult<'src, ValID<'src>> {
         match self.symbols.register_symbol(&mut self.graph, name.src) {
             Ok(symbol) => {
-                if symbol.assignment.kind == NodeKind::UnInitialized {
+                if symbol.assignment.kind == ValKind::UnInitialized {
                     Err(GraphError::TriedToReadUnitialized { ident: name })
-                } else if let NodeKind::Unary {
+                } else if let ValKind::Unary {
                     op: UnaryOp::Ptr,
                     input,
                 } = &symbol.assignment.kind

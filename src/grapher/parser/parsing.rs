@@ -1,5 +1,5 @@
 use crate::{
-    grapher::{GraphError, GraphResult, graph::NodeID, parser::GraphBuilder},
+    grapher::{GraphError, GraphResult, graph::ValID, parser::GraphBuilder},
     tokenizing::{
         TokenStream,
         token::{Bracket, Keyword, Token, TokenKind},
@@ -80,12 +80,12 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_expr(&mut self, min_bp: u8) -> GraphResult<'src, NodeID<'src>> {
+    fn parse_expr(&mut self, min_bp: u8) -> GraphResult<'src, ValID<'src>> {
         let lhs = self.parse_primary()?;
         self.parse_expr_tail(lhs, min_bp)
     }
 
-    fn parse_primary(&mut self) -> GraphResult<'src, NodeID<'src>> {
+    fn parse_primary(&mut self) -> GraphResult<'src, ValID<'src>> {
         match self.peek().kind {
             TokenKind::Literal => {
                 let literal = self.get_literal();
@@ -135,9 +135,9 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
     fn parse_expr_tail(
         &mut self,
-        mut lhs: NodeID<'src>,
+        mut lhs: ValID<'src>,
         min_bp: u8,
-    ) -> GraphResult<'src, NodeID<'src>> {
+    ) -> GraphResult<'src, ValID<'src>> {
         loop {
             if self.peek().binding_pow() < min_bp {
                 return Ok(lhs);

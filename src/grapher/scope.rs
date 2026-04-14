@@ -2,13 +2,13 @@ use std::collections::HashMap;
 
 use crate::{
     error::Span,
-    grapher::{Graph, GraphError, GraphResult, graph::NodeID},
+    grapher::{Graph, GraphError, GraphResult, graph::ValID},
 };
 
 #[derive(Debug, Clone)]
 pub struct Symbol<'src> {
-    pub type_: NodeID<'src>,
-    pub assignment: NodeID<'src>,
+    pub type_: ValID<'src>,
+    pub assignment: ValID<'src>,
 }
 
 #[derive(Debug)]
@@ -17,7 +17,7 @@ struct Scope<'src> {
     mutables: HashMap<&'src str, Symbol<'src>>,
 
     constants: HashMap<&'src str, Symbol<'src>>,
-    unknowns: HashMap<&'src str, Vec<NodeID<'src>>>, // all nodes that represent the unknown
+    unknowns: HashMap<&'src str, Vec<ValID<'src>>>, // all nodes that represent the unknown
 }
 
 pub struct Scopes<'src> {
@@ -58,7 +58,7 @@ impl<'src> Scopes<'src> {
         &mut self,
         graph: &mut Graph<'src>,
         name: &'src str,
-    ) -> Result<Symbol<'src>, NodeID<'src>> {
+    ) -> Result<Symbol<'src>, ValID<'src>> {
         for scope in self.scopes.iter().rev() {
             if let Some(symbol) = scope.variables.get(name) {
                 return Ok(symbol.clone());

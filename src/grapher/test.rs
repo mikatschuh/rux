@@ -1,4 +1,3 @@
-use num::{BigUint, FromPrimitive};
 use std::collections::HashSet;
 
 use super::{Graph, GraphError};
@@ -6,7 +5,7 @@ use crate::{
     error::Errors,
     grapher::{
         GraphResult,
-        graph::{MemNodeID, MemNodeKind, NodeID, NodeKind},
+        graph::{MemID, MemKind, ValID, ValKind},
         parser::GraphBuilder,
         scope::Scopes,
     },
@@ -311,7 +310,7 @@ result_inner i32 = inner
     assert!(result_outer_addr.ptr_cmp(&outer_addr));
     assert!(matches!(
         &result_outer_mem.kind,
-        MemNodeKind::LoopHead { .. } | MemNodeKind::Merge { .. }
+        MemKind::LoopHead { .. } | MemKind::Merge { .. }
     ));
 
     let result_inner_symbol = graph.symbol("result_inner").expect("result_inner symbol");
@@ -341,7 +340,7 @@ result_i i32 = i
     let (lhs, rhs) = expect_binary(&condition, BinaryOp::Less);
     let (condition_mem, condition_addr) = expect_load(&lhs);
     assert!(condition_addr.ptr_cmp(&i_addr));
-    assert!(matches!(&condition_mem.kind, MemNodeKind::LoopHead { .. }));
+    assert!(matches!(&condition_mem.kind, MemKind::LoopHead { .. }));
     expect_literal(&rhs, Literal::from(3_u8));
 }
 
@@ -368,7 +367,7 @@ result_x i32 = x
     let (lhs, rhs) = expect_binary(&condition, crate::tokenizing::binary_op::BinaryOp::Less);
     let (condition_mem, condition_addr) = expect_load(&lhs);
     assert!(condition_addr.ptr_cmp(&x_addr));
-    assert!(matches!(&condition_mem.kind, MemNodeKind::LoopHead { .. }));
+    assert!(matches!(&condition_mem.kind, MemKind::LoopHead { .. }));
     expect_literal(&rhs, Literal::from(2_u8));
 }
 
@@ -417,9 +416,9 @@ y i32 = x
 }
 */
 
-fn expect_literal(node: &NodeID<'_>, literal: Literal<'_>) {
+fn expect_literal(node: &ValID<'_>, literal: Literal<'_>) {
     match &node.kind {
-        NodeKind::Literal {
+        ValKind::Literal {
             literal: actual_literal,
         } => {
             assert_eq!(*actual_literal, literal);
@@ -428,18 +427,18 @@ fn expect_literal(node: &NodeID<'_>, literal: Literal<'_>) {
     }
 }
 
-fn expect_primitive_type(node: &NodeID<'_>, requested_type: AtomicType) {
+fn expect_primitive_type(node: &ValID<'_>, requested_type: AtomicType) {
     match &node.kind {
-        NodeKind::PrimitiveType { ty } => {
+        ValKind::PrimitiveType { ty } => {
             assert_eq!(*ty, requested_type)
         }
         other => panic!("expected primitive type {requested_type:?}, got {other:?}"),
     }
 }
 
-fn expect_binary<'src>(node: &NodeID<'src>, op: BinaryOp) -> (NodeID<'src>, NodeID<'src>) {
+fn expect_binary<'src>(node: &ValID<'src>, op: BinaryOp) -> (ValID<'src>, ValID<'src>) {
     match &node.kind {
-        NodeKind::Binary {
+        ValKind::Binary {
             op: actual_op,
             lhs,
             rhs,
@@ -451,9 +450,9 @@ fn expect_binary<'src>(node: &NodeID<'src>, op: BinaryOp) -> (NodeID<'src>, Node
     }
 }
 
-fn expect_unary<'src>(node: &NodeID<'src>, op: UnaryOp) -> NodeID<'src> {
+fn expect_unary<'src>(node: &ValID<'src>, op: UnaryOp) -> ValID<'src> {
     match &node.kind {
-        NodeKind::Unary {
+        ValKind::Unary {
             op: actual_op,
             input,
         } => {
@@ -464,9 +463,9 @@ fn expect_unary<'src>(node: &NodeID<'src>, op: UnaryOp) -> NodeID<'src> {
     }
 }
 
-fn expect_phi<'src>(node: &NodeID<'src>) -> (NodeID<'src>, NodeID<'src>, NodeID<'src>) {
+fn expect_phi<'src>(node: &ValID<'src>) -> (ValID<'src>, ValID<'src>, ValID<'src>) {
     match &node.kind {
-        NodeKind::Phi {
+        ValKind::Phi {
             condition,
             when_true,
             when_false,
@@ -475,14 +474,15 @@ fn expect_phi<'src>(node: &NodeID<'src>) -> (NodeID<'src>, NodeID<'src>, NodeID<
     }
 }
 
-fn expect_load<'src>(node: &NodeID<'src>) -> (MemNodeID<'src>, NodeID<'src>) {
+fn expect_load<'src>(node: &ValID<'src>) -> (MemID<'src>, ValID<'src>) {
     match &node.kind {
-        NodeKind::Load { mem, addr } => (mem.clone(), addr.clone()),
+        ValKind::Load { mem, addr } => (mem.clone(), addr.clone()),
         other => panic!("expected load-node, got {other:?}"),
     }
 }
 
-fn expect_store_chain_ends_with_addr(mem: &MemNodeID<'_>, addr: &NodeID<'_>) {
+/*
+fn expect_store_chain_ends_with_addr(mem: &MemID<'_>, addr: &ValID<'_>) {
     let mut visited = HashSet::new();
     assert!(
         mem_contains_store_to_addr_with_visited(mem, addr, &mut visited),
@@ -490,14 +490,14 @@ fn expect_store_chain_ends_with_addr(mem: &MemNodeID<'_>, addr: &NodeID<'_>) {
     );
 }
 
-fn mem_contains_store_to_addr(mem: &MemNodeID<'_>, addr: &NodeID<'_>) -> bool {
+fn mem_contains_store_to_addr(mem: &MemID<'_>, addr: &ValID<'_>) -> bool {
     let mut visited = HashSet::new();
     mem_contains_store_to_addr_with_visited(mem, addr, &mut visited)
 }
 
 fn mem_contains_store_to_addr_with_visited(
-    mem: &MemNodeID<'_>,
-    addr: &NodeID<'_>,
+    mem: &MemID<'_>,
+    addr: &ValID<'_>,
     visited: &mut HashSet<usize>,
 ) -> bool {
     let mem_ptr = std::ptr::from_ref(&**mem) as usize;
@@ -506,8 +506,8 @@ fn mem_contains_store_to_addr_with_visited(
     }
 
     match &mem.kind {
-        MemNodeKind::ControlFlowStart => false,
-        MemNodeKind::LoopHead {
+        MemKind::ControlFlowStart => false,
+        MemKind::LoopHead {
             condition: _,
             entry,
             backedge,
@@ -515,13 +515,13 @@ fn mem_contains_store_to_addr_with_visited(
             mem_contains_store_to_addr_with_visited(entry, addr, visited)
                 || mem_contains_store_to_addr_with_visited(backedge, addr, visited)
         }
-        MemNodeKind::StepClause { prev } => {
-            mem_contains_store_to_addr_with_visited(prev, addr, visited)
+        MemKind::StepClause { ctrl } => {
+            mem_contains_store_to_addr_with_visited(ctrl, addr, visited)
         }
-        MemNodeKind::PlaceHolder { prev } => {
-            mem_contains_store_to_addr_with_visited(prev, addr, visited)
+        MemKind::PlaceHolder { ctrl } => {
+            mem_contains_store_to_addr_with_visited(ctrl, addr, visited)
         }
-        MemNodeKind::Merge {
+        MemKind::Merge {
             condition: _,
             when_true: a,
             when_false: b,
@@ -529,24 +529,24 @@ fn mem_contains_store_to_addr_with_visited(
             mem_contains_store_to_addr_with_visited(a, addr, visited)
                 || mem_contains_store_to_addr_with_visited(b, addr, visited)
         }
-        MemNodeKind::Store {
-            prev,
+        MemKind::Store {
+            ctrl,
             addr: store_addr,
             ..
         } => {
-            store_addr.ptr_cmp(addr) || mem_contains_store_to_addr_with_visited(prev, addr, visited)
+            store_addr.ptr_cmp(addr) || mem_contains_store_to_addr_with_visited(ctrl, addr, visited)
         }
     }
 }
 
-fn mem_has_cycle(mem: &MemNodeID<'_>) -> bool {
+fn mem_has_cycle(mem: &MemID<'_>) -> bool {
     let mut visited = HashSet::new();
     let mut stack = HashSet::new();
     mem_has_cycle_dfs(mem, &mut visited, &mut stack)
 }
 
 fn mem_has_cycle_dfs(
-    mem: &MemNodeID<'_>,
+    mem: &MemID<'_>,
     visited: &mut HashSet<usize>,
     stack: &mut HashSet<usize>,
 ) -> bool {
@@ -561,22 +561,18 @@ fn mem_has_cycle_dfs(
     stack.insert(mem_ptr);
 
     let has_cycle = match &mem.kind {
-        MemNodeKind::ControlFlowStart => false,
-        MemNodeKind::LoopHead {
+        MemKind::ControlFlowStart => false,
+        MemKind::LoopHead {
             condition: _,
-            entry,
+            ctrl,
             backedge,
-        } => {
-            mem_has_cycle_dfs(entry, visited, stack) || mem_has_cycle_dfs(backedge, visited, stack)
+        } => mem_has_cycle_dfs(ctrl, visited, stack) || mem_has_cycle_dfs(backedge, visited, stack),
+        MemKind::StepClause { ctrl } => mem_has_cycle_dfs(ctrl, visited, stack),
+        MemKind::PlaceHolder { ctrl } => mem_has_cycle_dfs(ctrl, visited, stack),
+        MemKind::Merge { branch } => {
+            mem_has_cycle_dfs(branch, visited, stack) || mem_has_cycle_dfs(b, visited, stack)
         }
-        MemNodeKind::StepClause { prev } => mem_has_cycle_dfs(prev, visited, stack),
-        MemNodeKind::PlaceHolder { prev } => mem_has_cycle_dfs(prev, visited, stack),
-        MemNodeKind::Merge {
-            condition: _,
-            when_true: a,
-            when_false: b,
-        } => mem_has_cycle_dfs(a, visited, stack) || mem_has_cycle_dfs(b, visited, stack),
-        MemNodeKind::Store { prev, .. } => mem_has_cycle_dfs(prev, visited, stack),
+        MemKind::Store { ctrl, .. } => mem_has_cycle_dfs(ctrl, visited, stack),
     };
 
     stack.remove(&mem_ptr);
@@ -584,36 +580,37 @@ fn mem_has_cycle_dfs(
 }
 
 fn find_first_loop_head<'src>(
-    mem: &MemNodeID<'src>,
-) -> Option<(NodeID<'src>, MemNodeID<'src>, MemNodeID<'src>)> {
+    mem: &MemID<'src>,
+) -> Option<(ValID<'src>, MemID<'src>, MemID<'src>)> {
     let mut visited = HashSet::new();
     find_first_loop_head_with_visited(mem, &mut visited)
 }
 
 fn find_first_loop_head_with_visited<'src>(
-    mem: &MemNodeID<'src>,
+    mem: &MemID<'src>,
     visited: &mut HashSet<usize>,
-) -> Option<(NodeID<'src>, MemNodeID<'src>, MemNodeID<'src>)> {
+) -> Option<(ValID<'src>, MemID<'src>, MemID<'src>)> {
     let mem_ptr = std::ptr::from_ref(&**mem) as usize;
     if !visited.insert(mem_ptr) {
         return None;
     }
 
     match &mem.kind {
-        MemNodeKind::ControlFlowStart => None,
-        MemNodeKind::LoopHead {
+        MemKind::ControlFlowStart => None,
+        MemKind::LoopHead {
             condition,
             entry,
             backedge,
         } => Some((condition.clone(), entry.clone(), backedge.clone())),
-        MemNodeKind::StepClause { prev } => find_first_loop_head_with_visited(prev, visited),
-        MemNodeKind::PlaceHolder { prev } => find_first_loop_head_with_visited(prev, visited),
-        MemNodeKind::Merge {
+        MemKind::StepClause { ctrl } => find_first_loop_head_with_visited(ctrl, visited),
+        MemKind::PlaceHolder { ctrl } => find_first_loop_head_with_visited(ctrl, visited),
+        MemKind::Merge {
             condition: _,
             when_true,
             when_false,
         } => find_first_loop_head_with_visited(when_true, visited)
             .or_else(|| find_first_loop_head_with_visited(when_false, visited)),
-        MemNodeKind::Store { prev, .. } => find_first_loop_head_with_visited(prev, visited),
+        MemKind::Store { ctrl, .. } => find_first_loop_head_with_visited(ctrl, visited),
     }
 }
+*/
