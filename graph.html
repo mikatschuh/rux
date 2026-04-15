@@ -2,6 +2,10 @@
 <html>
     <head>
         <meta charset="utf-8" />
+        <link
+            rel="stylesheet"
+            href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
+        />
         <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/webcola/WebCola/cola.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/cytoscape-cola/cytoscape-cola.js"></script>
@@ -26,7 +30,7 @@
                 animate: true,
                 infinite: true,
                 fit: false,
-                nodeSpacing: 24,
+                nodeSpacing: 32,
                 edgeLength: 50,
                 edgeElasticity: 0.04,
                 nestingFactor: 0.1,
@@ -44,20 +48,20 @@
                 wheelSensitivity: 0.2,
                 container: document.getElementById("cy"),
                 elements: [{ data: { id: '0', label: 'a', group: 'variable' } },
-{ data: { id: '1', label: 'lit Literal { base: Decimal, digits: 10, num_digits_after_dot: 0, exponent: None, suffix: "" }', group: 'literal' } },
+{ data: { id: '1', label: 'lit 10', group: 'literal' } },
 { data: { id: '2', label: 'b', group: 'variable' } },
-{ data: { id: '3', label: 'lit Literal { base: Decimal, digits: 100, num_digits_after_dot: 0, exponent: None, suffix: "" }', group: 'literal' } },
+{ data: { id: '3', label: 'lit 0x10p8', group: 'literal' } },
 { data: { id: '4', label: 'c', group: 'variable' } },
-{ data: { id: '5', label: 'lit Literal { base: Decimal, digits: 2, num_digits_after_dot: 0, exponent: None, suffix: "" }', group: 'literal' } },
+{ data: { id: '5', label: 'lit 2.4', group: 'literal' } },
 { data: { id: '6', label: 'binary /', group: 'binary' } },
 { data: { id: '7', label: 'binary +', group: 'binary' } },
-{ data: { source: '0', target: '1', label: 'variable' } },
-{ data: { source: '2', target: '3', label: 'variable' } },
+{ data: { source: '0', target: '1', label: '' } },
+{ data: { source: '2', target: '3', label: '' } },
 { data: { source: '6', target: '3', label: '1' } },
 { data: { source: '6', target: '5', label: '2' } },
 { data: { source: '7', target: '1', label: '1' } },
 { data: { source: '7', target: '6', label: '2' } },
-{ data: { source: '4', target: '7', label: 'variable' } },
+{ data: { source: '4', target: '7', label: '' } },
 ],
                 style: [
                     {
@@ -65,6 +69,7 @@
                         style: {
                             label: "data(label)",
                             color: "#fff",
+                            "font-family": '"JetBrains Mono", monospace',
                             "font-size": "12px",
                             "text-valign": "center",
                             "text-halign": "center",
@@ -98,6 +103,7 @@
                             label: "data(label)",
                             color: "#ccc",
                             "font-size": "10px",
+                            "font-family": '"JetBrains Mono", monospace',
                             "text-background-color": "#1a1a2e",
                             "text-background-opacity": 1,
                             "text-background-padding": "3px",
@@ -109,14 +115,7 @@
             let layout = createLayout();
             let hasFitted = false;
 
-            const runLayout = () => {
-                layout = cy.layout(createLayout());
-                layout.run();
-            };
-
-            runLayout();
-
-            cy.on("layoutstop", () => {
+            const fitInitialViewport = () => {
                 if (hasFitted) {
                     return;
                 }
@@ -124,7 +123,19 @@
                 hasFitted = true;
                 cy.fit(undefined, 50);
                 cy.zoom(Math.min(cy.zoom(), 2));
-            });
+            };
+
+            const runLayout = () => {
+                layout = cy.layout(createLayout());
+                if (!hasFitted) {
+                    layout.one("layoutready", () => {
+                        requestAnimationFrame(fitInitialViewport);
+                    });
+                }
+                layout.run();
+            };
+
+            runLayout();
 
             cy.on("grab", "node", () => {
                 layout.stop();

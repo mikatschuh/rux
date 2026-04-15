@@ -4,7 +4,7 @@ use num::BigUint;
 
 use crate::{
     error::{ErrorCode, Errors, Span},
-    literal::{Base, Literal},
+    literal_parsing::{Base, Literal},
     tokenizing::{
         TokenStream, Tokenizer,
         token::{Token, TokenKind::*},

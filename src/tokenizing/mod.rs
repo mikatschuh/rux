@@ -1,7 +1,7 @@
 use crate::{
     byte_parsing::whitespace_at_start_or_empty,
     error::{Errors, Position, Span},
-    literal::Literal,
+    literal_parsing::Literal,
     tokenizing::{
         embedding::EmbeddingSyntax,
         parse_tok::parse_token,
@@ -10,7 +10,7 @@ use crate::{
             TokenKind::{self, *},
         },
     },
-    types::{AtomicType, TypeSize},
+    type_parsing::{AtomicType, TypeSize},
     utilities::Rc,
 };
 use std::mem::{self};

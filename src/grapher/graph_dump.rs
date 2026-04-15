@@ -43,7 +43,7 @@ impl<'src> Graph<'src> {
                 &mut visited_memory_nodes,
                 symbol.assignment,
             );
-            graph.add_edge(name, value, "variable");
+            graph.add_edge(name, value, "");
         }
         for (name, symbol) in mutables {
             let name = graph.add_node(name.to_string());
@@ -72,10 +72,10 @@ pub fn process_value_node<'src>(
     }
     use ValueKind::*;
     let idx = match node.kind.clone() {
-        Literal { literal } => graph.add_node(format!("lit {:?}", literal)),
+        Literal { literal } => graph.add_node(format!("lit {}", literal)),
         Quote { quote } => graph.add_node(format!("quote {:?}", quote)),
         AtomicType { ty } => graph.add_node(format!("atomic-type {:?}", ty)),
-        Unit => graph.add_node(format!("unit")),
+        Unit => graph.add_node("unit".to_string()),
 
         Unary { op, input } => {
             let input = process_value_node(graph, visited_value_nodes, visited_memory_nodes, input);
@@ -93,7 +93,7 @@ pub fn process_value_node<'src>(
         }
         Load { mem, addr } => todo!(),
 
-        UnInitialized => graph.add_node(format!("unitialized")),
+        UnInitialized => graph.add_node("unitialized".to_string()),
 
         Phi {
             condition,
@@ -106,14 +106,14 @@ pub fn process_value_node<'src>(
                 process_value_node(graph, visited_value_nodes, visited_memory_nodes, when_true);
             let when_false =
                 process_value_node(graph, visited_value_nodes, visited_memory_nodes, when_false);
-            let phi = graph.add_node(format!("phi"));
+            let phi = graph.add_node("phi".to_string());
             graph.add_edge(phi, condition, "condition");
             graph.add_edge(phi, when_true, "when true");
             graph.add_edge(phi, when_false, "when false");
             phi
         }
 
-        Unknown => graph.add_node(format!("unknown")),
+        Unknown => graph.add_node("unknown".to_string()),
     };
     visited_value_nodes.insert(node, idx);
     idx

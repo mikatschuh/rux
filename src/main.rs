@@ -11,13 +11,13 @@ mod error;
 mod byte_parsing;
 mod threader;
 mod tokenizing;
-mod types;
+mod type_parsing;
 #[macro_use]
 #[allow(dead_code)]
 mod utilities;
 mod codegen;
 mod grapher;
-mod literal;
+mod literal_parsing;
 #[allow(dead_code)]
 mod vms;
 /*

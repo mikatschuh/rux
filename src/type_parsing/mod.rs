@@ -2,8 +2,8 @@ use num::BigUint;
 
 use crate::{
     error::{ErrorCode, Errors, Span},
-    literal,
-    types::error::TypeResult,
+    literal_parsing,
+    type_parsing::error::TypeResult,
 };
 
 mod error;
@@ -85,7 +85,7 @@ pub fn parse_type(
 }
 
 fn parse_size(input: &mut &[u8]) -> Option<TypeResult<u128>> {
-    match literal::parse_integer(input) {
+    match literal_parsing::parse_integer(input) {
         (_, Some(integer)) => Some(
             <BigUint as TryInto<u128>>::try_into(integer).map_err(|_| Error::TooLargeIntegerSize),
         ),

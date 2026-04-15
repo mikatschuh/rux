@@ -3,7 +3,7 @@ use crate::{
         TextState, TokenSlice, is_empty_after_spaces_consumed, is_unicode_payload_byte,
     },
     error::{ErrorCode, Errors, Position, Span},
-    literal,
+    literal_parsing,
     tokenizing::{
         Data,
         TokenKind::*,
@@ -11,7 +11,7 @@ use crate::{
         token::{Bracket, Keyword, Token, TokenKind},
         whitespace_at_start_or_empty,
     },
-    types::{self, TypeSize},
+    type_parsing::{self, TypeSize},
 };
 
 pub fn starts_with_none_identifier_char(text: &[u8]) -> bool {
@@ -77,7 +77,7 @@ pub(super) fn parse_token<'src>(
     // we have to parse literals first because they can include a dot
     // they wouln't be parsed as identifiers and their dot would be identified as TokenKind::Dot
     let text_before = *text;
-    match literal::parse_literal(text, &mut span, errors) {
+    match literal_parsing::parse_literal(text, &mut span, errors) {
         Some(literal) => {
             return (
                 Token {
@@ -107,7 +107,7 @@ pub(super) fn parse_token<'src>(
     let src = slice.to_str();
 
     // possibly reinterpret the identifier
-    match types::parse_type(src.as_bytes(), span, errors, target_ptr_size) {
+    match type_parsing::parse_type(src.as_bytes(), span, errors, target_ptr_size) {
         Some(ty) => {
             return (
                 Token {

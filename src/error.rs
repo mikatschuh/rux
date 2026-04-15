@@ -7,8 +7,8 @@ use std::ops::AddAssign;
 use std::ops::Sub;
 use std::ops::SubAssign;
 
-use crate::literal::Error as LiteralError;
-use crate::types::Error as PrimitiveTypeParsingError;
+use crate::literal_parsing::Error as LiteralError;
+use crate::type_parsing::Error as PrimitiveTypeParsingError;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Errors<'src> {

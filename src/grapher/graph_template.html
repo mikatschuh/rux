@@ -2,6 +2,10 @@
 <html>
     <head>
         <meta charset="utf-8" />
+        <link
+            rel="stylesheet"
+            href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
+        />
         <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/webcola/WebCola/cola.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/cytoscape-cola/cytoscape-cola.js"></script>
@@ -26,7 +30,7 @@
                 animate: true,
                 infinite: true,
                 fit: false,
-                nodeSpacing: 24,
+                nodeSpacing: 32,
                 edgeLength: 50,
                 edgeElasticity: 0.04,
                 nestingFactor: 0.1,
@@ -50,6 +54,7 @@
                         style: {
                             label: "data(label)",
                             color: "#fff",
+                            "font-family": '"JetBrains Mono", monospace',
                             "font-size": "12px",
                             "text-valign": "center",
                             "text-halign": "center",
@@ -83,6 +88,7 @@
                             label: "data(label)",
                             color: "#ccc",
                             "font-size": "10px",
+                            "font-family": '"JetBrains Mono", monospace',
                             "text-background-color": "#1a1a2e",
                             "text-background-opacity": 1,
                             "text-background-padding": "3px",
@@ -94,14 +100,7 @@
             let layout = createLayout();
             let hasFitted = false;
 
-            const runLayout = () => {
-                layout = cy.layout(createLayout());
-                layout.run();
-            };
-
-            runLayout();
-
-            cy.on("layoutstop", () => {
+            const fitInitialViewport = () => {
                 if (hasFitted) {
                     return;
                 }
@@ -109,7 +108,19 @@
                 hasFitted = true;
                 cy.fit(undefined, 50);
                 cy.zoom(Math.min(cy.zoom(), 2));
-            });
+            };
+
+            const runLayout = () => {
+                layout = cy.layout(createLayout());
+                if (!hasFitted) {
+                    layout.one("layoutready", () => {
+                        requestAnimationFrame(fitInitialViewport);
+                    });
+                }
+                layout.run();
+            };
+
+            runLayout();
 
             cy.on("grab", "node", () => {
                 layout.stop();

@@ -1,4 +1,4 @@
-use std::{fmt, u8};
+use std::fmt;
 
 use num::{BigInt, BigUint, FromPrimitive, Integer, ToPrimitive, Zero};
 

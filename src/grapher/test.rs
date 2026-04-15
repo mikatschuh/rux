@@ -9,9 +9,9 @@ use crate::{
         parser::GraphBuilder,
         scope::Scopes,
     },
-    literal::{Base, Literal},
+    literal_parsing::{Base, Literal},
     tokenizing::{Tokenizer, binary_op::BinaryOp, unary_op::UnaryOp},
-    types::{AtomicType, TypeSize},
+    type_parsing::{AtomicType, TypeSize},
     utilities::Rc,
 };
 use std::path::Path;

@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use bumpalo::Bump;
 
 use crate::{
-    literal::Literal,
+    literal_parsing::Literal,
     tokenizing::{binary_op::BinaryOp, unary_op::UnaryOp},
-    types::AtomicType,
+    type_parsing::AtomicType,
     utilities::{NoDealloc, Rc},
 };
 
@@ -156,10 +156,10 @@ impl<'src> Graph<'src> {
 
     fn push_node(&mut self, kind: ValueKind<'src>) -> ValueID<'src> {
         let key = kind.node_key();
-        if let Some(ref key) = key {
-            if let Some(existing) = self.node_cache.get(key) {
-                return existing.clone();
-            }
+        if let Some(ref key) = key
+            && let Some(existing) = self.node_cache.get(key)
+        {
+            return existing.clone();
         }
 
         let node: ValueNode<'src> = ValueNode { kind };

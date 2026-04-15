@@ -99,7 +99,7 @@ impl<T, A: CustomAllocator> Rc<T, A> {
         let ptr = unsafe {
             let mem = arena.alloc_layout(layout);
 
-            let ptr = mem::transmute::<_, *mut RcBoxInner<T>>(mem);
+            let ptr = mem::transmute::<NonNull<u8>, *mut RcBoxInner<T>>(mem);
 
             ptr.write(RcBoxInner {
                 strong: AtomicUsize::new(1),
@@ -373,10 +373,7 @@ pub struct Ref<'recv, T> {
 
 impl<'recv, T> Clone for Ref<'recv, T> {
     fn clone(&self) -> Self {
-        Self {
-            _marker: PhantomData::default(),
-            ptr: self.ptr,
-        }
+        *self
     }
 }
 

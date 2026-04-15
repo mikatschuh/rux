@@ -126,7 +126,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             _ => match self.peek().as_prefix() {
                 Some(op) => {
                     self.advance();
-                    let node = self.parse_primary()?;
+                    let node = self.parse_expr(op.binding_pow())?;
                     Ok(self.graph.add_unary(op, node))
                 }
                 None => {

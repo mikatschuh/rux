@@ -36,11 +36,11 @@ impl<'a, 'b> TokenSlice<'a, 'b> {
         self.larger_slice
     }
 
-    pub fn to_slice(self) -> &'b [u8] {
+    pub fn to_slice(&self) -> &'b [u8] {
         unsafe { from_raw_parts(self.ptr, self.len) }
     }
 
-    pub fn to_str(self) -> &'b str {
+    pub fn to_str(&self) -> &'b str {
         unsafe { str::from_utf8_unchecked(self.to_slice()) }
     }
 }

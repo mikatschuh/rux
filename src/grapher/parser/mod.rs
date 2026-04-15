@@ -7,13 +7,13 @@ use crate::{
         graph::{MemID, ValueID, ValueKind},
         scope::{Scopes, Symbol},
     },
-    literal::Literal,
+    literal_parsing::Literal,
     tokenizing::{
         TokenStream,
         token::{Token, TokenKind},
         unary_op::UnaryOp,
     },
-    types::AtomicType,
+    type_parsing::AtomicType,
 };
 
 mod parsing;
