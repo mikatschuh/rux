@@ -3,7 +3,7 @@ use crate::{
         TextState, TokenSlice, is_empty_after_spaces_consumed, is_unicode_payload_byte,
     },
     error::{ErrorCode, Errors, Position, Span},
-    literals,
+    literal,
     tokenizing::{
         Data,
         TokenKind::*,
@@ -77,7 +77,7 @@ pub(super) fn parse_token<'src>(
     // we have to parse literals first because they can include a dot
     // they wouln't be parsed as identifiers and their dot would be identified as TokenKind::Dot
     let text_before = *text;
-    match literals::parse_literal(text, &mut span, errors) {
+    match literal::parse_literal(text, &mut span, errors) {
         Some(literal) => {
             return (
                 Token {

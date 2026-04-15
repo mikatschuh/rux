@@ -7,7 +7,7 @@ use crate::{
         graph::{MemID, ValueID, ValueKind},
         scope::{Scopes, Symbol},
     },
-    literals::Literal,
+    literal::Literal,
     tokenizing::{
         TokenStream,
         token::{Token, TokenKind},

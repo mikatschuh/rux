@@ -1,7 +1,7 @@
 use crate::{
     byte_parsing::whitespace_at_start_or_empty,
     error::{Errors, Position, Span},
-    literals::Literal,
+    literal::Literal,
     tokenizing::{
         embedding::EmbeddingSyntax,
         parse_tok::parse_token,

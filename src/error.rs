@@ -7,7 +7,7 @@ use std::ops::AddAssign;
 use std::ops::Sub;
 use std::ops::SubAssign;
 
-use crate::literals::Error as LiteralError;
+use crate::literal::Error as LiteralError;
 use crate::types::Error as PrimitiveTypeParsingError;
 
 #[derive(Clone, Debug, PartialEq)]

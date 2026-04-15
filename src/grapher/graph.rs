@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use bumpalo::Bump;
 
 use crate::{
-    literals::Literal,
+    literal::Literal,
     tokenizing::{binary_op::BinaryOp, unary_op::UnaryOp},
     types::AtomicType,
     utilities::{NoDealloc, Rc},

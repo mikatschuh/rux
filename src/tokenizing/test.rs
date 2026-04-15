@@ -4,7 +4,7 @@ use num::BigUint;
 
 use crate::{
     error::{ErrorCode, Errors, Span},
-    literals::{Base, Literal},
+    literal::{Base, Literal},
     tokenizing::{
         TokenStream, Tokenizer,
         token::{Token, TokenKind::*},
@@ -195,7 +195,7 @@ fn tokenizes_literal_sequences() {
         Literal {
             base: Base::Decimal,
             digits: BigUint::from(13_u8),
-            num_digits_after_dot: 1,
+            num_digits_after_dot: Some(1),
             exponent: None,
             suffix: "",
         }
@@ -228,7 +228,7 @@ fn tokenizes_literal_sequences() {
         Literal {
             base: Base::Hexadecimal,
             digits: BigUint::from(0x345_u32),
-            num_digits_after_dot: 0,
+            num_digits_after_dot: None,
             exponent: None,
             suffix: ""
         }

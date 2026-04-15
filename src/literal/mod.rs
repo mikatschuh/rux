@@ -2,31 +2,13 @@ use crate::{
     error::{ErrorCode, Errors, Span},
     tokenizing::parse_tok::push_over_until_none_identifier_char,
 };
-use num::{BigInt, BigUint, FromPrimitive, bigint::Sign};
+use num::{BigInt, BigUint, bigint::Sign};
 
 mod error;
+mod literal;
+
 pub use error::Error;
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Literal<'src> {
-    pub base: Base,
-    pub digits: BigUint,
-    pub num_digits_after_dot: usize,
-    pub exponent: Option<BigInt>,
-    pub suffix: &'src str,
-}
-
-impl<'src, N: Into<u128>> From<N> for Literal<'src> {
-    fn from(num: N) -> Self {
-        Self {
-            base: Base::Decimal,
-            digits: BigUint::from_u128(num.into()).expect("BigUint"),
-            num_digits_after_dot: 0,
-            exponent: None,
-            suffix: "",
-        }
-    }
-}
+pub use literal::{Base, Literal};
 
 /// N = (0  b/s/o/d/x) DIGITS
 ///
@@ -52,9 +34,9 @@ pub fn parse_literal<'src>(
     let (base, mut digits) = parse_integer(text);
     let num_digits_after_dot = if !text.is_empty() && text[0] == b'.' {
         *text = &text[1..];
-        parse_digits(&mut digits, base as u8, text)
+        Some(parse_digits(&mut digits, base as u8, text))
     } else {
-        0
+        None
     };
 
     let Some(digits) = digits else {
@@ -127,15 +109,6 @@ pub fn parse_literal<'src>(
     })
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Base {
-    Binary = 2,
-    Seximal = 6,
-    Octal = 8,
-    Decimal = 10,
-    Dozenal = 12,
-    Hexadecimal = 16,
-}
 use Base::*;
 
 /// Defaults to Decimal

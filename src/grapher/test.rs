@@ -9,7 +9,7 @@ use crate::{
         parser::GraphBuilder,
         scope::Scopes,
     },
-    literals::{Base, Literal},
+    literal::{Base, Literal},
     tokenizing::{Tokenizer, binary_op::BinaryOp, unary_op::UnaryOp},
     types::{AtomicType, TypeSize},
     utilities::Rc,

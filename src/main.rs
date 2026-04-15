@@ -17,7 +17,7 @@ mod types;
 mod utilities;
 mod codegen;
 mod grapher;
-mod literals;
+mod literal;
 #[allow(dead_code)]
 mod vms;
 /*
