@@ -20,22 +20,28 @@
         <div id="cy"></div>
         <script>
             cytoscape.use(cytoscapeCola);
+
+            const createLayout = () => ({
+                name: "cola",
+                animate: true,
+                infinite: true,
+                fit: false,
+                nodeSpacing: 24,
+                edgeLength: 40,
+                edgeElasticity: 0.12,
+                nestingFactor: 0.1,
+                gravity: 0.4,
+                handleDisconnected: true,
+                convergenceThreshold: 0.05,
+                refresh: 2,
+            });
+
             const cy = cytoscape({
                 userZoomingEnabled: true,
                 userPanningEnabled: true,
+                wheelSensitivity: 0.2,
                 container: document.getElementById("cy"),
                 elements: [__ELEMENTS__],
-                layout: {
-                    name: "cola",
-                    animate: true,
-                    infinite: true,
-                    nodeSpacing: 40,
-                    edgeLength: 100,
-                    pull: 0.001,
-                    handleDisconnected: true,
-                    convergenceThreshold: 0.01,
-                    fit: false,
-                },
                 style: [
                     {
                         selector: "node",
@@ -82,31 +88,34 @@
                     },
                 ],
             });
-            cy.one("layoutstop", () => {
+
+            let layout = createLayout();
+            let hasFitted = false;
+
+            const runLayout = () => {
+                layout = cy.layout(createLayout());
+                layout.run();
+            };
+
+            runLayout();
+
+            cy.on("layoutstop", () => {
+                if (hasFitted) {
+                    return;
+                }
+
+                hasFitted = true;
                 cy.fit(undefined, 50);
                 cy.zoom(Math.min(cy.zoom(), 2));
             });
 
-            cy.on("grab", "node", () =>
-                cy.layout({ name: "cola", animate: false }).stop(),
-            );
-            cy.on("free", "node", () =>
-                cy
-                    .layout({
-                        name: "cola",
-                        animate: true,
-                        infinite: true,
-                        nodeSpacing: 40,
-                        edgeLength: 100,
-                        pull: 0.001,
-                        handleDisconnected: true,
-                        convergenceThreshold: 0.01,
-                        fit: false,
-                        refresh: 2,
-                        maxSimulationTime: 4000,
-                    })
-                    .run(),
-            );
+            cy.on("grab", "node", () => {
+                layout.stop();
+            });
+
+            cy.on("free", "node", () => {
+                runLayout();
+            });
         </script>
     </body>
 </html>
