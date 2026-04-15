@@ -27,13 +27,15 @@
                 infinite: true,
                 fit: false,
                 nodeSpacing: 24,
-                edgeLength: 40,
-                edgeElasticity: 0.12,
+                edgeLength: 50,
+                edgeElasticity: 0.04,
                 nestingFactor: 0.1,
-                gravity: 0.4,
+                gravity: 0.0,
+                avoidOverlap: true,
                 handleDisconnected: true,
-                convergenceThreshold: 0.05,
-                refresh: 2,
+                nodeDimensionsIncludeLabels: true,
+                convergenceThreshold: 0.01,
+                refresh: 3,
             });
 
             const cy = cytoscape({
