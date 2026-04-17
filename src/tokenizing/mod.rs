@@ -1,10 +1,10 @@
 use crate::{
     byte_parsing::whitespace_at_start_or_empty,
-    error::{Errors, Position, Span},
+    error::{Errors, Position},
     literal_parsing::Literal,
     tokenizing::{
-        embedding::EmbeddingSyntax,
         parse_tok::parse_token,
+        quote::EmbeddingSyntax,
         token::{
             Token,
             TokenKind::{self, *},
@@ -17,14 +17,16 @@ use std::mem::{self};
 
 pub mod binary_op;
 pub mod binding_pow;
-mod embedding;
 pub mod parse_tok;
+mod quote;
 #[cfg(test)]
 #[allow(dead_code)]
 pub mod test;
 #[allow(dead_code)]
 pub mod token;
 pub mod unary_op;
+
+pub use quote::with_written_out_escape_sequences;
 
 pub trait TokenStream<'src> {
     fn peek(&self) -> Token<'src>; // has to be free
@@ -148,26 +150,4 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
         self.tok = tok;
         self.data = data;
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EscapeSequenceConfusion {
-    pos: Span,
-    sequence: String,
-}
-
-pub fn with_written_out_escape_sequences(string: &str) -> String {
-    let mut output_string = String::new();
-    for c in string.chars() {
-        match c {
-            '\n' => output_string += "\\n",
-            '\t' => output_string += "\\t",
-            '\u{0008}' => output_string += "\\b",
-            '\u{000C}' => output_string += "\\f",
-            '\\' => output_string += "\\\\",
-            '"' => output_string += "\\\"",
-            _ => output_string.push(c),
-        }
-    }
-    output_string
 }

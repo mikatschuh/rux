@@ -7,7 +7,7 @@ use crate::{
     tokenizing::{
         Data,
         TokenKind::*,
-        embedding::EmbeddingSyntax,
+        quote::{EmbeddingSyntax, parse_quote},
         token::{Bracket, Keyword, Token, TokenKind},
         whitespace_at_start_or_empty,
     },
@@ -60,10 +60,10 @@ pub(super) fn parse_token<'src>(
     }
 
     // right now self.text can't be empty as that would be an invalid state
-    if text[0] == b'}' {
-        if let Some((tok, quote)) = embedding_syntax_state.closing_curly_brace(text, pos, errors) {
-            return (tok, Some(Data::Quote(quote)));
-        }
+    if text[0] == b'}'
+        && let Some((tok, quote)) = embedding_syntax_state.closing_curly_brace(text, pos, errors)
+    {
+        return (tok, Some(Data::Quote(quote)));
     }
 
     if text[0] == b'"' {
@@ -107,18 +107,15 @@ pub(super) fn parse_token<'src>(
     let src = slice.to_str();
 
     // possibly reinterpret the identifier
-    match type_parsing::parse_type(src.as_bytes(), span, errors, target_ptr_size) {
-        Some(ty) => {
-            return (
-                Token {
-                    span,
-                    src,
-                    kind: Type,
-                },
-                Some(Data::Type(ty)),
-            );
-        }
-        None => {}
+    if let Some(ty) = type_parsing::parse_type(src.as_bytes(), span, errors, target_ptr_size) {
+        return (
+            Token {
+                span,
+                src,
+                kind: Type,
+            },
+            Some(Data::Type(ty)),
+        );
     }
     (
         Token {
@@ -137,7 +134,7 @@ pub(super) fn parse_token<'src>(
 
 /// - empty => `true`
 /// - spaces consumed until next token => `false`
-fn consume_spaces<'src>(text: &mut &'src [u8], pos: &mut Position, errors: &mut Errors) -> bool {
+fn consume_spaces(text: &mut &[u8], pos: &mut Position, errors: &mut Errors) -> bool {
     let text_state = is_empty_after_spaces_consumed(text, pos);
 
     match text_state {
@@ -151,137 +148,6 @@ fn consume_spaces<'src>(text: &mut &'src [u8], pos: &mut Position, errors: &mut 
             true
         }
     }
-}
-
-pub fn parse_quote<'src>(
-    text: &mut &'src [u8],
-    pos: Position,
-    state: &mut EmbeddingSyntax,
-    closing_scope: bool,
-
-    errors: &mut Errors,
-) -> (Token<'src>, String) {
-    let mut quote = String::new();
-    let quote_ptr = unsafe { quote.as_mut_vec() };
-
-    let mut slice = TokenSlice::new(text, 0);
-    slice.push_byte_over(); // add the opening quote
-
-    let mut span: Span = pos.into();
-    span.end += 1; // add the opening quote
-
-    loop {
-        if slice.no_bytes_left() {
-            break;
-        }
-
-        if slice.current_byte() == b'\n' {
-            span.end.next_line();
-            quote_ptr.push(slice.current_byte());
-            slice.push_byte_over();
-            continue;
-        } else if is_unicode_payload_byte(slice.current_byte()) {
-            quote_ptr.push(slice.current_byte());
-            slice.push_byte_over();
-            continue;
-        } else {
-            span.end += 1;
-        }
-
-        if slice.current_byte() == b'{' {
-            slice.push_byte_over();
-
-            state.embedded_scope_opening();
-            return (
-                Token {
-                    span,
-                    src: slice.to_str(),
-                    kind: Quote {
-                        closing_scope,
-                        opening_scope: true,
-                    },
-                },
-                quote,
-            );
-        } else if slice.current_byte() == b'\"' {
-            slice.push_byte_over();
-
-            return (
-                Token {
-                    span,
-                    src: slice.to_str(),
-                    kind: Quote {
-                        closing_scope,
-                        opening_scope: false,
-                    },
-                },
-                quote,
-            );
-        }
-
-        if slice.current_byte() == b'\\' {
-            slice.push_byte_over();
-
-            if slice.no_bytes_left() {
-                quote_ptr.push(b'\\');
-                break;
-            }
-
-            let c = match slice.current_byte() {
-                b'0' => 0x0, // null byte
-
-                b'a' => 0x7, // alert / bell
-                b'b' => 0x8, // backspace
-                b't' => 0x9, // horizontal tab
-                b'n' => 0xA, // newline
-                b'v' => 0xB, // vertical tab
-                b'f' => 0xC, // form feed
-                b'r' => 0xD, // carriage return
-
-                b'e' => 0x1B, // escape
-
-                b'\\' => b'\\', // backslash
-                b'"' => b'\"',  // quote
-                b'\'' => b'\'', // apostrophe
-                b'{' => b'{',   // open brace
-
-                _ => {
-                    errors.push(
-                        (span.end - 1) - (span.end + 1),
-                        ErrorCode::UnknownEscapeSequence {
-                            given: format!("\\{}", slice.current_byte() as char),
-                        },
-                    );
-
-                    quote_ptr.push(b'\\');
-                    continue;
-                }
-            };
-            quote_ptr.push(c);
-
-            slice.push_byte_over();
-            span.end += 1;
-
-            continue;
-        }
-
-        quote_ptr.push(slice.current_byte());
-        slice.push_byte_over();
-    }
-
-    errors.push(span, ErrorCode::NoClosingQuotes);
-
-    return (
-        Token {
-            span,
-            src: slice.to_str(),
-            kind: Quote {
-                closing_scope,
-                opening_scope: false,
-            },
-        },
-        quote,
-    );
 }
 
 fn parse_operator<'src>(
