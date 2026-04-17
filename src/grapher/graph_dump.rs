@@ -130,12 +130,12 @@ fn build_elements(g: &GraphDump) -> String {
 
     for idx in g.node_indices() {
         let label = g[idx].replace('\'', "\\'");
-        let group = if label.starts_with("binary") {
-            "binary"
-        } else if label.starts_with("lit") {
-            "literal"
+        let (group, label) = if let Some(label) = label.strip_prefix("binary") {
+            ("binary", label)
+        } else if let Some(label) = label.strip_prefix("lit") {
+            ("literal", label)
         } else {
-            "variable"
+            ("variable", label.as_ref())
         };
         out += &format!(
             "{{ data: {{ id: '{}', label: '{}', group: '{}' }} }},\n",
