@@ -42,15 +42,27 @@ impl EmbeddingSyntax {
 
 pub fn with_written_out_escape_sequences(quote: &str) -> String {
     let mut output_string = String::new();
-    for c in quote.chars() {
-        match c {
-            '\n' => output_string += "\\n",
-            '\t' => output_string += "\\t",
-            '\u{0008}' => output_string += "\\b",
-            '\u{000C}' => output_string += "\\f",
-            '\\' => output_string += "\\\\",
-            '"' => output_string += "\\\"",
-            _ => output_string.push(c),
+    for c in quote.bytes() {
+        output_string += match c {
+            0x0 => "\\0", // null byte
+
+            0x7 => "\\a", // alert / bell
+            0x8 => "\\b", // backspace
+            0x9 => "\\t", // horizontal tab
+            0xA => "\\n", // newline
+            0xB => "\\v", // vertical tab
+            0xC => "\\f", // form feed
+            0xD => "\\r", // carriage return
+
+            0x1B => "\\e", // escape
+
+            b'\\' => "\\",  // backslash
+            b'"' => "\\\"", // quote
+            b'{' => "\\{",  // open brace
+            _ => {
+                output_string.push(c as char);
+                continue;
+            }
         }
     }
     output_string
@@ -145,7 +157,6 @@ pub fn parse_quote<'src>(
 
                 b'\\' => b'\\', // backslash
                 b'"' => b'\"',  // quote
-                b'\'' => b'\'', // apostrophe
                 b'{' => b'{',   // open brace
 
                 _ => {

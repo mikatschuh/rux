@@ -63,15 +63,16 @@ pub enum MemKind<'src> {
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum ValueKind<'src> {
+    AtomicType {
+        ty: AtomicType,
+    },
     Literal {
         literal: Literal<'src>,
     },
     Quote {
         quote: String,
     },
-    AtomicType {
-        ty: AtomicType,
-    },
+    Boolean(bool),
     Unit,
 
     Unary {
@@ -100,16 +101,17 @@ pub enum ValueKind<'src> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-enum ValueNodeKey<'src> {
+enum ValueKey<'src> {
+    AtomicType {
+        ty: AtomicType,
+    },
     Literal {
         literal: Literal<'src>,
     },
     Quote {
         quote: String,
     },
-    PrimitiveType {
-        ty: AtomicType,
-    },
+    Boolean(bool),
     Unit,
     Unary {
         op: UnaryOp,
@@ -135,7 +137,7 @@ enum ValueNodeKey<'src> {
 #[derive(Debug)]
 pub struct Graph<'src> {
     arena: Bump,
-    node_cache: HashMap<ValueNodeKey<'src>, ValueID<'src>>,
+    node_cache: HashMap<ValueKey<'src>, ValueID<'src>>,
     pub current_mem: MemID<'src>,
 }
 impl<'src> Graph<'src> {
@@ -248,6 +250,10 @@ impl<'src> Graph<'src> {
         self.push_node(ValueKind::Quote { quote })
     }
 
+    pub fn add_bool(&mut self, boolean: bool) -> ValueID<'src> {
+        self.push_node(ValueKind::Boolean(boolean))
+    }
+
     pub fn add_type(&mut self, type_: AtomicType) -> ValueID<'src> {
         self.push_node(ValueKind::AtomicType { ty: type_ })
     }
@@ -270,35 +276,36 @@ impl<'src> Graph<'src> {
 }
 
 impl<'src> ValueKind<'src> {
-    fn node_key(&self) -> Option<ValueNodeKey<'src>> {
+    fn node_key(&self) -> Option<ValueKey<'src>> {
         match self {
-            ValueKind::Literal { literal } => Some(ValueNodeKey::Literal {
+            ValueKind::AtomicType { ty } => Some(ValueKey::AtomicType { ty: *ty }),
+            ValueKind::Literal { literal } => Some(ValueKey::Literal {
                 literal: literal.clone(),
             }),
-            ValueKind::Quote { quote } => Some(ValueNodeKey::Quote {
+            ValueKind::Quote { quote } => Some(ValueKey::Quote {
                 quote: quote.clone(),
             }),
-            ValueKind::AtomicType { ty } => Some(ValueNodeKey::PrimitiveType { ty: *ty }),
-            ValueKind::Unit => Some(ValueNodeKey::Unit),
-            ValueKind::Unary { op, input } => Some(ValueNodeKey::Unary {
+            ValueKind::Boolean(boolean) => Some(ValueKey::Boolean(*boolean)),
+            ValueKind::Unit => Some(ValueKey::Unit),
+            ValueKind::Unary { op, input } => Some(ValueKey::Unary {
                 op: *op,
                 input: input.addr(),
             }),
-            ValueKind::Binary { op, lhs, rhs } => Some(ValueNodeKey::Binary {
+            ValueKind::Binary { op, lhs, rhs } => Some(ValueKey::Binary {
                 op: *op,
                 lhs: lhs.addr(),
                 rhs: rhs.addr(),
             }),
-            ValueKind::Load { mem, addr } => Some(ValueNodeKey::Load {
+            ValueKind::Load { mem, addr } => Some(ValueKey::Load {
                 mem: mem.addr(),
                 addr: addr.addr(),
             }),
-            ValueKind::UnInitialized => Some(ValueNodeKey::UnInitialized),
+            ValueKind::UnInitialized => Some(ValueKey::UnInitialized),
             ValueKind::Phi {
                 condition,
                 when_true,
                 when_false,
-            } => Some(ValueNodeKey::Phi {
+            } => Some(ValueKey::Phi {
                 condition: condition.addr(),
                 when_true: when_true.addr(),
                 when_false: when_false.addr(),

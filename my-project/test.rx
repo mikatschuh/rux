@@ -1,3 +1,15 @@
 let a i32 = 10
-let b i32 = 0x10p8
-let c i32 = a + b / 2.4
+{
+    let test i32 = 1
+}
+let b i32 = {
+    let c i32 = 10
+    a * c / 2 * test
+}
+let c i32 = if true {
+    b
+} else {
+    "hello\n"
+}
+
+const test i32 = 2

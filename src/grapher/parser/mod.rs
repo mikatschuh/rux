@@ -5,7 +5,7 @@ use crate::{
     grapher::{
         Graph, GraphError, GraphResult,
         graph::{MemID, ValueID, ValueKind},
-        scope::{Scopes, Symbol},
+        symbols::{Scopes, Symbol},
     },
     literal_parsing::Literal,
     tokenizing::{

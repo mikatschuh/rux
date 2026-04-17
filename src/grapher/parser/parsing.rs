@@ -8,14 +8,10 @@ use crate::{
 
 impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     pub fn parse_file(&mut self) -> GraphResult<'src, ()> {
-        loop {
-            let token = self.peek();
-            if token.kind == TokenKind::Eof {
-                return Ok(());
-            }
-
+        while self.peek().kind != TokenKind::Eof {
             self.parse_statement()?;
         }
+        Ok(())
     }
 
     fn parse_item(&mut self) -> GraphResult<'src, ()> {
@@ -37,20 +33,15 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
     fn parse_statement(&mut self) -> GraphResult<'src, ValueID<'src>> {
         match self.peek().kind {
-            TokenKind::Eof => return Ok(self.graph.add_unit()),
             TokenKind::Semicolon => {
                 self.advance();
                 Ok(self.graph.add_unit())
             }
-            TokenKind::Name => {
+            /*TokenKind::Name => {
                 let name = self.advance().src;
                 self.parse_pattern_name(name)?;
                 Ok(self.graph.add_unit())
-            }
-            TokenKind::Open(Bracket::Curly) => {
-                self.advance();
-                self.parse_block()
-            }
+            }*/
             TokenKind::Keyword(keyword) => match keyword {
                 Keyword::Const => {
                     let const_ = self.advance();
@@ -72,15 +63,14 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                     Ok(self.graph.add_unit())
                 }
 
-                Keyword::If => todo!(),
                 Keyword::Loop => todo!(),
                 Keyword::Continue => todo!(),
                 Keyword::Break => todo!(),
 
-                _ => Err(GraphError::ExpectedStatement { found: self.peek() }),
+                _ => self.parse_expr(0),
             },
 
-            _ => Err(GraphError::ExpectedStatement { found: self.peek() }),
+            _ => self.parse_expr(0),
         }
     }
 
@@ -91,6 +81,11 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
     fn parse_primary(&mut self) -> GraphResult<'src, ValueID<'src>> {
         match self.peek().kind {
+            TokenKind::Type => {
+                let type_ = self.get_type();
+                self.advance();
+                Ok(self.graph.add_type(type_))
+            }
             TokenKind::Literal => {
                 let literal = self.get_literal();
                 self.advance();
@@ -101,14 +96,17 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 self.advance();
                 Ok(self.graph.add_quote(quote))
             }
-            TokenKind::Type => {
-                let type_ = self.get_type();
+            TokenKind::Boolean(boolean) => {
                 self.advance();
-                Ok(self.graph.add_type(type_))
+                Ok(self.graph.add_bool(boolean))
             }
             TokenKind::Name => {
                 let name = self.advance();
                 self.read_variable(name)
+            }
+            TokenKind::Open(Bracket::Curly) => {
+                let opener = self.advance();
+                self.parse_block(opener)
             }
             TokenKind::Open(open) => {
                 self.advance();
@@ -122,7 +120,10 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                     }),
                 }
             }
-            TokenKind::Keyword(Keyword::If) => todo!(),
+            TokenKind::Keyword(Keyword::If) => {
+                let if_ = self.advance();
+                self.parse_if(if_)
+            }
             _ => match self.peek().as_prefix() {
                 Some(op) => {
                     self.advance();
@@ -161,7 +162,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_block(&mut self) -> GraphResult<'src, ValueID<'src>> {
+    fn parse_block(&mut self, _opener: Token<'src>) -> GraphResult<'src, ValueID<'src>> {
         self.symbols.open_scope();
         loop {
             match self.peek().kind {
@@ -171,18 +172,9 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                     return Ok(self.graph.add_unit());
                 }
                 _ => {
-                    /*
-                    if !self.reachable {
-                        return Err(GraphError::UnreachableStatementAfterJump {
-                            jump: self
-                                .last_jump
-                                .expect("jump token recorded for unreachable path"),
-                            statement: self.peek(),
-                        });
-                    }*/
-
                     let value = self.parse_statement()?;
                     if self.peek().kind == TokenKind::Closed(Bracket::Curly) {
+                        self.advance();
                         self.symbols.close_scope();
                         return Ok(value);
                     }
@@ -264,11 +256,9 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         Ok(())
     }
 
-    /*
-    fn parse_if_expression(&mut self) -> GraphResult<'src, NodeID<'src>> {
-        self.advance(); // consume 'if'
-        let condition = self.parse_expr(binding_pow::EXPR)?;
-        let when_true = self.parse_expr(binding_pow::EXPR)?;
+    fn parse_if(&mut self, _if: Token<'src>) -> GraphResult<'src, ValueID<'src>> {
+        let condition = self.parse_expr(0)?;
+        let when_true = self.parse_expr(0)?;
 
         match self.peek().kind {
             TokenKind::Keyword(Keyword::Else) => {
@@ -282,11 +272,12 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             }
         }
 
-        let when_false = self.parse_expr(binding_pow::EXPR)?;
+        let when_false = self.parse_expr(0)?;
 
         Ok(self.graph.add_phi(condition, when_true, when_false))
     }
 
+    /*
     fn parse_if_statement(&mut self) -> GraphResult<'src, ()> {
         self.advance(); // consume 'if'
         let condition = self.parse_expr(binding_pow::EXPR)?;
@@ -419,7 +410,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
     fn finish_branch_merge(
         &mut self,
-        condition: NodeID<'src>,
+        condition: ValueID<'src>,
         before_state: ParserState<'src>,
         when_true_state: ParserState<'src>,
         when_false_state: ParserState<'src>,
@@ -521,7 +512,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
     fn merge_symbol_versions(
         &mut self,
-        condition: NodeID<'src>,
+        condition: ValueID<'src>,
         mut base: HashMap<&'src str, Symbol<'src>>,
         when_true: HashMap<&'src str, Symbol<'src>>,
         when_false: HashMap<&'src str, Symbol<'src>>,
@@ -556,7 +547,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
     fn merge_mem_versions(
         &mut self,
-        condition: NodeID<'src>,
+        condition: ValueID<'src>,
         when_true_mem: MemNodeID<'src>,
         when_false_mem: MemNodeID<'src>,
     ) {

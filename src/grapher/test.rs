@@ -7,7 +7,7 @@ use crate::{
         GraphResult,
         graph::{MemID, MemKind, ValueID, ValueKind},
         parser::GraphBuilder,
-        scope::Scopes,
+        symbols::Scopes,
     },
     literal_parsing::{Base, Literal},
     tokenizing::{Tokenizer, binary_op::BinaryOp, unary_op::UnaryOp},

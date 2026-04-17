@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, hash_map::IntoIter},
-    iter::Chain,
-};
+use std::collections::HashMap;
 
 use crate::{
     error::Span,

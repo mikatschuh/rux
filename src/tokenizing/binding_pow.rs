@@ -50,6 +50,7 @@ impl<'src> Token<'src> {
             | ColonColon
             | Equal
             | LeftLeftEqual
+            | Boolean(..)
             | RightRightEqual
             | PipeEqual
             | PipePipeEqual

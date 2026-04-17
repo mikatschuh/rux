@@ -1,6 +1,6 @@
 use crate::{
     error::Span,
-    grapher::{parser::GraphBuilder, scope::Scopes},
+    grapher::{parser::GraphBuilder, symbols::Scopes},
     tokenizing::{TokenStream, token::Token},
 };
 use std::fmt::{self};
@@ -8,7 +8,7 @@ use std::fmt::{self};
 mod graph;
 pub mod graph_dump;
 mod parser;
-mod scope;
+mod symbols;
 #[cfg(test)]
 mod test;
 

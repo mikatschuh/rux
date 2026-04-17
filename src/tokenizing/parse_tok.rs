@@ -122,6 +122,8 @@ pub(super) fn parse_token<'src>(
             span,
             src,
             kind: match src {
+                "true" => Boolean(true),
+                "false" => Boolean(false),
                 _ if src.trim_start_matches('_').is_empty() => TokenKind::Underscore,
                 _ => Keyword::from_str(src)
                     .map(TokenKind::Keyword)

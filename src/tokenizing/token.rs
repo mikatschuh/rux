@@ -92,16 +92,17 @@ pub enum TokenKind {
 
     Comma, // ,
 
+    Keyword(Keyword), // if / loop / ..
+    Type,             // i32
+    Literal,          // 1001010101
+    Boolean(bool),
     Name,       // x
     Underscore, // _
-    Literal,    // 1001010101
+
     Quote {
         closing_scope: bool,
         opening_scope: bool,
     }, // "..." / }..." / "...{ / }...{
-    Keyword(Keyword), // if / loop / ..
-    Type,       // i32
-
     Open(Bracket),   // ( / [ / {
     Closed(Bracket), // ) / ] / }
 
