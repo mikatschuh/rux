@@ -134,7 +134,6 @@ impl Bracket {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Keyword {
-    Const,
     Fn,
     Enum,
     Struct,
@@ -154,7 +153,6 @@ pub enum Keyword {
 impl Keyword {
     pub fn display(&self) -> &'static str {
         match self {
-            Const => "const",
             Fn => "fn",
             Enum => "enum",
             Struct => "struct",
@@ -173,7 +171,6 @@ impl Keyword {
     }
     pub fn from_str(string: &str) -> Option<Self> {
         Some(match string {
-            "const" => Const,
             "fn" => Fn,
             "enum" => Enum,
             "struct" => Struct,

@@ -19,7 +19,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     fn parse_item(&mut self) -> GraphResult<'src, ()> {
         match self.peek().kind {
             TokenKind::Keyword(keyword) => match keyword {
-                Keyword::Const => {
+                Keyword::Let => {
                     /*
                         let const_ = self.advance();
                         self.parse_const(const_)
@@ -49,14 +49,6 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 Ok(self.graph.add_unit())
             }
             TokenKind::Keyword(keyword) => match keyword {
-                Keyword::Const => {
-                    /*
-                    let const_ = self.advance();
-                    self.parse_const(const_)?;
-                    Ok(self.graph.add_unit())
-                    */
-                    todo!()
-                }
                 Keyword::Fn => todo!(),
                 Keyword::Enum => todo!(),
                 Keyword::Struct => todo!(),
