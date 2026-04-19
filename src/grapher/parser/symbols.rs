@@ -52,16 +52,12 @@ impl<'src> Scopes<'src> {
         self.scopes.iter_mut().rev()
     }
 
-    fn pop_scope(&mut self) -> Scope<'src> {
-        self.scopes.pop().unwrap()
-    }
-
     pub fn open_scope(&mut self) {
         self.scopes.push(Scope::new());
     }
 
     pub fn close_scope(&mut self) {
-        self.pop_scope();
+        self.scopes.pop();
     }
 
     pub fn use_symbol(
@@ -156,10 +152,8 @@ impl<'src> Scopes<'src> {
     }*/
 
     pub fn all_symbols(mut self) -> SymbolDump<'src> {
-        let mut current = self.pop_scope();
-
         SymbolDump {
-            variables: current.variables.drain().collect(),
+            variables: self.current().variables.drain().collect(),
         }
     }
 }
