@@ -39,9 +39,7 @@ pub fn parse_literal<'src>(
         None
     };
 
-    let Some(digits) = digits else {
-        return None;
-    };
+    let digits = digits?;
     span.end += original_len - text.len();
     // at this point we know for a fact that the user wanted to input a literal
     // that means we are definitely returning Some
@@ -54,7 +52,7 @@ pub fn parse_literal<'src>(
         let original_len = text.len();
         *text = &text[1..];
 
-        match 'try_parsing: {
+        let exponent = 'try_parsing: {
             if text.is_empty() {
                 break 'try_parsing None;
             }
@@ -78,7 +76,8 @@ pub fn parse_literal<'src>(
                 (_, Some(number)) => Some(BigInt::new(sign, number.to_u32_digits())),
                 _ => None,
             }
-        } {
+        };
+        match exponent {
             Some(exponent) => Some(exponent),
             None => {
                 _ = push_over_until_none_identifier_char(text, span);
