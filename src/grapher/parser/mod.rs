@@ -1,22 +1,23 @@
 use std::collections::HashMap;
 
 use crate::{
-    error::{Position, Span},
+    error::Span,
     grapher::{
-        Graph, GraphError, GraphResult,
+        Graph, GraphError, GraphResult, IdentToken,
         graph::{MemID, ValueID, ValueKind},
-        symbols::{Scopes, Symbol},
+        parser::overwrites::{Branches, Overwrites},
     },
-    literal_parsing::Literal,
     tokenizing::{
         TokenStream,
         token::{Token, TokenKind},
-        unary_op::UnaryOp,
     },
-    type_parsing::AtomicType,
 };
 
+mod overwrites;
 mod parsing;
+mod symbols;
+
+pub use symbols::{Scopes, Symbol, SymbolDump};
 
 #[derive(Clone)]
 pub struct LoopContext<'src> {
@@ -38,6 +39,7 @@ pub struct GraphBuilder<'tokens, 'src, T: TokenStream<'src>> {
     tokens: &'tokens mut T,
     pub graph: Graph<'src>,
     symbols: Scopes<'src>,
+    overwrites: Branches<'src>,
     // pub loops: Vec<LoopContext<'src>>,
     // pub reachable: bool,
     // pub last_jump: Option<Token<'src>>,
@@ -50,6 +52,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             tokens,
             graph: Graph::new(),
             symbols: Scopes::new(),
+            overwrites: Branches::new(),
             // loops: Vec::new(),
             // reachable: true,
             // last_jump: None,
@@ -76,58 +79,54 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         self.tokens.peek()
     }
 
-    pub fn expect_name(&mut self) -> GraphResult<'src, &'src str> {
+    pub fn get_name(&mut self) -> IdentToken<'src> {
+        let tok = self.advance();
+        IdentToken {
+            src: tok.src,
+            span: tok.span,
+        }
+    }
+
+    pub fn expect_name(&mut self) -> GraphResult<'src, IdentToken<'src>> {
         if self.peek().kind == TokenKind::Name {
-            Ok(self.advance().src)
+            let name = self.advance();
+            Ok(IdentToken {
+                src: name.src,
+                span: name.span,
+            })
         } else {
             Err(GraphError::ExpectedItem { found: self.peek() })
         }
     }
 
-    pub fn last_pos(&self) -> Position {
-        self.tokens.last_pos()
+    pub fn open_scope(&mut self) {
+        self.overwrites.open_scope();
+        self.symbols.open_scope();
     }
 
-    pub fn get_literal(&mut self) -> Literal<'src> {
-        self.tokens.get_literal()
-    }
-
-    pub fn get_quote(&mut self) -> String {
-        self.tokens.get_quote()
-    }
-
-    pub fn get_type(&mut self) -> AtomicType {
-        self.tokens.get_type()
+    pub fn close_scope(&mut self) {
+        self.overwrites.close_scope();
+        self.symbols.close_scope();
     }
 
     pub fn declare_variable(
         &mut self,
-        decl: Span,
         name: &'src str,
         type_: ValueID<'src>,
-        value: Option<ValueID<'src>>,
-    ) -> GraphResult<'src, ()> {
-        let assignment = value.unwrap_or_else(|| self.graph.add_unitialized());
-
-        self.symbols
-            .add_variable(decl, name, Symbol { type_, assignment })
+        value: ValueID<'src>,
+        mutable: bool,
+    ) {
+        self.symbols.add_symbol(
+            name,
+            Symbol {
+                mutable,
+                type_,
+                assignment: value,
+            },
+        )
     }
 
-    pub fn declare_mutable(
-        &mut self,
-        decl: Span,
-        name: &'src str,
-
-        type_: ValueID<'src>,
-        value: Option<ValueID<'src>>,
-    ) -> GraphResult<'src, ()> {
-        let assignment = value.unwrap_or_else(|| self.graph.add_unitialized());
-
-        self.symbols
-            .add_mutable(decl, name, Symbol { type_, assignment })
-    }
-
-    pub fn declare_const(
+    /*pub fn declare_const(
         &mut self,
         decl: Span,
         name: &'src str,
@@ -142,64 +141,56 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 assignment: value,
             },
         )
+        }*/
+
+    pub fn write_variable(&mut self, assignment: Span, name: &'src str, value: ValueID<'src>) {
+        if let Some(symbol) = self
+            .symbols
+            .get_mutable_in_this_branch(name, self.overwrites.scopes_within_branch())
+        {
+            symbol.assignment = value;
+        } else {
+            self.overwrites.add(assignment, name, value);
+        }
     }
 
-    /*
-    pub fn assign_variable(
-        &mut self,
-        name: Token<'src>,
-        value: ValID<'src>,
-    ) -> GraphResult<'src, ()> {
-        let Some(existing) = self.symbols.mutable(name.src) else {
-            return Err(GraphError::AssignmentToUnknownVar { ident: name });
-        };
-        let existing_assignment = existing.assignment.clone();
-
-        if existing_assignment.kind == ValKind::UnInitialized {
-            if let Some(symbol) = self.symbols.get_mut(name.src) {
-                symbol.assignment = value;
+    pub fn read_variable(&mut self, name: IdentToken<'src>) -> GraphResult<'src, ValueID<'src>> {
+        match self.symbols.use_symbol(&mut self.graph, name.src) {
+            Ok(symbol) if symbol.assignment.kind == ValueKind::UnInitialized => {
+                Err(GraphError::TriedToReadUnitialized { name })
             }
-            return Ok(());
-        }
-
-        let ValKind::Unary {
-            op: UnaryOp::Ptr,
-            input,
-        } = &existing_assignment.kind
-        else {
-            return Err(GraphError::AssignmentToImmutableIdent { ident: name });
-        };
-
-        let new_mem = self.add_store(input.clone(), value);
-        self.latest_mem = new_mem;
-        Ok(())
-    }*/
-
-    pub fn read_variable(&mut self, name: Token<'src>) -> GraphResult<'src, ValueID<'src>> {
-        match self.symbols.register_symbol(&mut self.graph, name.src) {
-            Ok(symbol) => {
-                if symbol.assignment.kind == ValueKind::UnInitialized {
-                    Err(GraphError::TriedToReadUnitialized { ident: name })
-                } else if let ValueKind::Unary {
-                    op: UnaryOp::Ptr,
-                    input,
-                } = &symbol.assignment.kind
-                {
-                    Ok(self.graph.add_load(input.clone()))
-                } else {
-                    Ok(symbol.assignment.clone())
-                }
-            }
+            Ok(symbol) => Ok(symbol.assignment.clone()),
             Err(node) => Ok(node),
         }
     }
 
-    /*
-    pub fn snapshot_symbols(&self) -> HashMap<&'src str, Symbol<'src>> {
-        self.scope.symbols.clone()
-    }
+    fn merge_overwrites(
+        &mut self,
+        condition: ValueID<'src>,
+        overwrites_when_true: Overwrites<'src>,
+        mut overwrites_when_false: Overwrites<'src>,
+    ) -> GraphResult<'src, ()> {
+        for (name, (when_true, assignments)) in overwrites_when_true {
+            let span = *assignments.last();
+            let symbol = self.symbols.get_symbol_to_assign(span, name)?;
 
-    pub fn replace_symbols(&mut self, snapshot: HashMap<&'src str, Symbol<'src>>) {
-        self.scope.symbols = snapshot;
-    }*/
+            symbol.assignment = if let Some((when_false, _)) = overwrites_when_false.remove(name) {
+                self.graph.add_phi(condition.clone(), when_true, when_false)
+            } else {
+                self.graph
+                    .add_phi(condition.clone(), when_true, symbol.assignment.clone())
+            };
+        }
+
+        for (name, (when_false, assignments)) in overwrites_when_false {
+            let span = *assignments.last();
+            let symbol = self.symbols.get_symbol_to_assign(span, name)?;
+
+            symbol.assignment =
+                self.graph
+                    .add_phi(condition.clone(), symbol.assignment.clone(), when_false);
+        }
+
+        Ok(())
+    }
 }

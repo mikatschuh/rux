@@ -6,7 +6,7 @@ use crate::{
     grapher::{
         Graph,
         graph::{MemID, ValueID, ValueKind},
-        symbols::{Scopes, SymbolDump},
+        parser::{Scopes, SymbolDump},
     },
     tokenizing,
 };
@@ -22,22 +22,8 @@ impl<'src> Graph<'src> {
 
         let mut graph: GraphDump = petgraph::Graph::new();
 
-        let SymbolDump {
-            constants,
-            variables,
-            mutables,
-        } = scope.all_symbols();
+        let SymbolDump { variables } = scope.all_symbols();
 
-        for (name, symbol) in constants {
-            let name = graph.add_node(name.to_string());
-            let value = process_value_node(
-                &mut graph,
-                &mut visited_value_nodes,
-                &mut visited_memory_nodes,
-                symbol.assignment,
-            );
-            graph.add_edge(name, value, "constant");
-        }
         for (name, symbol) in variables {
             let name = graph.add_node(name.to_string());
             let value = process_value_node(
@@ -46,19 +32,16 @@ impl<'src> Graph<'src> {
                 &mut visited_memory_nodes,
                 symbol.assignment,
             );
-            graph.add_edge(name, value, "variable");
-        }
-        for (name, symbol) in mutables {
-            let name = graph.add_node(name.to_string());
-            let value = process_value_node(
-                &mut graph,
-                &mut visited_value_nodes,
-                &mut visited_memory_nodes,
-                symbol.assignment,
+            graph.add_edge(
+                name,
+                value,
+                if symbol.mutable {
+                    "mutable"
+                } else {
+                    "variable"
+                },
             );
-            graph.add_edge(name, value, "mutable");
         }
-
         dump_cytoscape(&graph)
     }
 }
@@ -78,7 +61,7 @@ pub fn process_value_node<'src>(
         AtomicType { ty } => graph.add_node(format!("atomic-type {:?}", ty)),
         Literal { literal } => graph.add_node(format!("literal {}", literal)),
         Quote { quote } => graph.add_node(format!(
-            "literal {}",
+            "literal \"{}\"",
             tokenizing::with_written_out_escape_sequences(&quote)
         )),
         Boolean(boolean) => graph.add_node(format!("literal {}", boolean)),
@@ -149,7 +132,10 @@ fn build_elements(g: &GraphDump) -> String {
         out += &format!(
             "{{ data: {{ id: '{}', label: '{}', group: '{}' }} }},\n",
             idx.index(),
-            label.replace('\'', "\\'").replace('\\', "\\\\"),
+            label
+                .replace('\'', "\\'")
+                .replace('\\', "\\\\")
+                .replace('"', "\\\""),
             group
         );
     }

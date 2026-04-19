@@ -1,6 +1,6 @@
 use crate::{
     error::Span,
-    grapher::{parser::GraphBuilder, symbols::Scopes},
+    grapher::parser::{GraphBuilder, Scopes},
     tokenizing::{TokenStream, token::Token},
 };
 use std::fmt::{self};
@@ -8,7 +8,6 @@ use std::fmt::{self};
 mod graph;
 pub mod graph_dump;
 mod parser;
-mod symbols;
 #[cfg(test)]
 mod test;
 
@@ -22,6 +21,12 @@ pub fn build_debug_graph<'src>(
     tokens: &mut impl TokenStream<'src>,
 ) -> GraphResult<'src, (Graph<'src>, Scopes<'src>)> {
     GraphBuilder::new(tokens).debug_build()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IdentToken<'src> {
+    src: &'src str,
+    span: Span,
 }
 
 pub type GraphResult<'src, T> = Result<T, GraphError<'src>>;
@@ -64,16 +69,15 @@ pub enum GraphError<'src> {
 
     AssignmentToUnknownVar {
         name: &'src str,
-        span: Span,
+        assignment: Span,
     },
     AssignmentToImmutableIdent {
-        ident: Token<'src>,
+        name: &'src str,
+        assigment: Span,
     },
+
     TriedToReadUnitialized {
-        ident: Token<'src>,
-    },
-    InvalidLiteral {
-        token: Token<'src>,
+        name: IdentToken<'src>,
     },
 
     MismatchedBracket {
@@ -115,25 +119,23 @@ impl fmt::Display for GraphError<'_> {
                 write!(f, "const {name} conflicting with const at {:?}", decl)
             }
 
-            AssignmentToUnknownVar { name, span } => write!(
+            AssignmentToUnknownVar { name, assignment } => write!(
                 f,
                 "assignment to unknown identifier '{}' at {:?}",
-                name, span
+                name, assignment
             ),
-            AssignmentToImmutableIdent { ident } => write!(
+            AssignmentToImmutableIdent { name, assigment } => write!(
                 f,
                 "assignment to immutable identifier '{}' at {:?}",
-                ident.src, ident.span
+                name, assigment
             ),
-            TriedToReadUnitialized { ident } => {
+
+            TriedToReadUnitialized { name } => {
                 write!(
                     f,
                     "identifier '{}' read without being ever assigned at {:?}",
-                    ident.src, ident.span
+                    name.src, name.span
                 )
-            }
-            InvalidLiteral { token } => {
-                write!(f, "invalid literal '{}' at {:?}", token.src, token.span)
             }
             MismatchedBracket { opener, closer } => write!(
                 f,

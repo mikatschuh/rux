@@ -134,6 +134,10 @@ enum ValueKey<'src> {
     },
 }
 
+const UNIT: ValueNode<'static> = ValueNode {
+    kind: ValueKind::Unit,
+};
+
 #[derive(Debug)]
 pub struct Graph<'src> {
     arena: Bump,

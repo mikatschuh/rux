@@ -6,8 +6,7 @@ use crate::{
     grapher::{
         GraphResult,
         graph::{MemID, MemKind, ValueID, ValueKind},
-        parser::GraphBuilder,
-        symbols::Scopes,
+        parser::{GraphBuilder, Scopes},
     },
     literal_parsing::{Base, Literal},
     tokenizing::{Tokenizer, binary_op::BinaryOp, unary_op::UnaryOp},

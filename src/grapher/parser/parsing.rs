@@ -1,5 +1,7 @@
+use std::collections::HashMap;
+
 use crate::{
-    grapher::{GraphError, GraphResult, graph::ValueID, parser::GraphBuilder},
+    grapher::{GraphError, GraphResult, IdentToken, graph::ValueID, parser::GraphBuilder},
     tokenizing::{
         TokenStream,
         token::{Bracket, Keyword, Token, TokenKind},
@@ -18,8 +20,12 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         match self.peek().kind {
             TokenKind::Keyword(keyword) => match keyword {
                 Keyword::Const => {
-                    let const_ = self.advance();
-                    self.parse_const(const_)
+                    /*
+                        let const_ = self.advance();
+                        self.parse_const(const_)
+                    */
+
+                    todo!()
                 }
                 Keyword::Fn => todo!(),
                 Keyword::Enum => todo!(),
@@ -37,16 +43,19 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 self.advance();
                 Ok(self.graph.add_unit())
             }
-            /*TokenKind::Name => {
-                let name = self.advance().src;
-                self.parse_pattern_name(name)?;
+            TokenKind::Name => {
+                let name = self.expect_name().unwrap();
+                self.parse_assignment(name)?;
                 Ok(self.graph.add_unit())
-            }*/
+            }
             TokenKind::Keyword(keyword) => match keyword {
                 Keyword::Const => {
+                    /*
                     let const_ = self.advance();
                     self.parse_const(const_)?;
                     Ok(self.graph.add_unit())
+                    */
+                    todo!()
                 }
                 Keyword::Fn => todo!(),
                 Keyword::Enum => todo!(),
@@ -82,17 +91,17 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     fn parse_primary(&mut self) -> GraphResult<'src, ValueID<'src>> {
         match self.peek().kind {
             TokenKind::Type => {
-                let type_ = self.get_type();
+                let type_ = self.tokens.get_type();
                 self.advance();
                 Ok(self.graph.add_type(type_))
             }
             TokenKind::Literal => {
-                let literal = self.get_literal();
+                let literal = self.tokens.get_literal();
                 self.advance();
                 Ok(self.graph.add_literal(literal))
             }
             TokenKind::Quote { .. } => {
-                let quote = self.get_quote();
+                let quote = self.tokens.get_quote();
                 self.advance();
                 Ok(self.graph.add_quote(quote))
             }
@@ -101,7 +110,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 Ok(self.graph.add_bool(boolean))
             }
             TokenKind::Name => {
-                let name = self.advance();
+                let name = self.expect_name()?;
                 self.read_variable(name)
             }
             TokenKind::Open(Bracket::Curly) => {
@@ -163,19 +172,19 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     }
 
     fn parse_block(&mut self, _opener: Token<'src>) -> GraphResult<'src, ValueID<'src>> {
-        self.symbols.open_scope();
+        self.open_scope();
         loop {
             match self.peek().kind {
                 TokenKind::Closed(Bracket::Curly) => {
                     self.advance();
-                    self.symbols.close_scope();
+                    self.close_scope();
                     return Ok(self.graph.add_unit());
                 }
                 _ => {
                     let value = self.parse_statement()?;
                     if self.peek().kind == TokenKind::Closed(Bracket::Curly) {
                         self.advance();
-                        self.symbols.close_scope();
+                        self.close_scope();
                         return Ok(value);
                     }
                 }
@@ -183,8 +192,8 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_let(&mut self, let_: Token<'src>) -> GraphResult<'src, ()> {
-        let name = self.expect_name()?;
+    fn parse_let(&mut self, _let: Token<'src>) -> GraphResult<'src, ()> {
+        let name = self.expect_name()?.src;
 
         if self.peek().kind == TokenKind::Equal {
             // type inference
@@ -197,15 +206,16 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 self.advance();
                 let value = self.parse_expr(0)?;
 
-                self.declare_variable(let_.span - self.last_pos(), name, type_, Some(value))
+                self.declare_variable(name, type_, value, false);
+                Ok(())
             } else {
-                self.declare_variable(let_.span - self.last_pos(), name, type_, None)
+                Err(GraphError::ExpectedAssignment { found: self.peek() })
             }
         }
     }
 
-    fn parse_var(&mut self, var: Token<'src>) -> GraphResult<'src, ()> {
-        let name = self.expect_name()?;
+    fn parse_var(&mut self, _var: Token<'src>) -> GraphResult<'src, ()> {
+        let name = self.expect_name()?.src;
 
         if self.peek().kind == TokenKind::Equal {
             // type inference
@@ -218,15 +228,16 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 self.advance();
                 let value = self.parse_expr(0)?;
 
-                self.declare_mutable(var.span - self.last_pos(), name, type_, Some(value))
+                self.declare_variable(name, type_, value, true);
+                Ok(())
             } else {
-                self.declare_mutable(var.span - self.last_pos(), name, type_, None)
+                Err(GraphError::ExpectedAssignment { found: self.peek() })
             }
         }
     }
 
-    fn parse_const(&mut self, const_: Token<'src>) -> GraphResult<'src, ()> {
-        let name = self.expect_name()?;
+    /*fn parse_const(&mut self, const_: Token<'src>) -> GraphResult<'src, ()> {
+        let name = self.expect_name()?.src;
 
         if self.peek().kind == TokenKind::Equal {
             // type inference
@@ -244,60 +255,48 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 Err(GraphError::ExpectedAssignment { found: self.peek() })
             }
         }
-    }
+    }*/
 
-    fn parse_pattern_name(&mut self, name: &'src str) -> GraphResult<'src, ()> {
+    fn parse_assignment(&mut self, name: IdentToken<'src>) -> GraphResult<'src, ValueID<'src>> {
         if self.peek().kind == TokenKind::Equal {
             self.advance();
             let value = self.parse_expr(0)?;
-            todo!()
-            // self.assign_variable(name, value)?;
+            self.write_variable(name.span - self.tokens.last_pos(), name.src, value);
+            Ok(self.graph.add_unit())
+        } else {
+            self.read_variable(name)
         }
-        Ok(())
     }
 
     fn parse_if(&mut self, _if: Token<'src>) -> GraphResult<'src, ValueID<'src>> {
         let condition = self.parse_expr(0)?;
+        self.overwrites.open_branch();
         let when_true = self.parse_expr(0)?;
+        let overwrites_when_true = self.overwrites.close_branch();
 
-        match self.peek().kind {
-            TokenKind::Keyword(Keyword::Else) => {
-                self.advance();
-            }
-            _ => {
-                return Err(GraphError::UnexpectedToken {
-                    expected: "else",
-                    found: self.peek(),
-                });
-            }
-        }
-
-        let when_false = self.parse_expr(0)?;
-
-        Ok(self.graph.add_phi(condition, when_true, when_false))
-    }
-
-    /*
-    fn parse_if_statement(&mut self) -> GraphResult<'src, ()> {
-        self.advance(); // consume 'if'
-        let condition = self.parse_expr(binding_pow::EXPR)?;
-        let before_state = self.snapshot_state();
-        let when_true_state = self.parse_branch_block()?;
-
-        self.restore_state(before_state.clone());
-
-        let when_false_state = if matches!(self.peek().kind, TokenKind::Keyword(Keyword::Else)) {
+        if self.peek().kind == TokenKind::Keyword(Keyword::Else) {
             self.advance();
-            self.parse_branch_block()?
-        } else {
-            before_state.clone()
-        };
 
-        self.finish_branch_merge(condition, before_state, when_true_state, when_false_state);
-        Ok(())
+            self.overwrites.open_branch();
+            let when_false = self.parse_expr(0)?;
+            let overwrites_when_false = self.overwrites.close_branch();
+
+            self.merge_overwrites(
+                condition.clone(),
+                overwrites_when_true,
+                overwrites_when_false,
+            )?;
+
+            Ok(self.graph.add_phi(condition, when_true, when_false))
+        } else {
+            self.merge_overwrites(condition.clone(), overwrites_when_true, HashMap::new())?;
+
+            let unit = self.graph.add_unit();
+            Ok(self.graph.add_phi(condition, when_true, unit))
+        }
     }
 
-    fn parse_loop_statement(&mut self) -> GraphResult<'src, ()> {
+    /*fn parse_loop_statement(&mut self) -> GraphResult<'src, ()> {
         self.advance(); // consume 'loop'
         let before_loop = self.graph.latest_mem.clone();
         let loop_head = self.parse_loop_header()?;
@@ -402,11 +401,6 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     }*/
 
     /*
-    fn parse_branch_block(&mut self) -> GraphResult<'src, ParserState<'src>> {
-        let block_open = self.expect_open_curly()?;
-        self.parse_block(block_open)?;
-        Ok(self.snapshot_state())
-    }
 
     fn finish_branch_merge(
         &mut self,
@@ -662,6 +656,5 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         self.loops = state.loops;
         self.reachable = state.reachable;
         self.last_jump = state.last_jump;
-    }
-    */
+    }*/
 }
