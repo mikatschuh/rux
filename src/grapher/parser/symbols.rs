@@ -9,123 +9,173 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub struct Symbol<'src> {
-    pub mutable: bool,
     pub type_: ValueID<'src>,
-    pub assignment: ValueID<'src>,
+    pub value: ValueID<'src>,
 }
 
 #[derive(Debug)]
 pub struct Scope<'src> {
-    variables: HashMap<&'src str, Symbol<'src>>,
+    immutables: HashMap<&'src str, Symbol<'src>>,
+    mutables: HashMap<&'src str, Symbol<'src>>,
 }
 
-pub struct Scopes<'src> {
-    scopes: NonEmpty<Scope<'src>>,
-    unknowns: HashMap<&'src str, Vec<ValueID<'src>>>, // all nodes that represent the unknown constants
+pub type Overwrites<'src> = HashMap<*mut ValueID<'src>, ValueID<'src>>;
+
+#[derive(Debug)]
+pub struct Branch<'src> {
+    pub scopes: Vec<Scope<'src>>,
+    pub overwrites: Overwrites<'src>,
+}
+
+pub struct ScopedSymbolTable<'src> {
+    pub branches: NonEmpty<Branch<'src>>,
+    unknowns: HashMap<&'src str, ValueID<'src>>, // all nodes that represent the unknown constants
 }
 
 impl<'src> Scope<'src> {
     fn new() -> Self {
         Self {
-            variables: HashMap::new(),
+            immutables: HashMap::new(),
+            mutables: HashMap::new(),
         }
     }
 }
 
-impl<'src> Scopes<'src> {
+impl<'src> ScopedSymbolTable<'src> {
     pub fn new() -> Self {
         Self {
-            scopes: NonEmpty::new(Scope::new()),
+            branches: NonEmpty::new(Branch {
+                scopes: vec![Scope::new()],
+                overwrites: HashMap::new(),
+            }),
             unknowns: HashMap::new(),
         }
     }
 
-    fn current(&mut self) -> &mut Scope<'src> {
-        self.scopes.last_mut()
+    pub fn branches(&mut self) -> Rev<impl DoubleEndedIterator<Item = &mut Branch<'src>> + '_> {
+        self.branches.iter_mut().rev()
     }
 
-    fn scopes(&self) -> Rev<impl DoubleEndedIterator<Item = &Scope<'src>> + '_> {
-        self.scopes.iter().rev()
-    }
-
-    fn scopes_mut(&mut self) -> Rev<impl DoubleEndedIterator<Item = &mut Scope<'src>> + '_> {
-        self.scopes.iter_mut().rev()
+    pub fn current_scope(&mut self) -> &mut Scope<'src> {
+        self.branches.last_mut().scopes.last_mut().unwrap()
     }
 
     pub fn open_scope(&mut self) {
-        self.scopes.push(Scope::new());
+        self.branches.last_mut().scopes.push(Scope::new());
     }
 
     pub fn close_scope(&mut self) {
-        self.scopes.pop();
+        self.branches.last_mut().scopes.pop();
     }
 
-    pub fn use_symbol(
+    pub fn open_branch(&mut self) {
+        self.branches.push(Branch {
+            scopes: vec![],
+            overwrites: HashMap::new(),
+        });
+    }
+
+    #[must_use]
+    pub fn close_branch(&mut self) -> Overwrites<'src> {
+        self.branches.pop().unwrap().overwrites
+    }
+
+    pub fn write_symbol(
         &mut self,
-        graph: &mut Graph<'src>,
+        assignment: Span,
         name: &'src str,
-    ) -> Result<Symbol<'src>, ValueID<'src>> {
-        for scope in self.scopes() {
-            if let Some(symbol) = scope.variables.get(name) {
-                return Ok(symbol.clone());
+        value: ValueID<'src>,
+    ) -> GraphResult<'src, ()> {
+        let mut mutable_found: Option<(ValueID, *mut ValueID<'src>, usize)> = None;
+
+        'outer: for (i, branch) in self.branches.iter_mut().rev().enumerate() {
+            for scope in branch.scopes.iter_mut().rev() {
+                if scope.immutables.contains_key(name) {
+                    return Err(GraphError::AssignmentToImmutableIdent { name, assignment });
+                }
+
+                match scope.mutables.get_mut(name) {
+                    Some(symbol) => {
+                        if i == 0 {
+                            // symbol is within current branch
+                            symbol.value = value;
+                            return Ok(());
+                        } else {
+                            mutable_found = Some((
+                                symbol.value.clone(),
+                                &mut symbol.value as *mut ValueID<'src>,
+                                i,
+                            ));
+                            break 'outer;
+                        }
+                    }
+                    None => continue,
+                }
             }
+        }
+
+        if let Some((mut prev_value, mut outer_scope_overwrite, i)) = mutable_found {
+            let start = self.branches.len() - i;
+            for branch in self.branches.iter_mut().skip(start) {
+                if let Some(overwrite) = branch.overwrites.get_mut(&outer_scope_overwrite) {
+                    outer_scope_overwrite = overwrite as *mut ValueID;
+                    prev_value = overwrite.clone();
+                } else {
+                    branch
+                        .overwrites
+                        .insert(outer_scope_overwrite, prev_value.clone());
+                    outer_scope_overwrite =
+                        branch.overwrites.get_mut(&outer_scope_overwrite).unwrap() as *mut ValueID;
+                }
+            }
+            unsafe { *outer_scope_overwrite = value }
+
+            return Ok(());
+        }
+
+        Err(GraphError::AssignmentToUnknownVar { name, assignment })
+    }
+
+    pub fn use_symbol(&mut self, graph: &mut Graph<'src>, name: &'src str) -> ValueID<'src> {
+        let mut mutable_found: Option<(*mut ValueID<'src>, usize)> = None;
+
+        'outer: for (i, branch) in self.branches.iter_mut().rev().enumerate() {
+            for scope in branch.scopes.iter_mut().rev() {
+                if let Some(symbol) = scope.immutables.get(name) {
+                    return symbol.value.clone();
+                }
+                if let Some(symbol) = scope.mutables.get_mut(name) {
+                    mutable_found = Some((&mut symbol.value as *mut ValueID<'src>, i));
+                    break 'outer;
+                }
+            }
+        }
+
+        if let Some((symbol_ptr, i)) = mutable_found {
+            for branch in self.branches.iter().rev().take(i) {
+                if let Some(overwrite) = branch.overwrites.get(&symbol_ptr) {
+                    return overwrite.clone();
+                }
+            }
+
+            return unsafe { (*symbol_ptr).clone() };
         }
 
         if let Some(unknown) = self.unknowns.get(name) {
-            let unknown = &unknown[0];
-            Err(unknown.clone())
+            unknown.clone()
         } else {
             let new_unknown = graph.add_unknown();
-            self.unknowns.insert(name, vec![new_unknown.clone()]);
+            self.unknowns.insert(name, new_unknown.clone());
 
-            Err(new_unknown)
+            new_unknown
         }
     }
 
-    pub fn add_symbol(&mut self, name: &'src str, symbol: Symbol<'src>) {
-        self.current().variables.insert(name, symbol);
+    pub fn add_immutable(&mut self, name: &'src str, symbol: Symbol<'src>) {
+        self.current_scope().immutables.insert(name, symbol);
     }
-
-    pub fn get_mutable_in_this_branch<'a>(
-        &'a mut self,
-        name: &'src str,
-        scopes_within_branch: usize,
-    ) -> Option<&'a mut Symbol<'src>> {
-        for (i, scope) in self.scopes_mut().enumerate() {
-            if i >= scopes_within_branch {
-                return None;
-            }
-            if let Some(symbol) = scope.variables.get_mut(name)
-                && symbol.mutable
-            {
-                return Some(symbol);
-            }
-        }
-        None
-    }
-
-    pub fn get_symbol_to_assign(
-        &mut self,
-        span: Span,
-        name: &'src str,
-    ) -> GraphResult<'src, &mut Symbol<'src>> {
-        for scope in self.scopes_mut() {
-            if let Some(symbol) = scope.variables.get_mut(name) {
-                return if symbol.mutable {
-                    Ok(symbol)
-                } else {
-                    Err(GraphError::AssignmentToImmutableIdent {
-                        name,
-                        assigment: span,
-                    })
-                };
-            }
-        }
-
-        Err(GraphError::AssignmentToUnknownVar {
-            name,
-            assignment: span,
-        })
+    pub fn add_mutable(&mut self, name: &'src str, symbol: Symbol<'src>) {
+        self.current_scope().mutables.insert(name, symbol);
     }
 
     /*pub fn add_constant(
@@ -153,11 +203,23 @@ impl<'src> Scopes<'src> {
 
     pub fn all_symbols(mut self) -> SymbolDump<'src> {
         SymbolDump {
-            variables: self.current().variables.drain().collect(),
+            immutables: self
+                .branches
+                .last_mut()
+                .scopes
+                .last_mut()
+                .map_or(vec![], |s| s.immutables.drain().collect()),
+            mutables: self
+                .branches
+                .last_mut()
+                .scopes
+                .last_mut()
+                .map_or(vec![], |s| s.mutables.drain().collect()),
         }
     }
 }
 
 pub struct SymbolDump<'src> {
-    pub variables: Vec<(&'src str, Symbol<'src>)>,
+    pub immutables: Vec<(&'src str, Symbol<'src>)>,
+    pub mutables: Vec<(&'src str, Symbol<'src>)>,
 }

@@ -6,7 +6,7 @@ use crate::{
     grapher::{
         Graph,
         graph::{MemID, ValueID, ValueKind},
-        parser::{Scopes, SymbolDump},
+        parser::{ScopedSymbolTable, SymbolDump},
     },
     tokenizing,
 };
@@ -16,31 +16,36 @@ type VisitedValueNodes<'src> = HashMap<ValueID<'src>, NodeIndex>;
 type VisitedMemoryNodes<'src> = HashMap<MemID<'src>, NodeIndex>;
 
 impl<'src> Graph<'src> {
-    pub fn dump_text(&self, scope: Scopes<'src>) -> String {
+    pub fn dump_text(&self, scope: ScopedSymbolTable<'src>) -> String {
         let mut visited_value_nodes: VisitedValueNodes<'src> = HashMap::new();
         let mut visited_memory_nodes: VisitedMemoryNodes<'src> = HashMap::new();
 
         let mut graph: GraphDump = petgraph::Graph::new();
 
-        let SymbolDump { variables } = scope.all_symbols();
+        let SymbolDump {
+            immutables,
+            mutables,
+        } = scope.all_symbols();
 
-        for (name, symbol) in variables {
+        for (name, symbol) in immutables {
             let name = graph.add_node(name.to_string());
             let value = process_value_node(
                 &mut graph,
                 &mut visited_value_nodes,
                 &mut visited_memory_nodes,
-                symbol.assignment,
+                symbol.value,
             );
-            graph.add_edge(
-                name,
-                value,
-                if symbol.mutable {
-                    "mutable"
-                } else {
-                    "variable"
-                },
+            graph.add_edge(name, value, "immutable");
+        }
+        for (name, symbol) in mutables {
+            let name = graph.add_node(name.to_string());
+            let value = process_value_node(
+                &mut graph,
+                &mut visited_value_nodes,
+                &mut visited_memory_nodes,
+                symbol.value,
             );
+            graph.add_edge(name, value, "mutable");
         }
         dump_cytoscape(&graph)
     }
@@ -82,8 +87,6 @@ pub fn process_value_node<'src>(
             op
         }
         Load { mem, addr } => todo!(),
-
-        UnInitialized => graph.add_node("unitialized".to_string()),
 
         Phi {
             condition,

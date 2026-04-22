@@ -1,6 +1,6 @@
 use crate::{
     error::Span,
-    grapher::parser::{GraphBuilder, Scopes},
+    grapher::parser::{GraphBuilder, ScopedSymbolTable},
     tokenizing::{TokenStream, token::Token},
 };
 use std::fmt::{self};
@@ -19,7 +19,7 @@ pub fn build_graph<'src>(tokens: &mut impl TokenStream<'src>) -> GraphResult<'sr
 
 pub fn build_debug_graph<'src>(
     tokens: &mut impl TokenStream<'src>,
-) -> GraphResult<'src, (Graph<'src>, Scopes<'src>)> {
+) -> GraphResult<'src, (Graph<'src>, ScopedSymbolTable<'src>)> {
     GraphBuilder::new(tokens).debug_build()
 }
 
@@ -73,7 +73,7 @@ pub enum GraphError<'src> {
     },
     AssignmentToImmutableIdent {
         name: &'src str,
-        assigment: Span,
+        assignment: Span,
     },
 
     TriedToReadUnitialized {
@@ -124,7 +124,10 @@ impl fmt::Display for GraphError<'_> {
                 "assignment to unknown identifier '{}' at {:?}",
                 name, assignment
             ),
-            AssignmentToImmutableIdent { name, assigment } => write!(
+            AssignmentToImmutableIdent {
+                name,
+                assignment: assigment,
+            } => write!(
                 f,
                 "assignment to immutable identifier '{}' at {:?}",
                 name, assigment

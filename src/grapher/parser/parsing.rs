@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
+    error::Span,
     grapher::{GraphError, GraphResult, IdentToken, graph::ValueID, parser::GraphBuilder},
     tokenizing::{
         TokenStream,
@@ -55,12 +56,12 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
                 Keyword::Let => {
                     let let_ = self.advance();
-                    self.parse_let(let_)?;
+                    self.parse_decl(let_.span, false)?;
                     Ok(self.graph.add_unit())
                 }
                 Keyword::Var => {
                     let var = self.advance();
-                    self.parse_var(var)?;
+                    self.parse_decl(var.span, true)?;
                     Ok(self.graph.add_unit())
                 }
 
@@ -103,7 +104,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             }
             TokenKind::Name => {
                 let name = self.expect_name()?;
-                self.read_variable(name)
+                Ok(self.read_variable(name))
             }
             TokenKind::Open(Bracket::Curly) => {
                 let opener = self.advance();
@@ -164,19 +165,19 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     }
 
     fn parse_block(&mut self, _opener: Token<'src>) -> GraphResult<'src, ValueID<'src>> {
-        self.open_scope();
+        self.symbols.open_scope();
         loop {
             match self.peek().kind {
                 TokenKind::Closed(Bracket::Curly) => {
                     self.advance();
-                    self.close_scope();
+                    self.symbols.close_scope();
                     return Ok(self.graph.add_unit());
                 }
                 _ => {
                     let value = self.parse_statement()?;
                     if self.peek().kind == TokenKind::Closed(Bracket::Curly) {
                         self.advance();
-                        self.close_scope();
+                        self.symbols.close_scope();
                         return Ok(value);
                     }
                 }
@@ -184,7 +185,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_let(&mut self, _let: Token<'src>) -> GraphResult<'src, ()> {
+    fn parse_decl(&mut self, _binding: Span, mutable: bool) -> GraphResult<'src, ()> {
         let name = self.expect_name()?.src;
 
         if self.peek().kind == TokenKind::Equal {
@@ -198,29 +199,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 self.advance();
                 let value = self.parse_expr(0)?;
 
-                self.declare_variable(name, type_, value, false);
-                Ok(())
-            } else {
-                Err(GraphError::ExpectedAssignment { found: self.peek() })
-            }
-        }
-    }
-
-    fn parse_var(&mut self, _var: Token<'src>) -> GraphResult<'src, ()> {
-        let name = self.expect_name()?.src;
-
-        if self.peek().kind == TokenKind::Equal {
-            // type inference
-            todo!()
-        } else {
-            // no type inference
-            let type_ = self.parse_expr(0)?;
-
-            if self.peek().kind == TokenKind::Equal {
-                self.advance();
-                let value = self.parse_expr(0)?;
-
-                self.declare_variable(name, type_, value, true);
+                self.declare_variable(name, type_, value, mutable);
                 Ok(())
             } else {
                 Err(GraphError::ExpectedAssignment { found: self.peek() })
@@ -253,25 +232,26 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         if self.peek().kind == TokenKind::Equal {
             self.advance();
             let value = self.parse_expr(0)?;
-            self.write_variable(name.span - self.tokens.last_pos(), name.src, value);
+            self.symbols
+                .write_symbol(name.span - self.tokens.last_pos(), name.src, value)?;
             Ok(self.graph.add_unit())
         } else {
-            self.read_variable(name)
+            Ok(self.read_variable(name))
         }
     }
 
     fn parse_if(&mut self, _if: Token<'src>) -> GraphResult<'src, ValueID<'src>> {
         let condition = self.parse_expr(0)?;
-        self.overwrites.open_branch();
+        self.symbols.open_branch();
         let when_true = self.parse_expr(0)?;
-        let overwrites_when_true = self.overwrites.close_branch();
+        let overwrites_when_true = self.symbols.close_branch();
 
         if self.peek().kind == TokenKind::Keyword(Keyword::Else) {
             self.advance();
 
-            self.overwrites.open_branch();
+            self.symbols.open_branch();
             let when_false = self.parse_expr(0)?;
-            let overwrites_when_false = self.overwrites.close_branch();
+            let overwrites_when_false = self.symbols.close_branch();
 
             self.merge_overwrites(
                 condition.clone(),
@@ -494,41 +474,6 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 found: token,
             }),
         }
-    }
-
-    fn merge_symbol_versions(
-        &mut self,
-        condition: ValueID<'src>,
-        mut base: HashMap<&'src str, Symbol<'src>>,
-        when_true: HashMap<&'src str, Symbol<'src>>,
-        when_false: HashMap<&'src str, Symbol<'src>>,
-    ) {
-        for (name, symbol) in base.iter_mut() {
-            let base_value = symbol.assignment.clone();
-            if base_value.kind != NodeKind::UnInitialized {
-                continue;
-            }
-
-            let true_value = when_true
-                .get(name)
-                .map(|symbol| symbol.assignment.clone())
-                .unwrap_or_else(|| base_value.clone());
-            let false_value = when_false
-                .get(name)
-                .map(|symbol| symbol.assignment.clone())
-                .unwrap_or_else(|| base_value.clone());
-
-            let new_value = if true_value.ptr_cmp(&false_value) {
-                true_value
-            } else {
-                self.graph
-                    .add_phi(condition.clone(), true_value, false_value)
-            };
-
-            symbol.assignment = new_value;
-        }
-
-        self.replace_symbols(base);
     }
 
     fn merge_mem_versions(

@@ -89,8 +89,6 @@ pub enum ValueKind<'src> {
         addr: ValueID<'src>,
     },
 
-    UnInitialized,
-
     Phi {
         condition: ValueID<'src>,
         when_true: ValueID<'src>,
@@ -126,7 +124,6 @@ enum ValueKey<'src> {
         mem: usize,
         addr: usize,
     },
-    UnInitialized,
     Phi {
         condition: usize,
         when_true: usize,
@@ -262,10 +259,6 @@ impl<'src> Graph<'src> {
         self.push_node(ValueKind::AtomicType { ty: type_ })
     }
 
-    pub fn add_unitialized(&mut self) -> ValueID<'src> {
-        self.push_node(ValueKind::UnInitialized)
-    }
-
     pub fn add_unknown(&mut self) -> ValueID<'src> {
         self.push_node_no_dedup(ValueKind::Unknown)
     }
@@ -304,7 +297,6 @@ impl<'src> ValueKind<'src> {
                 mem: mem.addr(),
                 addr: addr.addr(),
             }),
-            ValueKind::UnInitialized => Some(ValueKey::UnInitialized),
             ValueKind::Phi {
                 condition,
                 when_true,
