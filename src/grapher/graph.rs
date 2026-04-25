@@ -32,12 +32,17 @@ pub struct Branch<'src> {
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum MemKind<'src> {
     Start,
+    Merge {
+        a: MemID<'src>,
+        b: MemID<'src>,
+    },
     TrueBranch {
         branch: BranchID<'src>,
     },
     FalseBranch {
         branch: BranchID<'src>,
     },
+
     LoopHead {
         ctrl: MemID<'src>,
         condition: ValueID<'src>,
@@ -48,9 +53,6 @@ pub enum MemKind<'src> {
     },
     PlaceHolder {
         ctrl: MemID<'src>,
-    },
-    Merge {
-        branch: BranchID<'src>,
     },
 
     Store {
@@ -182,8 +184,8 @@ impl<'src> Graph<'src> {
         Rc::<MemNode<'src>, NoDealloc>::new_in_bump(node, &self.arena)
     }
 
-    pub fn add_mem_merge(&mut self, branch: BranchID<'src>) -> MemID<'src> {
-        self.push_mem_node(MemKind::Merge { branch })
+    pub fn add_mem_merge(&mut self, a: MemID<'src>, b: MemID<'src>) -> MemID<'src> {
+        self.push_mem_node(MemKind::Merge { a, b })
     }
 
     pub fn add_loop_head(&mut self, condition: ValueID<'src>, ctrl: MemID<'src>) -> MemID<'src> {

@@ -5,9 +5,11 @@ use crate::{
 };
 use std::fmt::{self};
 
+#[allow(unused)]
 mod graph;
 pub mod graph_dump;
 mod parser;
+#[allow(unused)]
 #[cfg(test)]
 mod test;
 

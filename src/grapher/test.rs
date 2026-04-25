@@ -22,7 +22,9 @@ fn tokenizer_for(source: &'static str) -> Tokenizer<'static> {
     Tokenizer::new(source.as_bytes(), errors, TARGET_PTR_SIZE)
 }
 
-fn parse(source: &'static str) -> GraphResult<'static, (Graph, ScopedSymbolTable<'static>)> {
+fn parse(
+    source: &'static str,
+) -> GraphResult<'static, (Graph<'static>, ScopedSymbolTable<'static>)> {
     let mut tokenizer = tokenizer_for(source);
     GraphBuilder::new(&mut tokenizer).debug_build()
 }

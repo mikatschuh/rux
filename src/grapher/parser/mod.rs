@@ -127,7 +127,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }*/
 
     pub fn read_variable(&mut self, name: IdentToken<'src>) -> ValueID<'src> {
-        self.symbols.use_symbol(&mut self.graph, name.src)
+        self.symbols.read_symbol(&mut self.graph, name.src)
     }
 
     fn merge_overwrites(
