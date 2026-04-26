@@ -10,7 +10,6 @@ use std::{
     fs::*,
     io::Read,
     path::{Path, PathBuf},
-    time::Instant,
 };
 
 #[derive(Clone, Debug)]
@@ -98,7 +97,7 @@ impl Task {
                 let mut content = vec![];
                 file.read_to_end(&mut content)?;
 
-                let now = Instant::now();
+                // let now = Instant::now();
 
                 let parsing_errors = Rc::new(Errors::empty(path));
 
@@ -107,7 +106,7 @@ impl Task {
                 let (graph, scope) = build_debug_graph(&mut tokenizer).expect("graph");
 
                 // Debug Print
-                let time = now.elapsed().as_nanos();
+                // let time = now.elapsed().as_nanos();
 
                 println!("{}", graph.dump_text(scope));
             }

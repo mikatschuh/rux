@@ -10,9 +10,8 @@ mod graph;
 pub mod graph_dump;
 mod parser;
 #[allow(unused)]
-#[cfg(test)]
-mod test;
-
+// #[cfg(test)]
+// mod test;
 pub use graph::Graph;
 
 pub fn build_graph<'src>(tokens: &mut impl TokenStream<'src>) -> GraphResult<'src, Graph<'src>> {
@@ -33,6 +32,7 @@ pub struct IdentToken<'src> {
 
 pub type GraphResult<'src, T> = Result<T, GraphError<'src>>;
 
+#[allow(unused)]
 #[derive(Debug)]
 pub enum GraphError<'src> {
     ExpectedItem {

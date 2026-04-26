@@ -15,7 +15,9 @@ use crate::{
 };
 use std::mem::{self};
 
+#[allow(unused)]
 pub mod binary_op;
+#[allow(unused)]
 pub mod binding_pow;
 pub mod parse_tok;
 mod quote;
@@ -24,6 +26,7 @@ mod quote;
 pub mod test;
 #[allow(dead_code)]
 pub mod token;
+#[allow(unused)]
 pub mod unary_op;
 
 pub use quote::with_written_out_escape_sequences;

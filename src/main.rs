@@ -18,8 +18,6 @@ mod utilities;
 mod codegen;
 mod grapher;
 mod literal_parsing;
-#[allow(dead_code)]
-mod vms;
 /*
 ___    __
 |#/    `"\_

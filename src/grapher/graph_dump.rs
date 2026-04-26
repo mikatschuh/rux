@@ -94,7 +94,7 @@ pub fn process_value_node<'src>(
             graph.add_edge(op, rhs, "b");
             op
         }
-        Load { mem, addr } => todo!(),
+        Load { .. } => todo!(),
 
         Phi {
             condition,
@@ -187,7 +187,28 @@ pub fn process_memory_node<'src>(
             graph.add_edge(merge, b, "mem b");
             merge
         }
-        _ => todo!(),
+        LoopHead {
+            ctrl,
+            condition,
+            backedge,
+        } => {
+            let ctrl = process_memory_node(graph, visited_value_nodes, visited_memory_nodes, ctrl);
+            let condition =
+                process_value_node(graph, visited_value_nodes, visited_memory_nodes, condition);
+            let backedge =
+                process_memory_node(graph, visited_value_nodes, visited_memory_nodes, backedge);
+            let loop_head = graph.add_node(mem!("loop"));
+            graph.add_edge(loop_head, ctrl, "mem ctrl");
+            graph.add_edge(loop_head, backedge, "backedge");
+            graph.add_edge(loop_head, condition, "condition");
+            loop_head
+        }
+        PlaceHolder { ctrl } => {
+            let ctrl = process_memory_node(graph, visited_value_nodes, visited_memory_nodes, ctrl);
+            let place_holder = graph.add_node(mem!("place holder"));
+            graph.add_edge(place_holder, ctrl, "");
+            place_holder
+        }
     };
 
     visited_memory_nodes.insert(node, idx);

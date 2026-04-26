@@ -1,10 +1,6 @@
-use std::collections::HashMap;
-
 use crate::{
     grapher::{
-        Graph, GraphError, GraphResult, IdentToken,
-        graph::{MemID, ValueID},
-        parser::symbols::Overwrites,
+        Graph, GraphError, GraphResult, IdentToken, graph::ValueID, parser::symbols::Overwrites,
     },
     tokenizing::{
         TokenStream,
@@ -18,29 +14,10 @@ mod symbols;
 
 pub use symbols::{ScopedSymbolTable, Symbol, SymbolDump};
 
-#[derive(Clone)]
-pub struct LoopContext<'src> {
-    pub loop_head: MemID<'src>,
-    pub break_mem: Option<MemID<'src>>,
-    pub continue_mem: Option<MemID<'src>>,
-}
-
-#[derive(Clone)]
-pub struct ParserState<'src> {
-    pub symbols: HashMap<&'src str, Symbol<'src>>,
-    pub mem: MemID<'src>,
-    pub loops: Vec<LoopContext<'src>>,
-    pub reachable: bool,
-    pub last_jump: Option<Token<'src>>,
-}
-
 pub struct GraphBuilder<'tokens, 'src, T: TokenStream<'src>> {
     tokens: &'tokens mut T,
     pub graph: Graph<'src>,
     pub symbols: ScopedSymbolTable<'src>,
-    // pub loops: Vec<LoopContext<'src>>,
-    // pub reachable: bool,
-    // pub last_jump: Option<Token<'src>>,
 }
 
 #[allow(dead_code)]
@@ -109,23 +86,6 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             self.symbols.add_immutable(name, Symbol { type_, value })
         }
     }
-
-    /*pub fn declare_const(
-        &mut self,
-        decl: Span,
-        name: &'src str,
-        type_: ValueID<'src>,
-        value: ValueID<'src>,
-    ) -> GraphResult<'src, ()> {
-        self.symbols.add_constant(
-            decl,
-            name,
-            Symbol {
-                type_,
-                assignment: value,
-            },
-        )
-        }*/
 
     pub fn read_variable(&mut self, name: IdentToken<'src>) -> ValueID<'src> {
         self.symbols.read_symbol(&mut self.graph, name.src)

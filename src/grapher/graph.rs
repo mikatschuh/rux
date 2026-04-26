@@ -48,18 +48,8 @@ pub enum MemKind<'src> {
         condition: ValueID<'src>,
         backedge: MemID<'src>,
     },
-    StepClause {
-        ctrl: MemID<'src>,
-    },
     PlaceHolder {
         ctrl: MemID<'src>,
-    },
-
-    Store {
-        mem: MemID<'src>,
-
-        addr: ValueID<'src>,
-        val: ValueID<'src>,
     },
 }
 
@@ -203,7 +193,9 @@ impl<'src> Graph<'src> {
         )
     }
 
-    pub fn add_loop_head(&mut self, condition: ValueID<'src>, ctrl: MemID<'src>) -> MemID<'src> {
+    pub fn add_loop_head(&mut self, condition: ValueID<'src>) -> MemID<'src> {
+        let ctrl = self.current_mem();
+        let place_holder = self.add_placeholder(ctrl.clone());
         self.push_mem_node(MemKind::LoopHead {
             condition,
             ctrl,
@@ -211,20 +203,8 @@ impl<'src> Graph<'src> {
         })
     }
 
-    pub fn add_step_clause(&mut self, ctrl: MemID<'src>) -> MemID<'src> {
-        self.push_mem_node(MemKind::StepClause { ctrl })
-    }
-
     pub fn add_placeholder(&mut self, ctrl: MemID<'src>) -> MemID<'src> {
         self.push_mem_node(MemKind::PlaceHolder { ctrl })
-    }
-
-    pub fn add_store(&mut self, addr: ValueID<'src>, val: ValueID<'src>) -> MemID<'src> {
-        self.push_mem_node(MemKind::Store {
-            mem: self.current_mem(),
-            addr,
-            val,
-        })
     }
 
     pub fn add_load(&mut self, addr: ValueID<'src>) -> ValueID<'src> {
@@ -351,8 +331,8 @@ impl<'src> MemNode<'src> {
 
     pub fn set_entry(&mut self, entry: MemID<'src>) {
         match &mut self.kind {
-            MemKind::StepClause { ctrl, .. } => *ctrl = entry,
             MemKind::PlaceHolder { ctrl } => *ctrl = entry,
+            MemKind::LoopHead { ctrl, .. } => *ctrl = entry,
             _ => panic!("attempted to set step clause prev on non-step-clause memory node"),
         }
     }

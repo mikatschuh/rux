@@ -1,7 +1,2 @@
-var mutable bool = "before"
-
-if 1 {
-    if 2 {
-        mutable = "third-clause"
-    }
-}
+var mutable i32 = 0
+mutable -= { mutable = 10 5 } ++
