@@ -25,8 +25,8 @@ pub struct MemNode<'src> {
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Branch<'src> {
-    ctrl: MemKind<'src>,
-    condition: ValueID<'src>,
+    pub ctrl: MemID<'src>,
+    pub condition: ValueID<'src>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -184,15 +184,30 @@ impl<'src> Graph<'src> {
         Rc::<MemNode<'src>, NoDealloc>::new_in_bump(node, &self.arena)
     }
 
-    pub fn add_mem_merge(&mut self, a: MemID<'src>, b: MemID<'src>) -> MemID<'src> {
+    fn push_branch(&mut self, branch: Branch<'src>) -> BranchID<'src> {
+        Rc::<Branch<'src>, NoDealloc>::new_in_bump(branch, &self.arena)
+    }
+
+    pub fn add_merge(&mut self, a: MemID<'src>, b: MemID<'src>) -> MemID<'src> {
         self.push_mem_node(MemKind::Merge { a, b })
+    }
+
+    pub fn add_branch(&mut self, condition: ValueID<'src>) -> (MemID<'src>, MemID<'src>) {
+        let ctrl = self.current_mem();
+        let branch = self.push_branch(Branch { ctrl, condition });
+        (
+            self.push_mem_node(MemKind::FalseBranch {
+                branch: branch.clone(),
+            }),
+            self.push_mem_node(MemKind::TrueBranch { branch }),
+        )
     }
 
     pub fn add_loop_head(&mut self, condition: ValueID<'src>, ctrl: MemID<'src>) -> MemID<'src> {
         self.push_mem_node(MemKind::LoopHead {
             condition,
             ctrl,
-            backedge: self.latest_mem(),
+            backedge: self.current_mem(),
         })
     }
 
@@ -206,7 +221,7 @@ impl<'src> Graph<'src> {
 
     pub fn add_store(&mut self, addr: ValueID<'src>, val: ValueID<'src>) -> MemID<'src> {
         self.push_mem_node(MemKind::Store {
-            mem: self.latest_mem(),
+            mem: self.current_mem(),
             addr,
             val,
         })
@@ -214,7 +229,7 @@ impl<'src> Graph<'src> {
 
     pub fn add_load(&mut self, addr: ValueID<'src>) -> ValueID<'src> {
         self.push_node(ValueKind::Load {
-            mem: self.latest_mem(),
+            mem: self.current_mem(),
             addr,
         })
     }
@@ -269,7 +284,7 @@ impl<'src> Graph<'src> {
         self.push_node(ValueKind::Unit)
     }
 
-    pub fn latest_mem(&self) -> MemID<'src> {
+    pub fn current_mem(&self) -> MemID<'src> {
         self.current_mem.clone()
     }
 }

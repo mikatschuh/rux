@@ -1,12 +1,7 @@
 var mutable bool = "before"
 
-if 1 == 1 {
-    if 2 == 2 {
-        mutable = "second"
-        if 3 == 3 {
-            mutable = "third-clause"
-            mutable = "thirdish-clause"
-            let the_mutable bool = mutable
-        }
+if 1 {
+    if 2 {
+        mutable = "third-clause"
     }
 }

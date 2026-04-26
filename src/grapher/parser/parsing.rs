@@ -242,26 +242,36 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
     fn parse_if(&mut self, _if: Token<'src>) -> GraphResult<'src, ValueID<'src>> {
         let condition = self.parse_expr(0)?;
+        let (false_branch, true_branch) = self.graph.add_branch(condition.clone());
+
+        self.graph.current_mem = true_branch;
+
         self.symbols.open_branch();
         let when_true = self.parse_expr(0)?;
         let overwrites_when_true = self.symbols.close_branch();
+        let true_branch = self.graph.current_mem();
 
         if self.peek().kind == TokenKind::Keyword(Keyword::Else) {
             self.advance();
 
+            self.graph.current_mem = false_branch;
+
             self.symbols.open_branch();
             let when_false = self.parse_expr(0)?;
             let overwrites_when_false = self.symbols.close_branch();
+            let false_branch = self.graph.current_mem();
 
             self.merge_overwrites(
                 condition.clone(),
                 overwrites_when_true,
                 overwrites_when_false,
             )?;
+            self.graph.current_mem = self.graph.add_merge(false_branch, true_branch);
 
             Ok(self.graph.add_phi(condition, when_true, when_false))
         } else {
             self.merge_overwrites(condition.clone(), overwrites_when_true, HashMap::new())?;
+            self.graph.current_mem = self.graph.add_merge(false_branch, true_branch);
 
             let unit = self.graph.add_unit();
             Ok(self.graph.add_phi(condition, when_true, unit))
