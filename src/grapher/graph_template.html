@@ -24,14 +24,15 @@
         <div id="cy"></div>
         <script>
             cytoscape.use(cytoscapeCola);
+            const MAX_DIM_LEVEL = 4;
 
             const createLayout = () => ({
                 name: "cola",
                 animate: true,
                 infinite: true,
                 fit: false,
-                nodeSpacing: 40,
-                edgeLength: 60,
+                nodeSpacing: 45,
+                edgeLength: 50,
                 edgeElasticity: 0.04,
                 nestingFactor: 0.1,
                 gravity: 0.0,
@@ -39,6 +40,7 @@
                 handleDisconnected: true,
                 nodeDimensionsIncludeLabels: true,
                 convergenceThreshold: 0.01,
+                randomize: false, // <-- keep ELK positions as starting point
                 refresh: 3,
             });
 
@@ -78,6 +80,10 @@
                         style: { "background-color": "#6c63ff" },
                     },
                     {
+                        selector: 'node[group="memory"]',
+                        style: { "background-color": "#085a57" },
+                    },
+                    {
                         selector: "edge",
                         style: {
                             width: 2,
@@ -92,6 +98,41 @@
                             "text-background-color": "#1a1a2e",
                             "text-background-opacity": 1,
                             "text-background-padding": "3px",
+                        },
+                    },
+                    {
+                        selector: 'edge[group="memory"]',
+                        style: {
+                            "line-color": "#83769c",
+                            "target-arrow-color": "#83769c",
+                        },
+                    },
+                    {
+                        selector: ".dimmed-1",
+                        style: {
+                            opacity: 0.8,
+                            "text-opacity": 0.8,
+                        },
+                    },
+                    {
+                        selector: ".dimmed-2",
+                        style: {
+                            opacity: 0.5,
+                            "text-opacity": 0.55,
+                        },
+                    },
+                    {
+                        selector: ".dimmed-3",
+                        style: {
+                            opacity: 0.4,
+                            "text-opacity": 0.35,
+                        },
+                    },
+                    {
+                        selector: ".dimmed-4",
+                        style: {
+                            opacity: 0.08,
+                            "text-opacity": 0.2,
                         },
                     },
                 ],
@@ -120,13 +161,65 @@
                 layout.run();
             };
 
+            const dimClasses = Array.from(
+                { length: MAX_DIM_LEVEL },
+                (_, index) => `dimmed-${index + 1}`,
+            );
+
+            const clearDimming = () => {
+                cy.elements().removeClass(dimClasses.join(" "));
+            };
+
+            const applyConnectivityDimming = (root) => {
+                clearDimming();
+                cy.elements().addClass(`dimmed-${MAX_DIM_LEVEL}`);
+
+                root.removeClass(dimClasses.join(" "));
+
+                root.incomers().forEach((element) => {
+                    element.removeClass(dimClasses.join(" "));
+                    element.addClass("dimmed-3");
+                });
+
+                const queue = [{ node: root, level: 0 }];
+                const seen = new Set([root.id()]);
+
+                while (queue.length > 0) {
+                    const { node, level } = queue.shift();
+                    const nextLevel = level + 1;
+                    const className = `dimmed-${Math.min(nextLevel, MAX_DIM_LEVEL)}`;
+
+                    node.outgoers("edge").forEach((edge) => {
+                        edge.removeClass(dimClasses.join(" "));
+                        edge.addClass(className);
+
+                        const target = edge.target();
+                        if (seen.has(target.id())) {
+                            return;
+                        }
+
+                        seen.add(target.id());
+                        target.removeClass(dimClasses.join(" "));
+                        if (nextLevel > 0) {
+                            target.addClass(className);
+                        }
+                        queue.push({
+                            node: target,
+                            level: Math.min(nextLevel, MAX_DIM_LEVEL),
+                        });
+                    });
+                }
+            };
+
             runLayout();
 
-            cy.on("grab", "node", () => {
+            cy.on("grab", "node", (e) => {
                 layout.stop();
+                applyConnectivityDimming(e.target);
             });
 
             cy.on("free", "node", () => {
+                clearDimming();
                 runLayout();
             });
         </script>

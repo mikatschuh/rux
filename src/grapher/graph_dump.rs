@@ -5,7 +5,7 @@ use petgraph::{graph::NodeIndex, visit::EdgeRef};
 use crate::{
     grapher::{
         Graph,
-        graph::{MemID, ValueID, ValueKind},
+        graph::{MemID, MemKind, ValueID, ValueKind},
         parser::{ScopedSymbolTable, SymbolDump},
     },
     tokenizing,
@@ -47,6 +47,14 @@ impl<'src> Graph<'src> {
             );
             graph.add_edge(name, value, "mutable");
         }
+
+        process_memory_node(
+            &mut graph,
+            &mut visited_value_nodes,
+            &mut visited_memory_nodes,
+            self.current_mem.clone(),
+        );
+
         dump_cytoscape(&graph)
     }
 }
@@ -75,15 +83,15 @@ pub fn process_value_node<'src>(
         Unary { op, input } => {
             let input = process_value_node(graph, visited_value_nodes, visited_memory_nodes, input);
             let op = graph.add_node(format!("operator {}", op));
-            graph.add_edge(op, input, "1");
+            graph.add_edge(op, input, "");
             op
         }
         Binary { op, lhs, rhs } => {
             let lhs = process_value_node(graph, visited_value_nodes, visited_memory_nodes, lhs);
             let rhs = process_value_node(graph, visited_value_nodes, visited_memory_nodes, rhs);
             let op = graph.add_node(format!("operator {}", op));
-            graph.add_edge(op, lhs, "1");
-            graph.add_edge(op, rhs, "2");
+            graph.add_edge(op, lhs, "a");
+            graph.add_edge(op, rhs, "b");
             op
         }
         Load { mem, addr } => todo!(),
@@ -112,6 +120,80 @@ pub fn process_value_node<'src>(
     idx
 }
 
+pub fn process_memory_node<'src>(
+    graph: &mut GraphDump,
+
+    visited_value_nodes: &mut VisitedValueNodes<'src>,
+    visited_memory_nodes: &mut VisitedMemoryNodes<'src>,
+    node: MemID<'src>,
+) -> NodeIndex {
+    macro_rules! mem {
+        ($($arg:tt)*) => {
+            format!("mem {}", format!($($arg)*))
+        };
+        () => {
+
+        }
+    }
+
+    if let Some(idx) = visited_memory_nodes.get(&node) {
+        return *idx;
+    }
+
+    use MemKind::*;
+    let idx = match node.kind.clone() {
+        Start => graph.add_node(mem!("start")),
+        FalseBranch { branch } => {
+            let ctrl = process_memory_node(
+                graph,
+                visited_value_nodes,
+                visited_memory_nodes,
+                branch.ctrl.clone(),
+            );
+            let condition = process_value_node(
+                graph,
+                visited_value_nodes,
+                visited_memory_nodes,
+                branch.condition.clone(),
+            );
+            let false_branch = graph.add_node(mem!("false branch"));
+            graph.add_edge(false_branch, ctrl, "mem ctrl");
+            graph.add_edge(false_branch, condition, "mem condition");
+            false_branch
+        }
+        TrueBranch { branch } => {
+            let ctrl = process_memory_node(
+                graph,
+                visited_value_nodes,
+                visited_memory_nodes,
+                branch.ctrl.clone(),
+            );
+            let condition = process_value_node(
+                graph,
+                visited_value_nodes,
+                visited_memory_nodes,
+                branch.condition.clone(),
+            );
+            let true_branch = graph.add_node(mem!("true branch"));
+            graph.add_edge(true_branch, ctrl, "mem ctrl");
+            graph.add_edge(true_branch, condition, "mem condition");
+            true_branch
+        }
+        Merge { a, b } => {
+            let a = process_memory_node(graph, visited_value_nodes, visited_memory_nodes, a);
+            let b = process_memory_node(graph, visited_value_nodes, visited_memory_nodes, b);
+            let merge = graph.add_node(mem!("merge"));
+            graph.add_edge(merge, a, "mem a");
+            graph.add_edge(merge, b, "mem b");
+            merge
+        }
+        _ => todo!(),
+    };
+
+    visited_memory_nodes.insert(node, idx);
+    idx
+}
+
 fn dump_cytoscape(g: &GraphDump) -> String {
     let elements = build_elements(g);
     let template = include_str!("graph_template.html");
@@ -129,6 +211,8 @@ fn build_elements(g: &GraphDump) -> String {
             ("operator", label.as_ref())
         } else if let Some(label) = label.strip_prefix("literal") {
             ("literal", label.trim())
+        } else if let Some(label) = label.strip_prefix("mem") {
+            ("memory", label.trim())
         } else {
             ("variable", label.as_ref())
         };
@@ -144,11 +228,23 @@ fn build_elements(g: &GraphDump) -> String {
     }
 
     for edge in g.edge_references() {
+        let label = edge
+            .weight()
+            .to_string()
+            .replace('\'', "\\'")
+            .replace('\\', "\\\\");
+        let (group, label) = if let Some(label) = label.strip_prefix("mem") {
+            ("memory", label.trim().to_string())
+        } else {
+            ("value", label)
+        };
+
         out += &format!(
-            "{{ data: {{ source: '{}', target: '{}', label: '{}' }} }},\n",
+            "{{ data: {{ source: '{}', target: '{}', label: '{}', group: '{}' }} }},\n",
             edge.source().index(),
             edge.target().index(),
-            edge.weight().replace('\'', "\\'").replace('\\', "\\\\")
+            label,
+            group,
         );
     }
 
