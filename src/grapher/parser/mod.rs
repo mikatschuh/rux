@@ -13,6 +13,7 @@ use crate::{
 };
 
 mod parsing;
+mod sym_id;
 mod symbols;
 
 pub use symbols::{ScopedSymbolTable, Symbol, SymbolDump};
@@ -136,21 +137,28 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         overwrites_when_true: Overwrites<'src>,
         mut overwrites_when_false: Overwrites<'src>,
     ) -> GraphResult<'src, ()> {
-        unsafe {
-            for (symbol, when_true) in overwrites_when_true {
-                *symbol = if let Some(when_false) = overwrites_when_false.remove(&symbol) {
-                    self.graph.add_phi(condition.clone(), when_true, when_false)
-                } else {
-                    self.graph
-                        .add_phi(condition.clone(), when_true, (*symbol).clone())
-                }
-            }
+        for (symbol, when_true) in overwrites_when_true {
+            let new_value = if let Some(when_false) = overwrites_when_false.remove(&symbol) {
+                self.graph.add_phi(condition.clone(), when_true, when_false)
+            } else {
+                self.graph.add_phi(
+                    condition.clone(),
+                    when_true,
+                    symbol.read_current_value().clone(),
+                )
+            };
 
-            for (symbol, when_false) in overwrites_when_false {
-                *symbol = self
-                    .graph
-                    .add_phi(condition.clone(), (*symbol).clone(), when_false);
-            }
+            symbol.over_write(new_value)
+        }
+
+        for (symbol, when_false) in overwrites_when_false {
+            let new_value = self.graph.add_phi(
+                condition.clone(),
+                symbol.read_current_value().clone(),
+                when_false,
+            );
+
+            symbol.over_write(new_value);
         }
 
         Ok(())

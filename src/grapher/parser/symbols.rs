@@ -1,10 +1,10 @@
-use std::{collections::HashMap, iter::Rev};
+use std::collections::HashMap;
 
 use nonempty::NonEmpty;
 
 use crate::{
     error::Span,
-    grapher::{Graph, GraphError, GraphResult, graph::ValueID},
+    grapher::{Graph, GraphError, GraphResult, graph::ValueID, parser::sym_id::Overwriter},
 };
 
 #[derive(Debug, Clone)]
@@ -19,7 +19,7 @@ pub struct Scope<'src> {
     mutables: HashMap<&'src str, Symbol<'src>>,
 }
 
-pub type Overwrites<'src> = HashMap<*mut ValueID<'src>, ValueID<'src>>;
+pub type Overwrites<'src> = HashMap<Overwriter<'src>, ValueID<'src>>;
 
 #[derive(Debug)]
 pub struct Branch<'src> {
@@ -87,15 +87,53 @@ impl<'src> ScopedSymbolTable<'src> {
         self.branches.pop().unwrap().overwrites
     }
 
+    fn build_alias_chain(
+        &mut self,
+        mut outer_scope_overwrite: Overwriter<'src>,
+        branch_depth: usize,
+    ) -> Overwriter<'src> {
+        let mut prev_value = outer_scope_overwrite.read_current_value();
+
+        let start = self.branches.len() - branch_depth;
+        for branch in self.branches.iter_mut().skip(start) {
+            if let Some(overwrite) = branch.overwrites.get(&outer_scope_overwrite) {
+                outer_scope_overwrite = Overwriter::new(overwrite);
+                prev_value = overwrite.clone();
+            } else {
+                branch
+                    .overwrites
+                    .insert(outer_scope_overwrite.clone(), prev_value.clone());
+                outer_scope_overwrite =
+                    Overwriter::new(branch.overwrites.get(&outer_scope_overwrite).unwrap());
+            }
+        }
+        outer_scope_overwrite
+    }
+
+    fn resolve_overwrite_ptr(
+        &self,
+        mut symbol_ptr: Overwriter<'src>,
+        branch_depth: usize,
+    ) -> Overwriter<'src> {
+        let start = self.branches.len() - branch_depth;
+        for branch in self.branches.iter().skip(start) {
+            if let Some(overwrite) = branch.overwrites.get(&symbol_ptr) {
+                symbol_ptr = Overwriter::new(overwrite);
+            }
+        }
+
+        symbol_ptr
+    }
+
     pub fn write_symbol(
         &mut self,
         assignment: Span,
         name: &'src str,
         value: ValueID<'src>,
     ) -> GraphResult<'src, ()> {
-        let mut mutable_found: Option<(ValueID, *mut ValueID<'src>, usize)> = None;
+        let mut mutable_found: Option<(Overwriter<'src>, usize)> = None;
 
-        'outer: for (i, branch) in self.branches.iter_mut().rev().enumerate() {
+        'outer: for (depth, branch) in self.branches.iter_mut().rev().enumerate() {
             for scope in branch.scopes.iter_mut().rev() {
                 if scope.immutables.contains_key(name) {
                     return Err(GraphError::AssignmentToImmutableIdent { name, assignment });
@@ -103,16 +141,12 @@ impl<'src> ScopedSymbolTable<'src> {
 
                 match scope.mutables.get_mut(name) {
                     Some(symbol) => {
-                        if i == 0 {
+                        if depth == 0 {
                             // symbol is within current branch
                             symbol.value = value;
                             return Ok(());
                         } else {
-                            mutable_found = Some((
-                                symbol.value.clone(),
-                                &mut symbol.value as *mut ValueID<'src>,
-                                i,
-                            ));
+                            mutable_found = Some((Overwriter::new(&symbol.value), depth));
                             break 'outer;
                         }
                     }
@@ -121,61 +155,33 @@ impl<'src> ScopedSymbolTable<'src> {
             }
         }
 
-        if let Some((mut prev_value, mut outer_scope_overwrite, i)) = mutable_found {
-            let start = self.branches.len() - i;
-            for branch in self.branches.iter_mut().skip(start) {
-                if let Some(overwrite) = branch.overwrites.get_mut(&outer_scope_overwrite) {
-                    outer_scope_overwrite = overwrite as *mut ValueID;
-                    prev_value = overwrite.clone();
-                } else {
-                    branch
-                        .overwrites
-                        .insert(outer_scope_overwrite, prev_value.clone());
-                    outer_scope_overwrite =
-                        branch.overwrites.get_mut(&outer_scope_overwrite).unwrap() as *mut ValueID;
-                }
-            }
-            unsafe { *outer_scope_overwrite = value }
-
+        if let Some((outer_scope_overwrite, branch_depth)) = mutable_found {
+            self.build_alias_chain(outer_scope_overwrite, branch_depth)
+                .over_write(value);
             return Ok(());
         }
 
         Err(GraphError::AssignmentToUnknownVar { name, assignment })
     }
 
-    fn resolve_overwrite_ptr(
-        &self,
-        mut symbol_ptr: *mut ValueID<'src>,
-        branch_depth: usize,
-    ) -> *mut ValueID<'src> {
-        let start = self.branches.len() - branch_depth;
-        for branch in self.branches.iter().skip(start) {
-            if let Some(overwrite) = branch.overwrites.get(&symbol_ptr) {
-                symbol_ptr = overwrite as *const ValueID<'src> as *mut ValueID<'src>;
-            }
-        }
-
-        symbol_ptr
-    }
-
     pub fn read_symbol(&mut self, graph: &mut Graph<'src>, name: &'src str) -> ValueID<'src> {
-        let mut mutable_found: Option<(*mut ValueID<'src>, usize)> = None;
+        let mut mutable_found: Option<(Overwriter<'src>, usize)> = None;
 
-        'outer: for (i, branch) in self.branches.iter_mut().rev().enumerate() {
-            for scope in branch.scopes.iter_mut().rev() {
+        'outer: for (depth, branch) in self.branches.iter().rev().enumerate() {
+            for scope in branch.scopes.iter().rev() {
                 if let Some(symbol) = scope.immutables.get(name) {
                     return symbol.value.clone();
                 }
-                if let Some(symbol) = scope.mutables.get_mut(name) {
-                    mutable_found = Some((&mut symbol.value as *mut ValueID<'src>, i));
+                if let Some(symbol) = scope.mutables.get(name) {
+                    mutable_found = Some((Overwriter::new(&symbol.value), depth));
                     break 'outer;
                 }
             }
         }
 
-        if let Some((symbol_ptr, i)) = mutable_found {
-            let symbol_ptr = self.resolve_overwrite_ptr(symbol_ptr, i);
-            return unsafe { (*symbol_ptr).clone() };
+        if let Some((symbol_ptr, branch_depth)) = mutable_found {
+            let symbol_ptr = self.resolve_overwrite_ptr(symbol_ptr, branch_depth);
+            return symbol_ptr.read_current_value();
         }
 
         if let Some(unknown) = self.unknowns.get(name) {
