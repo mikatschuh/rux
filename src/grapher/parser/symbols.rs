@@ -4,7 +4,7 @@ use nonempty::NonEmpty;
 
 use crate::{
     error::Span,
-    grapher::{Graph, GraphError, GraphResult, graph::ValueID, parser::sym_id::Overwriter},
+    grapher::{Graph, GraphError, GraphResult, graph::ValueID, parser::alias::Alias},
 };
 
 #[derive(Debug, Clone)]
@@ -19,7 +19,7 @@ pub struct Scope<'src> {
     mutables: HashMap<&'src str, Symbol<'src>>,
 }
 
-pub type Overwrites<'src> = HashMap<Overwriter<'src>, ValueID<'src>>;
+pub type Overwrites<'src> = HashMap<Alias<'src>, ValueID<'src>>;
 
 #[derive(Debug)]
 pub struct Branch<'src> {
@@ -89,22 +89,22 @@ impl<'src> ScopedSymbolTable<'src> {
 
     fn build_alias_chain(
         &mut self,
-        mut outer_scope_overwrite: Overwriter<'src>,
+        mut outer_scope_overwrite: Alias<'src>,
         branch_depth: usize,
-    ) -> Overwriter<'src> {
+    ) -> Alias<'src> {
         let mut prev_value = outer_scope_overwrite.read_current_value();
 
         let start = self.branches.len() - branch_depth;
         for branch in self.branches.iter_mut().skip(start) {
             if let Some(overwrite) = branch.overwrites.get(&outer_scope_overwrite) {
-                outer_scope_overwrite = Overwriter::new(overwrite);
+                outer_scope_overwrite = Alias::new(overwrite);
                 prev_value = overwrite.clone();
             } else {
                 branch
                     .overwrites
                     .insert(outer_scope_overwrite.clone(), prev_value.clone());
                 outer_scope_overwrite =
-                    Overwriter::new(branch.overwrites.get(&outer_scope_overwrite).unwrap());
+                    Alias::new(branch.overwrites.get(&outer_scope_overwrite).unwrap());
             }
         }
         outer_scope_overwrite
@@ -112,13 +112,13 @@ impl<'src> ScopedSymbolTable<'src> {
 
     fn resolve_overwrite_ptr(
         &self,
-        mut symbol_ptr: Overwriter<'src>,
+        mut symbol_ptr: Alias<'src>,
         branch_depth: usize,
-    ) -> Overwriter<'src> {
+    ) -> Alias<'src> {
         let start = self.branches.len() - branch_depth;
         for branch in self.branches.iter().skip(start) {
             if let Some(overwrite) = branch.overwrites.get(&symbol_ptr) {
-                symbol_ptr = Overwriter::new(overwrite);
+                symbol_ptr = Alias::new(overwrite);
             }
         }
 
@@ -131,7 +131,7 @@ impl<'src> ScopedSymbolTable<'src> {
         name: &'src str,
         value: ValueID<'src>,
     ) -> GraphResult<'src, ()> {
-        let mut mutable_found: Option<(Overwriter<'src>, usize)> = None;
+        let mut mutable_found: Option<(Alias<'src>, usize)> = None;
 
         'outer: for (depth, branch) in self.branches.iter_mut().rev().enumerate() {
             for scope in branch.scopes.iter_mut().rev() {
@@ -146,7 +146,7 @@ impl<'src> ScopedSymbolTable<'src> {
                             symbol.value = value;
                             return Ok(());
                         } else {
-                            mutable_found = Some((Overwriter::new(&symbol.value), depth));
+                            mutable_found = Some((Alias::new(&symbol.value), depth));
                             break 'outer;
                         }
                     }
@@ -165,7 +165,7 @@ impl<'src> ScopedSymbolTable<'src> {
     }
 
     pub fn read_symbol(&mut self, graph: &mut Graph<'src>, name: &'src str) -> ValueID<'src> {
-        let mut mutable_found: Option<(Overwriter<'src>, usize)> = None;
+        let mut mutable_found: Option<(Alias<'src>, usize)> = None;
 
         'outer: for (depth, branch) in self.branches.iter().rev().enumerate() {
             for scope in branch.scopes.iter().rev() {
@@ -173,7 +173,7 @@ impl<'src> ScopedSymbolTable<'src> {
                     return symbol.value.clone();
                 }
                 if let Some(symbol) = scope.mutables.get(name) {
-                    mutable_found = Some((Overwriter::new(&symbol.value), depth));
+                    mutable_found = Some((Alias::new(&symbol.value), depth));
                     break 'outer;
                 }
             }

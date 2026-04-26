@@ -3,11 +3,11 @@ use std::ptr::NonNull;
 use crate::grapher::graph::ValueID;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Overwriter<'src> {
+pub struct Alias<'src> {
     inner: NonNull<ValueID<'src>>,
 }
 
-impl<'src> Overwriter<'src> {
+impl<'src> Alias<'src> {
     pub fn new(symbol_ref: &ValueID<'src>) -> Self {
         Self {
             inner: NonNull::new(symbol_ref as *const ValueID<'src> as *mut ValueID<'src>).unwrap(),

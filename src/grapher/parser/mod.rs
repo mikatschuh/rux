@@ -12,8 +12,8 @@ use crate::{
     },
 };
 
+mod alias;
 mod parsing;
-mod sym_id;
 mod symbols;
 
 pub use symbols::{ScopedSymbolTable, Symbol, SymbolDump};

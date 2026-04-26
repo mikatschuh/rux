@@ -158,7 +158,7 @@ pub fn process_memory_node<'src>(
             );
             let false_branch = graph.add_node(mem!("false branch"));
             graph.add_edge(false_branch, ctrl, "mem ctrl");
-            graph.add_edge(false_branch, condition, "mem condition");
+            graph.add_edge(false_branch, condition, "condition");
             false_branch
         }
         TrueBranch { branch } => {
@@ -176,7 +176,7 @@ pub fn process_memory_node<'src>(
             );
             let true_branch = graph.add_node(mem!("true branch"));
             graph.add_edge(true_branch, ctrl, "mem ctrl");
-            graph.add_edge(true_branch, condition, "mem condition");
+            graph.add_edge(true_branch, condition, "condition");
             true_branch
         }
         Merge { a, b } => {
