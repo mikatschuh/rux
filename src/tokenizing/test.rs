@@ -281,7 +281,7 @@ fn decodes_quote_escape_sequences() {
 
 #[test]
 fn decodes_escaped_structural_quote_characters() {
-    let input = concat!("\"", "x", "\\\\", "y", "\\\"", "z", "\\'", "w", "\\{", "\"");
+    let input = concat!("\"", "x", "\\\\", "y", "\\\"", "z", "'", "w", "\\{", "\"");
     let (tokens, quotes, errors) = collect_tokens_and_quotes(input);
 
     assert_eq!(
