@@ -1,2 +1,11 @@
-var mutable i32 = 0
-mutable -= { mutable = 10 5 } ++
+var mutable i0 = "before"
+
+if 1 {
+    if 2 {
+        mutable = "second-clause"
+}}
+
+// var i i32 = 0
+// loop i < 10 {
+//    i ++
+//

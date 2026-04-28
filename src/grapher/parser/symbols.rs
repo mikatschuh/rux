@@ -4,13 +4,13 @@ use nonempty::NonEmpty;
 
 use crate::{
     error::Span,
-    grapher::{Graph, GraphError, GraphResult, graph::ValueID, parser::alias::Alias},
+    grapher::{Graph, GraphError, GraphResult, graph::DataID, parser::alias::Alias},
 };
 
 #[derive(Debug, Clone)]
 pub struct Symbol<'src> {
-    pub type_: ValueID<'src>,
-    pub value: ValueID<'src>,
+    pub type_: DataID<'src>,
+    pub value: DataID<'src>,
 }
 
 #[derive(Debug)]
@@ -19,7 +19,7 @@ pub struct Scope<'src> {
     mutables: HashMap<&'src str, Symbol<'src>>,
 }
 
-pub type Overwrites<'src> = HashMap<Alias<'src>, ValueID<'src>>;
+pub type Overwrites<'src> = HashMap<Alias<'src>, DataID<'src>>;
 
 #[derive(Debug)]
 pub struct Branch<'src> {
@@ -30,7 +30,7 @@ pub struct Branch<'src> {
 pub struct ScopedSymbolTable<'src> {
     pub symbol_dump: SymbolDump<'src>,
     pub branches: NonEmpty<Branch<'src>>,
-    unknowns: HashMap<&'src str, ValueID<'src>>, // all nodes that represent the unknown constants
+    unknowns: HashMap<&'src str, DataID<'src>>, // all nodes that represent the unknown constants
 }
 
 impl<'src> Scope<'src> {
@@ -129,7 +129,7 @@ impl<'src> ScopedSymbolTable<'src> {
         &mut self,
         assignment: Span,
         name: &'src str,
-        value: ValueID<'src>,
+        value: DataID<'src>,
     ) -> GraphResult<'src, ()> {
         let mut mutable_found: Option<(Alias<'src>, usize)> = None;
 
@@ -164,7 +164,7 @@ impl<'src> ScopedSymbolTable<'src> {
         Err(GraphError::AssignmentToUnknownVar { name, assignment })
     }
 
-    pub fn read_symbol(&mut self, graph: &mut Graph<'src>, name: &'src str) -> ValueID<'src> {
+    pub fn read_symbol(&mut self, graph: &mut Graph<'src>, name: &'src str) -> DataID<'src> {
         let mut mutable_found: Option<(Alias<'src>, usize)> = None;
 
         'outer: for (depth, branch) in self.branches.iter().rev().enumerate() {

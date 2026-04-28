@@ -9,32 +9,45 @@ use crate::{
     utilities::{NoDealloc, Rc},
 };
 
-pub type ValueID<'src> = Rc<ValueNode<'src>, NoDealloc>;
-pub type MemID<'src> = Rc<MemNode<'src>, NoDealloc>;
+pub type DataID<'src> = Rc<DataNode<'src>, NoDealloc>;
+pub type CtrlID<'src> = Rc<CtrlNode<'src>, NoDealloc>;
 pub type BranchID<'src> = Rc<Branch<'src>, NoDealloc>;
+pub type MergeID<'src> = Rc<Merge<'src>, NoDealloc>;
+pub type LoopID<'src> = Rc<Loop<'src>, NoDealloc>;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct ValueNode<'src> {
-    pub kind: ValueKind<'src>,
+pub struct DataNode<'src> {
+    pub kind: DataKind<'src>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct MemNode<'src> {
-    pub kind: MemKind<'src>,
+pub struct CtrlNode<'src> {
+    pub kind: CtrlKind<'src>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Branch<'src> {
-    pub ctrl: MemID<'src>,
-    pub condition: ValueID<'src>,
+    pub ctrl: CtrlID<'src>,
+    pub condition: DataID<'src>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub enum MemKind<'src> {
+pub struct Loop<'src> {
+    pub ctrl: CtrlID<'src>,
+    pub condition: DataID<'src>,
+    pub backedge: CtrlID<'src>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub struct Merge<'src> {
+    pub branches: Vec<CtrlID<'src>>, // classically: false - true
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub enum CtrlKind<'src> {
     Start,
     Merge {
-        a: MemID<'src>,
-        b: MemID<'src>,
+        merge: MergeID<'src>,
     },
     TrueBranch {
         branch: BranchID<'src>,
@@ -44,17 +57,17 @@ pub enum MemKind<'src> {
     },
 
     LoopHead {
-        ctrl: MemID<'src>,
-        condition: ValueID<'src>,
-        backedge: MemID<'src>,
+        ctrl: CtrlID<'src>,
+        condition: DataID<'src>,
+        backedge: CtrlID<'src>,
     },
     PlaceHolder {
-        ctrl: MemID<'src>,
+        ctrl: CtrlID<'src>,
     },
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub enum ValueKind<'src> {
+pub enum DataKind<'src> {
     AtomicType {
         ty: AtomicType,
     },
@@ -69,29 +82,34 @@ pub enum ValueKind<'src> {
 
     Unary {
         op: UnaryOp,
-        input: ValueID<'src>,
+        input: DataID<'src>,
     },
     Binary {
         op: BinaryOp,
-        lhs: ValueID<'src>,
-        rhs: ValueID<'src>,
+        lhs: DataID<'src>,
+        rhs: DataID<'src>,
     },
     Load {
-        mem: MemID<'src>,
-        addr: ValueID<'src>,
+        mem: CtrlID<'src>,
+        addr: DataID<'src>,
     },
 
-    Phi {
-        condition: ValueID<'src>,
-        when_true: ValueID<'src>,
-        when_false: ValueID<'src>,
+    BranchPhi {
+        merge: MergeID<'src>,
+        when_true: DataID<'src>,
+        when_false: DataID<'src>,
+    },
+    LoopPhi {
+        loop_head: LoopID<'src>,
+        entry: DataID<'src>,
+        backedge: DataID<'src>,
     },
 
     Unknown,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-enum ValueKey<'src> {
+enum DataKey<'src> {
     AtomicType {
         ty: AtomicType,
     },
@@ -116,22 +134,23 @@ enum ValueKey<'src> {
         mem: usize,
         addr: usize,
     },
-    Phi {
-        condition: usize,
+    BranchPhi {
+        merge: usize,
         when_true: usize,
         when_false: usize,
     },
+    LoopPhi {
+        loop_head: usize,
+        entry: usize,
+        backedge: usize,
+    },
 }
-
-const UNIT: ValueNode<'static> = ValueNode {
-    kind: ValueKind::Unit,
-};
 
 #[derive(Debug)]
 pub struct Graph<'src> {
     arena: Bump,
-    node_cache: HashMap<ValueKey<'src>, ValueID<'src>>,
-    pub current_mem: MemID<'src>,
+    node_cache: HashMap<DataKey<'src>, DataID<'src>>,
+    pub current_mem: CtrlID<'src>,
 }
 impl<'src> Graph<'src> {
     pub fn new() -> Self {
@@ -139,9 +158,9 @@ impl<'src> Graph<'src> {
 
         Self {
             node_cache: HashMap::new(),
-            current_mem: Rc::<MemNode<'src>, NoDealloc>::new_in_bump(
-                MemNode {
-                    kind: MemKind::Start,
+            current_mem: Rc::<CtrlNode<'src>, NoDealloc>::new_in_bump(
+                CtrlNode {
+                    kind: CtrlKind::Start,
                 },
                 &arena,
             ),
@@ -149,7 +168,7 @@ impl<'src> Graph<'src> {
         }
     }
 
-    fn push_node(&mut self, kind: ValueKind<'src>) -> ValueID<'src> {
+    fn push_node(&mut self, kind: DataKind<'src>) -> DataID<'src> {
         let key = kind.node_key();
         if let Some(ref key) = key
             && let Some(existing) = self.node_cache.get(key)
@@ -157,161 +176,174 @@ impl<'src> Graph<'src> {
             return existing.clone();
         }
 
-        let node: ValueNode<'src> = ValueNode { kind };
-        let node_id = Rc::<ValueNode<'src>, NoDealloc>::new_in_bump(node, &self.arena);
+        let node: DataNode<'src> = DataNode { kind };
+        let node_id = Rc::<DataNode<'src>, NoDealloc>::new_in_bump(node, &self.arena);
         if let Some(key) = key {
             self.node_cache.insert(key, node_id.clone());
         }
         node_id
     }
 
-    fn push_node_no_dedup(&mut self, kind: ValueKind<'src>) -> ValueID<'src> {
-        Rc::<ValueNode<'src>, NoDealloc>::new_in_bump(ValueNode { kind }, &self.arena)
+    fn push_node_no_dedup(&mut self, kind: DataKind<'src>) -> DataID<'src> {
+        Rc::<DataNode<'src>, NoDealloc>::new_in_bump(DataNode { kind }, &self.arena)
     }
 
-    fn push_mem_node(&mut self, kind: MemKind<'src>) -> MemID<'src> {
-        let node: MemNode<'src> = MemNode { kind };
-        Rc::<MemNode<'src>, NoDealloc>::new_in_bump(node, &self.arena)
+    fn push_mem_node(&mut self, kind: CtrlKind<'src>) -> CtrlID<'src> {
+        let node: CtrlNode<'src> = CtrlNode { kind };
+        Rc::<CtrlNode<'src>, NoDealloc>::new_in_bump(node, &self.arena)
     }
 
     fn push_branch(&mut self, branch: Branch<'src>) -> BranchID<'src> {
         Rc::<Branch<'src>, NoDealloc>::new_in_bump(branch, &self.arena)
     }
 
-    pub fn add_merge(&mut self, a: MemID<'src>, b: MemID<'src>) -> MemID<'src> {
-        self.push_mem_node(MemKind::Merge { a, b })
+    pub fn add_merge(&mut self, branches: Vec<CtrlID<'src>>) -> MergeID<'src> {
+        Rc::<Merge<'src>, NoDealloc>::new_in_bump(Merge { branches }, &self.arena)
     }
 
-    pub fn add_branch(&mut self, condition: ValueID<'src>) -> (MemID<'src>, MemID<'src>) {
+    pub fn add_ctrl_merge(&mut self, merge: MergeID<'src>) -> CtrlID<'src> {
+        self.push_mem_node(CtrlKind::Merge { merge })
+    }
+
+    pub fn add_branch(&mut self, condition: DataID<'src>) -> (CtrlID<'src>, CtrlID<'src>) {
         let ctrl = self.current_mem();
         let branch = self.push_branch(Branch { ctrl, condition });
         (
-            self.push_mem_node(MemKind::FalseBranch {
+            self.push_mem_node(CtrlKind::FalseBranch {
                 branch: branch.clone(),
             }),
-            self.push_mem_node(MemKind::TrueBranch { branch }),
+            self.push_mem_node(CtrlKind::TrueBranch { branch }),
         )
     }
 
-    pub fn add_loop_head(&mut self, condition: ValueID<'src>) -> MemID<'src> {
+    pub fn add_loop_head(&mut self, condition: DataID<'src>) -> CtrlID<'src> {
         let ctrl = self.current_mem();
         let place_holder = self.add_placeholder(ctrl.clone());
-        self.push_mem_node(MemKind::LoopHead {
+        self.push_mem_node(CtrlKind::LoopHead {
             condition,
             ctrl,
             backedge: self.current_mem(),
         })
     }
 
-    pub fn add_placeholder(&mut self, ctrl: MemID<'src>) -> MemID<'src> {
-        self.push_mem_node(MemKind::PlaceHolder { ctrl })
+    pub fn add_placeholder(&mut self, ctrl: CtrlID<'src>) -> CtrlID<'src> {
+        self.push_mem_node(CtrlKind::PlaceHolder { ctrl })
     }
 
-    pub fn add_load(&mut self, addr: ValueID<'src>) -> ValueID<'src> {
-        self.push_node(ValueKind::Load {
+    pub fn add_load(&mut self, addr: DataID<'src>) -> DataID<'src> {
+        self.push_node(DataKind::Load {
             mem: self.current_mem(),
             addr,
         })
     }
 
-    pub fn add_literal(&mut self, literal: Literal<'src>) -> ValueID<'src> {
-        self.push_node(ValueKind::Literal { literal })
+    pub fn add_literal(&mut self, literal: Literal<'src>) -> DataID<'src> {
+        self.push_node(DataKind::Literal { literal })
     }
 
-    pub fn add_unary(&mut self, op: UnaryOp, input: ValueID<'src>) -> ValueID<'src> {
-        self.push_node(ValueKind::Unary { op, input })
+    pub fn add_unary(&mut self, op: UnaryOp, input: DataID<'src>) -> DataID<'src> {
+        self.push_node(DataKind::Unary { op, input })
     }
 
     pub fn add_binary(
         &mut self,
         op: BinaryOp,
-        lhs: ValueID<'src>,
-        rhs: ValueID<'src>,
-    ) -> ValueID<'src> {
-        self.push_node(ValueKind::Binary { op, lhs, rhs })
+        lhs: DataID<'src>,
+        rhs: DataID<'src>,
+    ) -> DataID<'src> {
+        self.push_node(DataKind::Binary { op, lhs, rhs })
     }
 
     pub fn add_phi(
         &mut self,
-        condition: ValueID<'src>,
-        when_true: ValueID<'src>,
-        when_false: ValueID<'src>,
-    ) -> ValueID<'src> {
-        self.push_node(ValueKind::Phi {
-            condition,
+        merge: MergeID<'src>,
+        when_true: DataID<'src>,
+        when_false: DataID<'src>,
+    ) -> DataID<'src> {
+        self.push_node(DataKind::BranchPhi {
+            merge,
             when_true,
             when_false,
         })
     }
 
-    pub fn add_quote(&mut self, quote: String) -> ValueID<'src> {
-        self.push_node(ValueKind::Quote { quote })
+    pub fn add_quote(&mut self, quote: String) -> DataID<'src> {
+        self.push_node(DataKind::Quote { quote })
     }
 
-    pub fn add_bool(&mut self, boolean: bool) -> ValueID<'src> {
-        self.push_node(ValueKind::Boolean(boolean))
+    pub fn add_bool(&mut self, boolean: bool) -> DataID<'src> {
+        self.push_node(DataKind::Boolean(boolean))
     }
 
-    pub fn add_type(&mut self, type_: AtomicType) -> ValueID<'src> {
-        self.push_node(ValueKind::AtomicType { ty: type_ })
+    pub fn add_type(&mut self, type_: AtomicType) -> DataID<'src> {
+        self.push_node(DataKind::AtomicType { ty: type_ })
     }
 
-    pub fn add_unknown(&mut self) -> ValueID<'src> {
-        self.push_node_no_dedup(ValueKind::Unknown)
+    pub fn add_unknown(&mut self) -> DataID<'src> {
+        self.push_node_no_dedup(DataKind::Unknown)
     }
 
-    pub fn add_unit(&mut self) -> ValueID<'src> {
-        self.push_node(ValueKind::Unit)
+    pub fn add_unit(&mut self) -> DataID<'src> {
+        self.push_node(DataKind::Unit)
     }
 
-    pub fn current_mem(&self) -> MemID<'src> {
+    pub fn current_mem(&self) -> CtrlID<'src> {
         self.current_mem.clone()
     }
 }
 
-impl<'src> ValueKind<'src> {
-    fn node_key(&self) -> Option<ValueKey<'src>> {
+impl<'src> DataKind<'src> {
+    fn node_key(&self) -> Option<DataKey<'src>> {
         match self {
-            ValueKind::AtomicType { ty } => Some(ValueKey::AtomicType { ty: *ty }),
-            ValueKind::Literal { literal } => Some(ValueKey::Literal {
+            DataKind::AtomicType { ty } => Some(DataKey::AtomicType { ty: *ty }),
+            DataKind::Literal { literal } => Some(DataKey::Literal {
                 literal: literal.clone(),
             }),
-            ValueKind::Quote { quote } => Some(ValueKey::Quote {
+            DataKind::Quote { quote } => Some(DataKey::Quote {
                 quote: quote.clone(),
             }),
-            ValueKind::Boolean(boolean) => Some(ValueKey::Boolean(*boolean)),
-            ValueKind::Unit => Some(ValueKey::Unit),
-            ValueKind::Unary { op, input } => Some(ValueKey::Unary {
+            DataKind::Boolean(boolean) => Some(DataKey::Boolean(*boolean)),
+            DataKind::Unit => Some(DataKey::Unit),
+            DataKind::Unary { op, input } => Some(DataKey::Unary {
                 op: *op,
                 input: input.addr(),
             }),
-            ValueKind::Binary { op, lhs, rhs } => Some(ValueKey::Binary {
+            DataKind::Binary { op, lhs, rhs } => Some(DataKey::Binary {
                 op: *op,
                 lhs: lhs.addr(),
                 rhs: rhs.addr(),
             }),
-            ValueKind::Load { mem, addr } => Some(ValueKey::Load {
+            DataKind::Load { mem, addr } => Some(DataKey::Load {
                 mem: mem.addr(),
                 addr: addr.addr(),
             }),
-            ValueKind::Phi {
-                condition,
+            DataKind::BranchPhi {
+                merge,
                 when_true,
                 when_false,
-            } => Some(ValueKey::Phi {
-                condition: condition.addr(),
+            } => Some(DataKey::BranchPhi {
+                merge: merge.addr(),
                 when_true: when_true.addr(),
                 when_false: when_false.addr(),
             }),
-            ValueKind::Unknown => None,
+            DataKind::LoopPhi {
+                loop_head,
+                entry,
+                backedge,
+            } => Some(DataKey::LoopPhi {
+                loop_head: loop_head.addr(),
+                entry: entry.addr(),
+                backedge: backedge.addr(),
+            }),
+            DataKind::Unknown => None,
         }
     }
 }
 
-impl<'src> MemNode<'src> {
-    pub fn set_backedge(&mut self, backedge: MemID<'src>) {
+impl<'src> CtrlNode<'src> {
+    pub fn set_backedge(&mut self, backedge: CtrlID<'src>) {
         match &mut self.kind {
-            MemKind::LoopHead {
+            CtrlKind::LoopHead {
                 backedge: placeholder_backedge,
                 ..
             } => *placeholder_backedge = backedge,
@@ -319,9 +351,9 @@ impl<'src> MemNode<'src> {
         }
     }
 
-    pub fn set_condition(&mut self, condition: ValueID<'src>) {
+    pub fn set_condition(&mut self, condition: DataID<'src>) {
         match &mut self.kind {
-            MemKind::LoopHead {
+            CtrlKind::LoopHead {
                 condition: placeholder_condition,
                 ..
             } => *placeholder_condition = condition,
@@ -329,10 +361,10 @@ impl<'src> MemNode<'src> {
         }
     }
 
-    pub fn set_entry(&mut self, entry: MemID<'src>) {
+    pub fn set_entry(&mut self, entry: CtrlID<'src>) {
         match &mut self.kind {
-            MemKind::PlaceHolder { ctrl } => *ctrl = entry,
-            MemKind::LoopHead { ctrl, .. } => *ctrl = entry,
+            CtrlKind::PlaceHolder { ctrl } => *ctrl = entry,
+            CtrlKind::LoopHead { ctrl, .. } => *ctrl = entry,
             _ => panic!("attempted to set step clause prev on non-step-clause memory node"),
         }
     }

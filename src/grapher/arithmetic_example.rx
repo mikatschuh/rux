@@ -1,14 +1,14 @@
 let x i32 = (a + 10) * 20
 
-x i32 = -> 0
-a i32 = 10
+var x i32 = 0
+let a i32 = 10
 x = (a + 10) * 20
 
-y i32 = 11 a u32 // also possible to have on the same line
+let y i32 = 11 let a u32=1 // also possible to have on the same line
 
-abc str = "abc"
+let abc bool = "abc"
 
-complex ux = x ++ // complex == (10*10)*20 + 1
+let complex usize = x ++ // complex == (10*10)*20 + 1
 
 // variables have to be declared before they can be used
 

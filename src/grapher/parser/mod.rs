@@ -1,6 +1,8 @@
 use crate::{
     grapher::{
-        Graph, GraphError, GraphResult, IdentToken, graph::ValueID, parser::symbols::Overwrites,
+        Graph, GraphError, GraphResult, IdentToken,
+        graph::{DataID, MergeID},
+        parser::symbols::Overwrites,
     },
     tokenizing::{
         TokenStream,
@@ -27,9 +29,6 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             tokens,
             graph: Graph::new(),
             symbols: ScopedSymbolTable::new(),
-            // loops: Vec::new(),
-            // reachable: true,
-            // last_jump: None,
         }
     }
 
@@ -76,8 +75,8 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     pub fn declare_variable(
         &mut self,
         name: &'src str,
-        type_: ValueID<'src>,
-        value: ValueID<'src>,
+        type_: DataID<'src>,
+        value: DataID<'src>,
         mutable: bool,
     ) {
         if mutable {
@@ -87,22 +86,22 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    pub fn read_variable(&mut self, name: IdentToken<'src>) -> ValueID<'src> {
+    pub fn read_variable(&mut self, name: IdentToken<'src>) -> DataID<'src> {
         self.symbols.read_symbol(&mut self.graph, name.src)
     }
 
     fn merge_overwrites(
         &mut self,
-        condition: ValueID<'src>,
+        merge: MergeID<'src>,
         overwrites_when_true: Overwrites<'src>,
         mut overwrites_when_false: Overwrites<'src>,
     ) -> GraphResult<'src, ()> {
         for (symbol, when_true) in overwrites_when_true {
             let new_value = if let Some(when_false) = overwrites_when_false.remove(&symbol) {
-                self.graph.add_phi(condition.clone(), when_true, when_false)
+                self.graph.add_phi(merge.clone(), when_true, when_false)
             } else {
                 self.graph.add_phi(
-                    condition.clone(),
+                    merge.clone(),
                     when_true,
                     symbol.read_current_value().clone(),
                 )
@@ -113,7 +112,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
         for (symbol, when_false) in overwrites_when_false {
             let new_value = self.graph.add_phi(
-                condition.clone(),
+                merge.clone(),
                 symbol.read_current_value().clone(),
                 when_false,
             );

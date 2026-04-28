@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     error::Span,
-    grapher::{GraphError, GraphResult, IdentToken, graph::ValueID, parser::GraphBuilder},
+    grapher::{GraphError, GraphResult, IdentToken, graph::DataID, parser::GraphBuilder},
     literal_parsing::Literal,
     tokenizing::{
         TokenStream,
@@ -39,7 +39,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_statement(&mut self) -> GraphResult<'src, ValueID<'src>> {
+    fn parse_statement(&mut self) -> GraphResult<'src, DataID<'src>> {
         match self.peek().kind {
             TokenKind::Semicolon => {
                 self.advance();
@@ -66,7 +66,6 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                     Ok(self.graph.add_unit())
                 }
 
-                Keyword::Loop => todo!(),
                 Keyword::Continue => todo!(),
                 Keyword::Break => todo!(),
 
@@ -77,12 +76,12 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_expr(&mut self, min_bp: u8) -> GraphResult<'src, ValueID<'src>> {
+    fn parse_expr(&mut self, min_bp: u8) -> GraphResult<'src, DataID<'src>> {
         let lhs = self.parse_primary()?;
         self.parse_expr_tail(lhs, min_bp)
     }
 
-    fn parse_primary(&mut self) -> GraphResult<'src, ValueID<'src>> {
+    fn parse_primary(&mut self) -> GraphResult<'src, DataID<'src>> {
         match self.peek().kind {
             TokenKind::Type => {
                 let type_ = self.tokens.get_type();
@@ -147,9 +146,9 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
     fn parse_expr_tail(
         &mut self,
-        mut lhs: ValueID<'src>,
+        mut lhs: DataID<'src>,
         min_bp: u8,
-    ) -> GraphResult<'src, ValueID<'src>> {
+    ) -> GraphResult<'src, DataID<'src>> {
         loop {
             if self.peek().binding_pow() < min_bp {
                 return Ok(lhs);
@@ -169,7 +168,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_block(&mut self, _opener: Token<'src>) -> GraphResult<'src, ValueID<'src>> {
+    fn parse_block(&mut self, _opener: Token<'src>) -> GraphResult<'src, DataID<'src>> {
         self.symbols.open_scope();
         loop {
             match self.peek().kind {
@@ -233,7 +232,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }*/
 
-    fn parse_assignment(&mut self, name: IdentToken<'src>) -> GraphResult<'src, ValueID<'src>> {
+    fn parse_assignment(&mut self, name: IdentToken<'src>) -> GraphResult<'src, DataID<'src>> {
         loop {
             if self.peek().kind == TokenKind::Equal {
                 let span = self.advance().span;
@@ -261,7 +260,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_if(&mut self, _if: Token<'src>) -> GraphResult<'src, ValueID<'src>> {
+    fn parse_if(&mut self, _if: Token<'src>) -> GraphResult<'src, DataID<'src>> {
         let condition = self.parse_expr(0)?;
         let (false_branch, true_branch) = self.graph.add_branch(condition.clone());
 
@@ -282,24 +281,24 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             let overwrites_when_false = self.symbols.close_branch();
             let false_branch = self.graph.current_mem();
 
-            self.merge_overwrites(
-                condition.clone(),
-                overwrites_when_true,
-                overwrites_when_false,
-            )?;
-            self.graph.current_mem = self.graph.add_merge(false_branch, true_branch);
+            let merge = self.graph.add_merge(vec![false_branch, true_branch]);
+            self.graph.current_mem = self.graph.add_ctrl_merge(merge.clone());
 
-            Ok(self.graph.add_phi(condition, when_true, when_false))
+            self.merge_overwrites(merge.clone(), overwrites_when_true, overwrites_when_false)?;
+
+            Ok(self.graph.add_phi(merge, when_true, when_false))
         } else {
-            self.merge_overwrites(condition.clone(), overwrites_when_true, HashMap::new())?;
-            self.graph.current_mem = self.graph.add_merge(false_branch, true_branch);
+            let merge = self.graph.add_merge(vec![false_branch, true_branch]);
+            self.graph.current_mem = self.graph.add_ctrl_merge(merge.clone());
+
+            self.merge_overwrites(merge.clone(), overwrites_when_true, HashMap::new())?;
 
             let unit = self.graph.add_unit();
-            Ok(self.graph.add_phi(condition, when_true, unit))
+            Ok(self.graph.add_phi(merge, when_true, unit))
         }
     }
 
-    fn parse_loop(&mut self, _loop: Token<'src>) -> GraphResult<'src, ValueID<'src>> {
+    fn parse_loop(&mut self, _loop: Token<'src>) -> GraphResult<'src, DataID<'src>> {
         let condition = self.parse_expr(0)?;
 
         let _before_loop = self.graph.current_mem();
