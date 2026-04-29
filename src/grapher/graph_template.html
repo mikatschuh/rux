@@ -170,16 +170,18 @@
                 cy.elements().removeClass(dimClasses.join(" "));
             };
 
+            const setDimLevel = (elements, level) => {
+                elements.removeClass(dimClasses.join(" "));
+                elements.addClass(`dimmed-${Math.min(level, MAX_DIM_LEVEL)}`);
+            };
+
             const applyConnectivityDimming = (root) => {
                 clearDimming();
                 cy.elements().addClass(`dimmed-${MAX_DIM_LEVEL}`);
 
                 root.removeClass(dimClasses.join(" "));
-
-                root.incomers().forEach((element) => {
-                    element.removeClass(dimClasses.join(" "));
-                    element.addClass("dimmed-3");
-                });
+                const incomingEdges = root.incomers("edge");
+                const incomingSources = incomingEdges.sources();
 
                 const queue = [{ node: root, level: 0 }];
                 const seen = new Set([root.id()]);
@@ -187,11 +189,9 @@
                 while (queue.length > 0) {
                     const { node, level } = queue.shift();
                     const nextLevel = level + 1;
-                    const className = `dimmed-${Math.min(nextLevel, MAX_DIM_LEVEL)}`;
 
                     node.outgoers("edge").forEach((edge) => {
-                        edge.removeClass(dimClasses.join(" "));
-                        edge.addClass(className);
+                        setDimLevel(edge, nextLevel);
 
                         const target = edge.target();
                         if (seen.has(target.id())) {
@@ -199,16 +199,17 @@
                         }
 
                         seen.add(target.id());
-                        target.removeClass(dimClasses.join(" "));
-                        if (nextLevel > 0) {
-                            target.addClass(className);
-                        }
+                        setDimLevel(target, nextLevel);
                         queue.push({
                             node: target,
                             level: Math.min(nextLevel, MAX_DIM_LEVEL),
                         });
                     });
                 }
+
+                setDimLevel(incomingEdges, 3);
+                setDimLevel(incomingSources, 3);
+                root.removeClass(dimClasses.join(" "));
             };
 
             runLayout();
