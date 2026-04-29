@@ -1,8 +1,10 @@
+use std::collections::HashSet;
+
 use crate::{
     grapher::{
         Graph, GraphError, GraphResult, IdentToken,
         graph::{DataID, MergeID},
-        parser::symbols::Overwrites,
+        parser::{alias::Alias, jumps::JumpTableStack, symbols::Overwrites},
     },
     tokenizing::{
         TokenStream,
@@ -11,15 +13,25 @@ use crate::{
 };
 
 mod alias;
+mod jumps;
 mod parsing;
 mod symbols;
 
 pub use symbols::{ScopedSymbolTable, Symbol, SymbolDump};
 
+pub struct BreakJump<'src> {
+    overwrites: Overwrites<'src>,
+    value: DataID<'src>,
+}
+
 pub struct GraphBuilder<'tokens, 'src, T: TokenStream<'src>> {
     tokens: &'tokens mut T,
     pub graph: Graph<'src>,
     pub symbols: ScopedSymbolTable<'src>,
+
+    pub loops: Vec<usize>,
+    pub continue_jumps: JumpTableStack<'src, Overwrites<'src>>,
+    pub break_jumps: JumpTableStack<'src, BreakJump<'src>>,
 }
 
 #[allow(dead_code)]
@@ -29,6 +41,10 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             tokens,
             graph: Graph::new(),
             symbols: ScopedSymbolTable::new(),
+
+            loops: vec![],
+            continue_jumps: JumpTableStack::new(),
+            break_jumps: JumpTableStack::new(),
         }
     }
 
@@ -93,33 +109,35 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     fn merge_overwrites(
         &mut self,
         merge: MergeID<'src>,
-        overwrites_when_true: Overwrites<'src>,
-        mut overwrites_when_false: Overwrites<'src>,
-    ) -> GraphResult<'src, ()> {
-        for (symbol, when_true) in overwrites_when_true {
-            let new_value = if let Some(when_false) = overwrites_when_false.remove(&symbol) {
-                self.graph.add_phi(merge.clone(), when_true, when_false)
-            } else {
-                self.graph.add_phi(
-                    merge.clone(),
-                    when_true,
-                    symbol.read_current_value().clone(),
-                )
+        mut branches_overwrites: Vec<Overwrites<'src>>,
+    ) {
+        debug_assert_eq!(merge.branches.len(), branches_overwrites.len());
+        if merge.branches.len() == 1 {
+            for (alias, new_value) in branches_overwrites.pop().unwrap().into_iter() {
+                alias.over_write(new_value);
+            }
+            return;
+        }
+
+        let mut phis = HashSet::<Alias<'src>>::new();
+        for (alias, _) in branches_overwrites.iter().flat_map(|o| o.iter()) {
+            phis.insert(alias.clone());
+        }
+
+        for alias in phis.into_iter() {
+            let variants = branches_overwrites
+                .iter_mut()
+                .map(|o| {
+                    o.remove(&alias)
+                        .unwrap_or_else(|| alias.read_current_value().clone())
+                })
+                .collect();
+
+            let new_value = {
+                let phi = self.graph.add_phi(merge.clone(), variants);
+                self.graph.add_data_phi(phi)
             };
-
-            symbol.over_write(new_value)
+            alias.over_write(new_value);
         }
-
-        for (symbol, when_false) in overwrites_when_false {
-            let new_value = self.graph.add_phi(
-                merge.clone(),
-                symbol.read_current_value().clone(),
-                when_false,
-            );
-
-            symbol.over_write(new_value);
-        }
-
-        Ok(())
     }
 }

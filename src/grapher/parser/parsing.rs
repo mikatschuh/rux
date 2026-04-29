@@ -2,7 +2,11 @@ use std::collections::HashMap;
 
 use crate::{
     error::Span,
-    grapher::{GraphError, GraphResult, IdentToken, graph::DataID, parser::GraphBuilder},
+    grapher::{
+        GraphError, GraphResult, IdentToken,
+        graph::{DataID, PhiID},
+        parser::{BreakJump, GraphBuilder, symbols::Overwrites},
+    },
     literal_parsing::Literal,
     tokenizing::{
         TokenStream,
@@ -66,9 +70,6 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                     Ok(self.graph.add_unit())
                 }
 
-                Keyword::Continue => todo!(),
-                Keyword::Break => todo!(),
-
                 _ => self.parse_expr(0),
             },
 
@@ -127,24 +128,32 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                     }),
                 }
             }
-            TokenKind::Keyword(Keyword::If) => {
-                let if_ = self.advance();
-                self.parse_if(if_)
-            }
-            TokenKind::Keyword(Keyword::Loop) => {
-                let loop_ = self.advance();
-                self.parse_loop(loop_)
-            }
+            TokenKind::Keyword(keyword) => match keyword {
+                Keyword::If => {
+                    let if_ = self.advance();
+                    self.parse_if(if_)
+                }
+                Keyword::Loop => {
+                    let loop_ = self.advance();
+                    self.parse_loop(loop_)
+                }
+                Keyword::Continue => {
+                    let keyword = self.advance().span;
+                    self.parse_continue(keyword).map(|_| self.graph.add_never())
+                }
+                Keyword::Break => {
+                    let keyword = self.advance().span;
+                    self.parse_break(keyword).map(|_| self.graph.add_never())
+                }
+                _ => Err(GraphError::ExpectedExpression { found: self.peek() }),
+            },
             _ => match self.peek().as_prefix() {
                 Some(op) => {
                     self.advance();
                     let node = self.parse_expr(op.binding_pow())?;
                     Ok(self.graph.add_unary(op, node))
                 }
-                None => {
-                    self.advance();
-                    Err(GraphError::ExpectedExpression { found: self.peek() })
-                }
+                None => Err(GraphError::ExpectedExpression { found: self.peek() }),
             },
         }
     }
@@ -233,6 +242,41 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }*/
 
+    fn parse_continue(&mut self, _keyword: Span) -> GraphResult<'src, ()> {
+        if let Some(current_loop) = self.loops.last().cloned() {
+            self.continue_jumps.add_jump(
+                self.graph.current_ctrl(),
+                self.symbols.collect_overwrites_until_branch(current_loop),
+            );
+            Ok(())
+        } else {
+            Err(GraphError::JumpOutsideLoop {
+                keyword: self.peek(),
+            })
+        }
+    }
+
+    fn parse_break(&mut self, _keyword: Span) -> GraphResult<'src, ()> {
+        if let Some(current_loop) = self.loops.last().cloned() {
+            let value = self.parse_expr(0).or_else(|e| match e {
+                GraphError::ExpectedExpression { .. } => Ok(self.graph.add_unit()),
+                _ => Err(e),
+            })?;
+            self.break_jumps.add_jump(
+                self.graph.current_ctrl(),
+                BreakJump {
+                    overwrites: self.symbols.collect_overwrites_until_branch(current_loop),
+                    value,
+                },
+            );
+            Ok(())
+        } else {
+            Err(GraphError::JumpOutsideLoop {
+                keyword: self.peek(),
+            })
+        }
+    }
+
     fn parse_assignment(&mut self, name: IdentToken<'src>) -> GraphResult<'src, DataID<'src>> {
         loop {
             if self.peek().kind == TokenKind::Equal {
@@ -265,53 +309,111 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         let condition = self.parse_expr(0)?;
         let (false_branch, true_branch) = self.graph.add_branch(condition.clone());
 
-        self.graph.current_mem = true_branch;
+        self.graph.current_ctrl = true_branch;
 
         self.symbols.open_branch();
         let when_true = self.parse_expr(0)?;
         let overwrites_when_true = self.symbols.close_branch();
-        let true_branch = self.graph.current_mem();
+        let true_branch = self.graph.current_ctrl();
 
         if self.peek().kind == TokenKind::Keyword(Keyword::Else) {
             self.advance();
 
-            self.graph.current_mem = false_branch;
+            self.graph.current_ctrl = false_branch;
 
             self.symbols.open_branch();
             let when_false = self.parse_expr(0)?;
             let overwrites_when_false = self.symbols.close_branch();
-            let false_branch = self.graph.current_mem();
+            let false_branch = self.graph.current_ctrl();
 
             let merge = self.graph.add_merge(vec![false_branch, true_branch]);
-            self.graph.current_mem = self.graph.add_ctrl_merge(merge.clone());
+            self.graph.current_ctrl = self.graph.add_ctrl_merge(merge.clone());
 
-            self.merge_overwrites(merge.clone(), overwrites_when_true, overwrites_when_false)?;
+            self.merge_overwrites(
+                merge.clone(),
+                vec![overwrites_when_true, overwrites_when_false],
+            );
 
-            Ok(self.graph.add_phi(merge, when_true, when_false))
+            let phi = self.graph.add_phi(merge, vec![when_false, when_true]);
+            Ok(self.graph.add_data_phi(phi))
         } else {
             let merge = self.graph.add_merge(vec![false_branch, true_branch]);
-            self.graph.current_mem = self.graph.add_ctrl_merge(merge.clone());
+            self.graph.current_ctrl = self.graph.add_ctrl_merge(merge.clone());
 
-            self.merge_overwrites(merge.clone(), overwrites_when_true, HashMap::new())?;
+            self.merge_overwrites(merge.clone(), vec![overwrites_when_true, HashMap::new()]);
 
             let unit = self.graph.add_unit();
-            Ok(self.graph.add_phi(merge, when_true, unit))
+            let phi = self.graph.add_phi(merge, vec![unit, when_true]);
+            Ok(self.graph.add_data_phi(phi))
         }
     }
 
     fn parse_loop(&mut self, _loop: Token<'src>) -> GraphResult<'src, DataID<'src>> {
-        let condition = self.parse_expr(0)?;
+        // let condition = self.parse_expr(0)?;
 
-        let _before_loop = self.graph.current_mem();
-        let mut loop_head = self.graph.add_loop_head(condition);
-        self.graph.current_mem = loop_head.clone();
+        // ctrl node structure setup
+        let entry = self.graph.current_ctrl();
+        let mut loop_head = self.graph.add_merge(vec![entry]);
+        self.graph.current_ctrl = self.graph.add_ctrl_merge(loop_head.clone()); // with this the body has it as control flow dependency
 
-        self.symbols.open_branch();
-        let _body = self.parse_expr(0);
-        let _overwrites = self.symbols.close_branch();
+        self.loops.push(self.symbols.branches.len()); // this is a marker that marks the loop branch
+        self.continue_jumps.open_branch(); // jump branches
+        self.break_jumps.open_branch();
 
-        loop_head.set_backedge(self.graph.current_mem());
+        let mut mutable_variables_outside_loop_overwrites = self.symbols.collect_mutables();
+        let mut mutable_variables_outside_loop: Vec<PhiID<'src>> =
+            mutable_variables_outside_loop_overwrites
+                .iter_mut()
+                .map(|(_, value)| {
+                    let phi = self.graph.add_phi(loop_head.clone(), vec![value.clone()]);
+                    *value = self.graph.add_phi_no_dedup(phi.clone());
+                    phi
+                })
+                .collect(); // create a phi for every mutable variable outside the loop
+        self.symbols
+            .open_branch_with_overwrites(mutable_variables_outside_loop_overwrites); // create the loop-body branch with thoughs overwrites
 
-        Ok(self.graph.add_unit())
+        let _ = self.parse_expr(0)?; // parse the hole body
+        let regular_backedge_overwrites = self.symbols.close_branch(); // the state of every symbol after the hole body
+
+        let (mut continue_points, mut continue_jumps_overwrites) =
+            self.continue_jumps.close_branch();
+        continue_jumps_overwrites.push(regular_backedge_overwrites);
+
+        let (mut exit_points, break_jumps_data) = self.break_jumps.close_branch();
+        let mut break_values: Vec<DataID<'src>> =
+            break_jumps_data.iter().map(|j| j.value.clone()).collect();
+        let mut break_point_overwrites: Vec<Overwrites<'src>> =
+            break_jumps_data.into_iter().map(|j| j.overwrites).collect();
+
+        let body_end = self.graph.current_ctrl();
+        loop_head.branches.append(&mut continue_points); // add the continuation points as backedges
+        loop_head.branches.push(body_end); // add the regular backedge
+
+        continue_jumps_overwrites
+            .into_iter()
+            .flat_map(|overwrites| overwrites.into_iter().enumerate())
+            .for_each(|(i, (_, backedge))| {
+                mutable_variables_outside_loop[i].variants.push(backedge)
+            }); // add thoses backedges to the phi nodes of mutable variables outside the loop for every jump
+
+        if exit_points.len() == 1 {
+            self.graph.current_ctrl = exit_points.pop().unwrap();
+
+            let overwrites = break_point_overwrites.pop().unwrap();
+            overwrites
+                .into_iter()
+                .for_each(|(alias, new_value)| alias.over_write(new_value));
+
+            Ok(break_values.pop().unwrap())
+        } else {
+            let exit_merge = self.graph.add_merge(exit_points); // merge them
+            self.graph.current_ctrl = self.graph.add_ctrl_merge(exit_merge.clone()); // make it the control flow of the code after that
+
+            self.merge_overwrites(exit_merge.clone(), break_point_overwrites);
+
+            let phi = self.graph.add_phi(exit_merge, break_values);
+            Ok(self.graph.add_data_phi(phi))
+        }
     }
 }
