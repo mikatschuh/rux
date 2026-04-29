@@ -1,10 +1,8 @@
-use std::collections::HashSet;
-
 use crate::{
     grapher::{
         Graph, GraphError, GraphResult, IdentToken,
         graph::{DataID, MergeID},
-        parser::{alias::Alias, jumps::JumpTableStack, symbols::Overwrites},
+        parser::jumps::JumpTableStack,
     },
     tokenizing::{
         TokenStream,
@@ -12,7 +10,6 @@ use crate::{
     },
 };
 
-mod alias;
 mod jumps;
 mod parsing;
 mod symbols;
@@ -20,18 +17,19 @@ mod symbols;
 pub use symbols::{ScopedSymbolTable, Symbol, SymbolDump};
 
 pub struct BreakJump<'src> {
-    overwrites: Overwrites<'src>,
+    state: Vec<DataID<'src>>,
     value: DataID<'src>,
 }
 
 pub struct GraphBuilder<'tokens, 'src, T: TokenStream<'src>> {
     tokens: &'tokens mut T,
     pub graph: Graph<'src>,
-    pub symbols: ScopedSymbolTable<'src>,
 
-    pub loops: Vec<usize>,
-    pub continue_jumps: JumpTableStack<'src, Overwrites<'src>>,
-    pub break_jumps: JumpTableStack<'src, BreakJump<'src>>,
+    symbols: ScopedSymbolTable<'src>,
+
+    loops: Vec<usize>, // the scope-idxs where loops are located
+    continue_jumps: JumpTableStack<'src, Vec<DataID<'src>>>,
+    break_jumps: JumpTableStack<'src, BreakJump<'src>>,
 }
 
 #[allow(dead_code)]
@@ -40,6 +38,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         Self {
             tokens,
             graph: Graph::new(),
+
             symbols: ScopedSymbolTable::new(),
 
             loops: vec![],
@@ -106,38 +105,28 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         self.symbols.read_symbol(&mut self.graph, name.src)
     }
 
-    fn merge_overwrites(
-        &mut self,
-        merge: MergeID<'src>,
-        mut branches_overwrites: Vec<Overwrites<'src>>,
-    ) {
-        debug_assert_eq!(merge.branches.len(), branches_overwrites.len());
-        if merge.branches.len() == 1 {
-            for (alias, new_value) in branches_overwrites.pop().unwrap().into_iter() {
-                alias.over_write(new_value);
-            }
+    fn merge_states(&mut self, merge: MergeID<'src>, states: Vec<Vec<DataID<'src>>>) {
+        debug_assert_eq!(merge.branches.len(), states.len());
+
+        if states.is_empty() {
+            self.symbols
+                .for_every_mutable(|_, value| *value = self.graph.add_never());
             return;
         }
 
-        let mut phis = HashSet::<Alias<'src>>::new();
-        for (alias, _) in branches_overwrites.iter().flat_map(|o| o.iter()) {
-            phis.insert(alias.clone());
-        }
-
-        for alias in phis.into_iter() {
-            let variants = branches_overwrites
-                .iter_mut()
-                .map(|o| {
-                    o.remove(&alias)
-                        .unwrap_or_else(|| alias.read_current_value().clone())
-                })
-                .collect();
-
-            let new_value = {
+        self.symbols.for_every_mutable(|i, value| {
+            let mut variants = states
+                .iter()
+                .map(|state| state[i].clone())
+                .collect::<Vec<_>>();
+            let mut iter = variants.iter();
+            let first = iter.next();
+            *value = if iter.all(|x| Some(x) == first) {
+                variants.pop().unwrap()
+            } else {
                 let phi = self.graph.add_phi(merge.clone(), variants);
                 self.graph.add_data_phi(phi)
             };
-            alias.over_write(new_value);
-        }
+        });
     }
 }

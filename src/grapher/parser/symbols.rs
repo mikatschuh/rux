@@ -4,7 +4,7 @@ use nonempty::NonEmpty;
 
 use crate::{
     error::Span,
-    grapher::{Graph, GraphError, GraphResult, graph::DataID, parser::alias::Alias},
+    grapher::{Graph, GraphError, GraphResult, graph::DataID},
 };
 
 #[derive(Debug, Clone)]
@@ -19,17 +19,9 @@ pub struct Scope<'src> {
     mutables: HashMap<&'src str, Symbol<'src>>,
 }
 
-pub type Overwrites<'src> = HashMap<Alias<'src>, DataID<'src>>;
-
-#[derive(Debug)]
-pub struct Branch<'src> {
-    pub scopes: Vec<Scope<'src>>,
-    pub overwrites: Overwrites<'src>,
-}
-
 pub struct ScopedSymbolTable<'src> {
-    pub symbol_dump: SymbolDump<'src>,
-    pub branches: NonEmpty<Branch<'src>>,
+    symbol_dump: SymbolDump<'src>,
+    scopes: NonEmpty<Scope<'src>>,
     unknowns: HashMap<&'src str, DataID<'src>>, // all nodes that represent the unknown constants
 }
 
@@ -46,24 +38,27 @@ impl<'src> ScopedSymbolTable<'src> {
     pub fn new() -> Self {
         Self {
             symbol_dump: SymbolDump::new(),
-            branches: NonEmpty::new(Branch {
-                scopes: vec![Scope::new()],
-                overwrites: HashMap::new(),
-            }),
+            scopes: NonEmpty::new(Scope::new()),
             unknowns: HashMap::new(),
         }
     }
 
+    pub fn open_scope_id(&self) -> usize {
+        self.scopes.len() - 1
+    }
+
     pub fn current_scope(&mut self) -> &mut Scope<'src> {
-        self.branches.last_mut().scopes.last_mut().unwrap()
+        self.scopes.last_mut()
     }
 
     pub fn open_scope(&mut self) {
-        self.branches.last_mut().scopes.push(Scope::new());
+        self.scopes.push(Scope::new());
     }
 
     pub fn close_scope(&mut self) {
-        let mut scope = self.branches.last_mut().scopes.pop().unwrap();
+        debug_assert!(self.scopes.len() >= 2);
+        let mut scope = self.scopes.pop().unwrap();
+        // add all the symbols to the symbol dump
         scope
             .immutables
             .drain()
@@ -74,89 +69,32 @@ impl<'src> ScopedSymbolTable<'src> {
             .for_each(|i| self.symbol_dump.mutables.push(i));
     }
 
-    pub fn open_branch(&mut self) {
-        self.branches.push(Branch {
-            scopes: vec![],
-            overwrites: HashMap::new(),
-        });
-    }
-
-    pub fn collect_mutables(&mut self) -> Overwrites<'src> {
-        let mut overwrites = Overwrites::new();
-
-        for mutable in self
-            .branches
+    /// is equal to `self.snapshot_state_of_scope(self.opened_scope_id())`
+    pub fn snapshot_state(&self) -> Vec<DataID<'src>> {
+        self.scopes
             .iter()
-            .flat_map(|b| b.scopes.iter())
+            .rev()
             .flat_map(|s| s.mutables.iter())
-        {
-            overwrites.insert(Alias::new(&mutable.1.value), mutable.1.value.clone());
-        }
-        overwrites
+            .map(|(_, symbol)| symbol.value.clone())
+            .collect()
     }
 
-    pub fn open_branch_with_overwrites(&mut self, overwrites: Overwrites<'src>) {
-        self.branches.push(Branch {
-            scopes: vec![],
-            overwrites,
-        });
+    pub fn snapshot_state_of_scope(&self, scope_id: usize) -> Vec<DataID<'src>> {
+        self.scopes
+            .iter()
+            .take(scope_id + 1)
+            .flat_map(|s| s.mutables.iter())
+            .map(|(_, symbol)| symbol.value.clone())
+            .collect()
     }
 
-    #[must_use]
-    pub fn close_branch(&mut self) -> Overwrites<'src> {
-        debug_assert!(self.branches.last().scopes.is_empty());
-        self.branches.pop().unwrap().overwrites
-    }
-
-    pub fn collect_overwrites_until_branch(&mut self, branch: usize) -> Overwrites<'src> {
-        let mut branches = self.branches.iter().skip(branch);
-        let mut overwrites = branches.next().unwrap().overwrites.clone();
-        branches
-            .flat_map(|b| b.overwrites.iter())
-            .for_each(|(alias, overwrite)| {
-                if let Some(prev_value) = overwrites.get_mut(alias) {
-                    *prev_value = overwrite.clone();
-                }
-            });
-        overwrites
-    }
-
-    fn build_alias_chain(
-        &mut self,
-        mut outer_scope_overwrite: Alias<'src>,
-        branch_depth: usize,
-    ) -> Alias<'src> {
-        let mut prev_value = outer_scope_overwrite.read_current_value();
-
-        let start = self.branches.len() - branch_depth;
-        for branch in self.branches.iter_mut().skip(start) {
-            if let Some(overwrite) = branch.overwrites.get(&outer_scope_overwrite) {
-                outer_scope_overwrite = Alias::new(overwrite);
-                prev_value = overwrite.clone();
-            } else {
-                branch
-                    .overwrites
-                    .insert(outer_scope_overwrite.clone(), prev_value.clone());
-                outer_scope_overwrite =
-                    Alias::new(branch.overwrites.get(&outer_scope_overwrite).unwrap());
-            }
-        }
-        outer_scope_overwrite
-    }
-
-    fn resolve_overwrite_ptr(
-        &self,
-        mut symbol_ptr: Alias<'src>,
-        branch_depth: usize,
-    ) -> Alias<'src> {
-        let start = self.branches.len() - branch_depth;
-        for branch in self.branches.iter().skip(start) {
-            if let Some(overwrite) = branch.overwrites.get(&symbol_ptr) {
-                symbol_ptr = Alias::new(overwrite);
-            }
-        }
-
-        symbol_ptr
+    pub fn for_every_mutable(&mut self, mut f: impl FnMut(usize, &mut DataID<'src>)) {
+        self.scopes
+            .iter_mut()
+            .rev()
+            .flat_map(|s| s.mutables.iter_mut())
+            .enumerate()
+            .for_each(|(i, (_, symbol))| f(i, &mut symbol.value));
     }
 
     pub fn write_symbol(
@@ -165,57 +103,31 @@ impl<'src> ScopedSymbolTable<'src> {
         name: &'src str,
         value: DataID<'src>,
     ) -> GraphResult<'src, ()> {
-        let mut mutable_found: Option<(Alias<'src>, usize)> = None;
-
-        'outer: for (depth, branch) in self.branches.iter_mut().rev().enumerate() {
-            for scope in branch.scopes.iter_mut().rev() {
-                if scope.immutables.contains_key(name) {
-                    return Err(GraphError::AssignmentToImmutableIdent { name, assignment });
-                }
-
-                match scope.mutables.get_mut(name) {
-                    Some(symbol) => {
-                        if depth == 0 {
-                            // symbol is within current branch
-                            symbol.value = value;
-                            return Ok(());
-                        } else {
-                            mutable_found = Some((Alias::new(&symbol.value), depth));
-                            break 'outer;
-                        }
-                    }
-                    None => continue,
-                }
+        for scope in self.scopes.iter_mut().rev() {
+            if scope.immutables.contains_key(name) {
+                return Err(GraphError::AssignmentToImmutableIdent { name, assignment });
             }
-        }
 
-        if let Some((outer_scope_overwrite, branch_depth)) = mutable_found {
-            self.build_alias_chain(outer_scope_overwrite, branch_depth)
-                .over_write(value);
-            return Ok(());
+            match scope.mutables.get_mut(name) {
+                Some(symbol) => {
+                    symbol.value = value;
+                    return Ok(());
+                }
+                None => continue,
+            }
         }
 
         Err(GraphError::AssignmentToUnknownVar { name, assignment })
     }
 
     pub fn read_symbol(&mut self, graph: &mut Graph<'src>, name: &'src str) -> DataID<'src> {
-        let mut mutable_found: Option<(Alias<'src>, usize)> = None;
-
-        'outer: for (depth, branch) in self.branches.iter().rev().enumerate() {
-            for scope in branch.scopes.iter().rev() {
-                if let Some(symbol) = scope.immutables.get(name) {
-                    return symbol.value.clone();
-                }
-                if let Some(symbol) = scope.mutables.get(name) {
-                    mutable_found = Some((Alias::new(&symbol.value), depth));
-                    break 'outer;
-                }
+        for scope in self.scopes.iter().rev() {
+            if let Some(symbol) = scope.immutables.get(name) {
+                return symbol.value.clone();
             }
-        }
-
-        if let Some((symbol_ptr, branch_depth)) = mutable_found {
-            let symbol_ptr = self.resolve_overwrite_ptr(symbol_ptr, branch_depth);
-            return symbol_ptr.read_current_value();
+            if let Some(symbol) = scope.mutables.get(name) {
+                return symbol.value.clone();
+            }
         }
 
         if let Some(unknown) = self.unknowns.get(name) {
@@ -259,15 +171,13 @@ impl<'src> ScopedSymbolTable<'src> {
     }*/
 
     pub fn all_symbols(mut self) -> SymbolDump<'src> {
-        self.branches.iter_mut().for_each(|b| {
-            b.scopes.iter_mut().for_each(|s| {
-                s.immutables
-                    .drain()
-                    .for_each(|i| self.symbol_dump.immutables.push(i));
-                s.mutables
-                    .drain()
-                    .for_each(|i| self.symbol_dump.mutables.push(i));
-            })
+        self.scopes.iter_mut().for_each(|s| {
+            s.immutables
+                .drain()
+                .for_each(|i| self.symbol_dump.immutables.push(i));
+            s.mutables
+                .drain()
+                .for_each(|i| self.symbol_dump.mutables.push(i));
         });
 
         self.symbol_dump
@@ -285,48 +195,5 @@ impl<'src> SymbolDump<'src> {
             immutables: Vec::new(),
             mutables: Vec::new(),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{ScopedSymbolTable, Symbol};
-    use crate::{error::Span, grapher::Graph};
-
-    #[test]
-    fn read_symbol_follows_nested_branch_overwrite_chain() {
-        let mut graph = Graph::new();
-        let type_ = graph.add_unit();
-        let before = graph.add_quote("before".into());
-        let second = graph.add_quote("second".into());
-        let third_clause = graph.add_quote("third-clause".into());
-        let thirdish_clause = graph.add_quote("thirdish-clause".into());
-
-        let mut symbols = ScopedSymbolTable::new();
-        symbols.add_mutable(
-            "mutable",
-            Symbol {
-                type_: type_.clone(),
-                value: before,
-            },
-        );
-
-        symbols.open_branch();
-        symbols.open_scope();
-        symbols
-            .write_symbol(Span::beginning(), "mutable", second)
-            .expect("first branch write");
-
-        symbols.open_branch();
-        symbols.open_scope();
-        symbols
-            .write_symbol(Span::beginning(), "mutable", third_clause)
-            .expect("nested branch write");
-        symbols
-            .write_symbol(Span::beginning(), "mutable", thirdish_clause.clone())
-            .expect("nested branch overwrite");
-
-        let value = symbols.read_symbol(&mut graph, "mutable");
-        assert!(value.ptr_cmp(&thirdish_clause));
     }
 }
