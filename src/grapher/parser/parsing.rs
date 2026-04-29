@@ -112,6 +112,11 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             }
             TokenKind::Open(open) => {
                 self.advance();
+                if self.peek().kind == TokenKind::Open(open) {
+                    self.advance();
+                    return Ok(self.graph.add_unit());
+                }
+
                 let expr = self.parse_expr(0)?;
                 let closer = self.advance();
                 match closer.kind {
@@ -170,21 +175,17 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
     fn parse_block(&mut self, _opener: Token<'src>) -> GraphResult<'src, DataID<'src>> {
         self.symbols.open_scope();
+        if self.peek().kind == TokenKind::Closed(Bracket::Curly) {
+            self.advance();
+            self.symbols.close_scope();
+            return Ok(self.graph.add_unit());
+        }
         loop {
-            match self.peek().kind {
-                TokenKind::Closed(Bracket::Curly) => {
-                    self.advance();
-                    self.symbols.close_scope();
-                    return Ok(self.graph.add_unit());
-                }
-                _ => {
-                    let value = self.parse_statement()?;
-                    if self.peek().kind == TokenKind::Closed(Bracket::Curly) {
-                        self.advance();
-                        self.symbols.close_scope();
-                        return Ok(value);
-                    }
-                }
+            let value = self.parse_statement()?;
+            if self.peek().kind == TokenKind::Closed(Bracket::Curly) {
+                self.advance();
+                self.symbols.close_scope();
+                return Ok(value);
             }
         }
     }
