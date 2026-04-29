@@ -81,10 +81,44 @@ impl<'src> ScopedSymbolTable<'src> {
         });
     }
 
+    pub fn collect_mutables(&mut self) -> Overwrites<'src> {
+        let mut overwrites = Overwrites::new();
+
+        for mutable in self
+            .branches
+            .iter()
+            .flat_map(|b| b.scopes.iter())
+            .flat_map(|s| s.mutables.iter())
+        {
+            overwrites.insert(Alias::new(&mutable.1.value), mutable.1.value.clone());
+        }
+        overwrites
+    }
+
+    pub fn open_branch_with_overwrites(&mut self, overwrites: Overwrites<'src>) {
+        self.branches.push(Branch {
+            scopes: vec![],
+            overwrites,
+        });
+    }
+
     #[must_use]
     pub fn close_branch(&mut self) -> Overwrites<'src> {
         debug_assert!(self.branches.last().scopes.is_empty());
         self.branches.pop().unwrap().overwrites
+    }
+
+    pub fn collect_overwrites_until_branch(&mut self, branch: usize) -> Overwrites<'src> {
+        let mut branches = self.branches.iter().skip(branch);
+        let mut overwrites = branches.next().unwrap().overwrites.clone();
+        branches
+            .flat_map(|b| b.overwrites.iter())
+            .for_each(|(alias, overwrite)| {
+                if let Some(prev_value) = overwrites.get_mut(alias) {
+                    *prev_value = overwrite.clone();
+                }
+            });
+        overwrites
     }
 
     fn build_alias_chain(
