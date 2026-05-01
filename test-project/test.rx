@@ -1,2 +1,7 @@
-loop {}
-if () {}
+var i i32 = 0
+
+label: loop {
+    let x i32 = if i == 11 unreachable else 10
+
+    if true break
+}

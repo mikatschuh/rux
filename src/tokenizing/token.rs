@@ -107,6 +107,7 @@ pub enum TokenKind {
     Continue,
     Break,
     Return,
+    Unreachable,
     // =========
     Type,    // i32
     Literal, // 1001010101
@@ -143,6 +144,7 @@ pub fn as_keyword(string: &str) -> Option<TokenKind> {
         "continue" => Continue,
         "break" => Break,
         "return" => Return,
+        "unreachable" => Unreachable,
         _ => return None,
     })
 }

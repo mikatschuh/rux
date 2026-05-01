@@ -40,10 +40,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 self.advance();
                 Ok(self.graph.add_unit())
             }
-            TokenKind::Ident => {
-                let name = self.expect_name().unwrap();
-                self.parse_assignment(name)
-            }
+
             TokenKind::Fn => todo!(),
             TokenKind::Enum => todo!(),
             TokenKind::Struct => todo!(),
@@ -57,6 +54,11 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 let var_keyword = self.advance();
                 self.parse_decl(var_keyword.span, true)?;
                 Ok(self.graph.add_unit())
+            }
+
+            TokenKind::Ident => {
+                let name = self.expect_name().unwrap();
+                self.parse_assignment(name)
             }
 
             _ => self.parse_expr(0),
@@ -142,6 +144,11 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             TokenKind::Break => {
                 let keyword = self.advance();
                 self.parse_break(keyword)
+            }
+            TokenKind::Unreachable => {
+                self.advance();
+                self.graph.make_unreachable();
+                Ok(self.graph.add_never())
             }
 
             _ => match self.peek().as_prefix() {

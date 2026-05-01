@@ -55,6 +55,7 @@ impl<'src> Token<'src> {
             | Continue
             | Break
             | Return
+            | Unreachable
             // =========
             | Type
             | Open(Bracket::Curly)
