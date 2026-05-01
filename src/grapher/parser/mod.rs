@@ -103,8 +103,6 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     fn set_up_loop_merge(&mut self, entry: CtrlID<'src>) -> (MergeID<'src>, Vec<PhiID<'src>>) {
         // ctrl node structure setup
         let loop_head = self.graph.add_merge(vec![entry]);
-        let ctrl_loop_head = self.graph.add_ctrl_merge(loop_head.clone());
-        self.graph.set_ctrl(ctrl_loop_head); // with this the body has it as a control flow dependency
 
         let mut loop_phis = vec![];
         self.symbols.for_every_mutable(|_, data| {
@@ -113,12 +111,13 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             loop_phis.push(phi);
         }); // replace every variable with a phi and keep track of the phi's
 
+        self.graph.add_merge_to_ctrl(loop_head.clone()); // with this the body has it as a control flow dependency
         (loop_head, loop_phis)
     }
 
     fn close_loop(
         &mut self,
-        loop_backedge: bool,
+        loop_backedge: Option<DataID<'src>>,
         mut loop_head: MergeID<'src>,
         mut loop_phis: Vec<PhiID<'src>>,
     ) -> GraphResult<'src, DataID<'src>> {
@@ -133,12 +132,13 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         if !self.graph.is_unreachable() {
             let body_end = self.graph.get_ctrl()?;
             let body_end_state = self.symbols.snapshot_state(); // the state of every symbol after the hole body
-            if loop_backedge {
+            if let Some(data) = loop_backedge {
+                break_points.push(body_end);
+                break_values.push(data);
+                break_states.push(body_end_state);
+            } else {
                 continue_points.push(body_end); // add the regular backedge
                 continue_states.push(body_end_state); // add the regular backedge state
-            } else {
-                break_points.push(body_end);
-                break_states.push(body_end_state);
             }
         }
 
@@ -158,8 +158,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             Ok(break_values.pop().unwrap())
         } else {
             let exit_merge = self.graph.add_merge(break_points); // merge them
-            let ctrl_exit_merge = self.graph.add_ctrl_merge(exit_merge.clone());
-            self.graph.set_ctrl(ctrl_exit_merge); // make it the control flow of the code after that
+            self.graph.add_merge_to_ctrl(exit_merge.clone()); // make it the control flow of the code after that
 
             self.merge_states(exit_merge.clone(), break_states);
 

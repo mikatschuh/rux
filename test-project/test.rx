@@ -1,6 +1,2 @@
-var i i32 = 0
-label:loop {
-    if i !< 10 break:label;
-    if i !< 5 continue:label
-    i++
-}
+loop {}
+if () {}

@@ -226,11 +226,6 @@ pub fn process_ctrl_node<'src>(
             visited.insert(node_addr, idx);
             idx
         }
-        Never {} => {
-            let idx = graph.add_node(mem!("{}", mem!("never")));
-            visited.insert(node_addr, idx);
-            idx
-        }
     }
 }
 

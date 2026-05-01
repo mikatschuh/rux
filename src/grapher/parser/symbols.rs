@@ -74,7 +74,6 @@ impl<'src> ScopedSymbolTable<'src> {
     pub fn snapshot_state(&self) -> Vec<DataID<'src>> {
         self.scopes
             .iter()
-            .rev()
             .flat_map(|s| s.mutables.iter())
             .map(|(_, symbol)| symbol.value.clone())
             .collect()
@@ -92,7 +91,6 @@ impl<'src> ScopedSymbolTable<'src> {
     pub fn for_every_mutable(&mut self, mut f: impl FnMut(usize, &mut DataID<'src>)) {
         self.scopes
             .iter_mut()
-            .rev()
             .flat_map(|s| s.mutables.iter_mut())
             .enumerate()
             .for_each(|(i, (_, symbol))| f(i, &mut symbol.value));

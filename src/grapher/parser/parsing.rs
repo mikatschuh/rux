@@ -42,21 +42,20 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             }
             TokenKind::Ident => {
                 let name = self.expect_name().unwrap();
-                self.parse_assignment(name)?;
-                Ok(self.graph.add_unit())
+                self.parse_assignment(name)
             }
             TokenKind::Fn => todo!(),
             TokenKind::Enum => todo!(),
             TokenKind::Struct => todo!(),
 
             TokenKind::Let => {
-                let let_ = self.advance();
-                self.parse_decl(let_.span, false)?;
+                let let_keyword = self.advance();
+                self.parse_decl(let_keyword.span, false)?;
                 Ok(self.graph.add_unit())
             }
             TokenKind::Var => {
-                let var = self.advance();
-                self.parse_decl(var.span, true)?;
+                let var_keyword = self.advance();
+                self.parse_decl(var_keyword.span, true)?;
                 Ok(self.graph.add_unit())
             }
 
@@ -116,7 +115,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             }
             TokenKind::Open(open) => {
                 let opener = self.advance();
-                if self.peek().kind == TokenKind::Open(open) {
+                if self.peek().kind == TokenKind::Closed(open) {
                     self.advance();
                     return Ok(self.graph.add_unit());
                 }
@@ -304,16 +303,13 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 .graph
                 .add_phi(merge.clone(), vec![when_false, when_true]);
 
-            let merge_ctrl = self.graph.add_ctrl_merge(merge);
-            self.graph.set_ctrl(merge_ctrl);
+            self.graph.add_merge_to_ctrl(merge);
             Ok(self.graph.add_data_phi(phi))
         } else {
             let merge = self.graph.add_merge(vec![false_branch, true_branch]);
             self.merge_states(merge.clone(), vec![state_before_branch, state_when_true]);
 
-            let merge_ctrl = self.graph.add_ctrl_merge(merge);
-            self.graph.set_ctrl(merge_ctrl);
-
+            self.graph.add_merge_to_ctrl(merge);
             Ok(self.graph.add_unit())
         }
     }
@@ -328,9 +324,9 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         self.jumps.open_branch(self.symbols.open_scope_id());
         self.labels.insert(name.src, self.jumps.open_branch_id());
 
-        let _ = self.parse_expr(0)?; // parse the hole body
+        let value = self.parse_expr(0)?; // parse the hole body
         self.labels.remove(name.src);
-        self.close_loop(false, loop_head, loop_phis)
+        self.close_loop(Some(value), loop_head, loop_phis)
     }
 
     fn parse_continue(&mut self, keyword: Token<'src>) -> GraphResult<'src, DataID<'src>> {
@@ -411,6 +407,6 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
         let _ = self.parse_expr(0)?; // parse the hole body
 
-        self.close_loop(true, loop_head, loop_phis)
+        self.close_loop(None, loop_head, loop_phis)
     }
 }

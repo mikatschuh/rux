@@ -44,7 +44,6 @@ pub enum CtrlKind<'src> {
     Merge { merge: MergeID<'src> },
     TrueBranch { branch: BranchID<'src> },
     FalseBranch { branch: BranchID<'src> },
-    Never,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -120,7 +119,7 @@ enum DataKey<'src> {
 pub struct Graph<'src> {
     arena: Bump,
     node_cache: HashMap<DataKey<'src>, DataID<'src>>,
-    current_ctrl: CtrlID<'src>,
+    current_ctrl: Option<CtrlID<'src>>,
 }
 impl<'src> Graph<'src> {
     pub fn new() -> Self {
@@ -128,7 +127,10 @@ impl<'src> Graph<'src> {
 
         Self {
             node_cache: HashMap::new(),
-            current_ctrl: Rc::<CtrlKind<'src>, NoDealloc>::new_in_bump(CtrlKind::Start, &arena),
+            current_ctrl: Some(Rc::<CtrlKind<'src>, NoDealloc>::new_in_bump(
+                CtrlKind::Start,
+                &arena,
+            )),
             arena,
         }
     }
@@ -166,10 +168,14 @@ impl<'src> Graph<'src> {
     }
 
     pub fn add_ctrl_merge(&mut self, merge: MergeID<'src>) -> CtrlID<'src> {
+        self.push_ctrl_node(CtrlKind::Merge { merge })
+    }
+
+    pub fn add_merge_to_ctrl(&mut self, merge: MergeID<'src>) {
         if merge.branches.is_empty() {
-            self.push_ctrl_node(CtrlKind::Never)
+            self.current_ctrl = None;
         } else {
-            self.push_ctrl_node(CtrlKind::Merge { merge })
+            self.current_ctrl = Some(self.push_ctrl_node(CtrlKind::Merge { merge }))
         }
     }
 
@@ -248,23 +254,23 @@ impl<'src> Graph<'src> {
     }
 
     pub fn is_unreachable(&self) -> bool {
-        *self.current_ctrl == CtrlKind::Never
+        self.current_ctrl.is_none()
     }
 
     pub fn make_unreachable(&mut self) {
-        self.current_ctrl = self.push_ctrl_node(CtrlKind::Never)
+        self.current_ctrl = None
     }
 
     pub fn get_ctrl(&self) -> GraphResult<'src, CtrlID<'src>> {
-        if *self.current_ctrl == CtrlKind::Never {
-            return Err(GraphError::UnreachableCtrl);
+        if let Some(ctrl) = &self.current_ctrl {
+            Ok(ctrl.clone())
+        } else {
+            Err(GraphError::UnreachableCtrl)
         }
-
-        Ok(self.current_ctrl.clone())
     }
 
     pub fn set_ctrl(&mut self, ctrl: CtrlID<'src>) {
-        self.current_ctrl = ctrl
+        self.current_ctrl = Some(ctrl)
     }
 }
 
