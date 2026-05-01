@@ -114,7 +114,7 @@ fn tokenizes_basic_sequences() {
                 Token {
                     span: Span::at(2, 2, 3, 2),
                     src: "a",
-                    kind: Name,
+                    kind: Ident,
                 },
                 Token {
                     span: Span::at(4, 2, 2, 3),
@@ -142,12 +142,12 @@ fn tokenizes_basic_sequences() {
                 Token {
                     span: Span::at(1, 1, 2, 1),
                     src: "a",
-                    kind: Name,
+                    kind: Ident,
                 },
                 Token {
                     span: Span::at(1, 2, 2, 2),
                     src: "b",
-                    kind: Name,
+                    kind: Ident,
                 },
                 Token {
                     span: Span::at(4, 2, 4, 2),
@@ -324,7 +324,7 @@ fn tokenizes_embedded_quotes_across_scopes() {
             Token {
                 span: Span::at(4, 1, 5, 1),
                 src: "b",
-                kind: Name,
+                kind: Ident,
             },
             Token {
                 span: Span::at(5, 1, 8, 1),

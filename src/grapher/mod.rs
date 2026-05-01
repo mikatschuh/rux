@@ -35,6 +35,15 @@ pub type GraphResult<'src, T> = Result<T, GraphError<'src>>;
 #[allow(unused)]
 #[derive(Debug)]
 pub enum GraphError<'src> {
+    UnexpectedToken {
+        expected: &'static str,
+        found: Token<'src>,
+    },
+    MismatchedBracket {
+        opener: Token<'src>,
+        closer: Token<'src>,
+    },
+
     ExpectedItem {
         found: Token<'src>,
     },
@@ -44,15 +53,10 @@ pub enum GraphError<'src> {
     ExpectedExpression {
         found: Token<'src>,
     },
-    ExpectedName {
+    ExpectedIdent {
         found: Token<'src>,
     },
     ExpectedAssignment {
-        found: Token<'src>,
-    },
-
-    UnexpectedToken {
-        expected: &'static str,
         found: Token<'src>,
     },
 
@@ -82,17 +86,13 @@ pub enum GraphError<'src> {
         name: IdentToken<'src>,
     },
 
-    MismatchedBracket {
-        opener: Token<'src>,
-        closer: Token<'src>,
+    UnknownLabel {
+        label: IdentToken<'src>,
     },
     JumpOutsideLoop {
         keyword: Token<'src>,
     },
-    UnreachableStatementAfterJump {
-        jump: Token<'src>,
-        statement: Token<'src>,
-    },
+    UnreachableCtrl,
 }
 
 impl fmt::Display for GraphError<'_> {
@@ -102,7 +102,7 @@ impl fmt::Display for GraphError<'_> {
             ExpectedItem { found } => write!(f, "expected item at {:?}", found.span),
             ExpectedStatement { found } => write!(f, "expected statement at {:?}", found.span),
             ExpectedExpression { found } => write!(f, "expected expression at {:?}", found.span),
-            ExpectedName { found } => write!(f, "expected name at {:?}", found.span),
+            ExpectedIdent { found } => write!(f, "expected name at {:?}", found.span),
             ExpectedAssignment { found } => write!(f, "expected an assignment at {:?}", found.span),
 
             UnexpectedToken { expected, found } => write!(
@@ -147,16 +147,16 @@ impl fmt::Display for GraphError<'_> {
                 "mismatched brackets: opened at {:?}, closed with '{}' at {:?}",
                 opener.span, closer.src, closer.span
             ),
+
+            UnknownLabel { label } => {
+                write!(f, "used unknown label {} at {:?}", label.src, label.span)
+            }
             JumpOutsideLoop { keyword } => write!(
                 f,
                 "'{}' used outside of a loop at {:?}",
                 keyword.src, keyword.span
             ),
-            UnreachableStatementAfterJump { jump, statement } => write!(
-                f,
-                "statement '{}' at {:?} is unreachable after '{}' at {:?}",
-                statement.src, statement.span, jump.src, jump.span
-            ),
+            UnreachableCtrl => write!(f, "tried to make control flow which is unreachable",),
         }
     }
 }

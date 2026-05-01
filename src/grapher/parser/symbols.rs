@@ -24,6 +24,7 @@ pub struct ScopedSymbolTable<'src> {
     scopes: NonEmpty<Scope<'src>>,
     unknowns: HashMap<&'src str, DataID<'src>>, // all nodes that represent the unknown constants
 }
+pub type ScopeIdx = usize;
 
 impl<'src> Scope<'src> {
     fn new() -> Self {
@@ -43,7 +44,7 @@ impl<'src> ScopedSymbolTable<'src> {
         }
     }
 
-    pub fn open_scope_id(&self) -> usize {
+    pub fn open_scope_id(&self) -> ScopeIdx {
         self.scopes.len() - 1
     }
 

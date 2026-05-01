@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use bumpalo::Bump;
 
 use crate::{
+    grapher::{GraphError, GraphResult},
     literal_parsing::Literal,
     tokenizing::{binary_op::BinaryOp, unary_op::UnaryOp},
     type_parsing::AtomicType,
@@ -43,6 +44,7 @@ pub enum CtrlKind<'src> {
     Merge { merge: MergeID<'src> },
     TrueBranch { branch: BranchID<'src> },
     FalseBranch { branch: BranchID<'src> },
+    Never,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -118,7 +120,7 @@ enum DataKey<'src> {
 pub struct Graph<'src> {
     arena: Bump,
     node_cache: HashMap<DataKey<'src>, DataID<'src>>,
-    pub current_ctrl: CtrlID<'src>,
+    current_ctrl: CtrlID<'src>,
 }
 impl<'src> Graph<'src> {
     pub fn new() -> Self {
@@ -164,25 +166,32 @@ impl<'src> Graph<'src> {
     }
 
     pub fn add_ctrl_merge(&mut self, merge: MergeID<'src>) -> CtrlID<'src> {
-        self.push_ctrl_node(CtrlKind::Merge { merge })
+        if merge.branches.is_empty() {
+            self.push_ctrl_node(CtrlKind::Never)
+        } else {
+            self.push_ctrl_node(CtrlKind::Merge { merge })
+        }
     }
 
-    pub fn add_branch(&mut self, condition: DataID<'src>) -> (CtrlID<'src>, CtrlID<'src>) {
-        let ctrl = self.current_ctrl();
+    pub fn add_branch(
+        &mut self,
+        ctrl: CtrlID<'src>,
+        condition: DataID<'src>,
+    ) -> GraphResult<'src, (CtrlID<'src>, CtrlID<'src>)> {
         let branch = self.push_branch(Branch { ctrl, condition });
-        (
+        Ok((
             self.push_ctrl_node(CtrlKind::FalseBranch {
                 branch: branch.clone(),
             }),
             self.push_ctrl_node(CtrlKind::TrueBranch { branch }),
-        )
+        ))
     }
 
-    pub fn add_load(&mut self, addr: DataID<'src>) -> DataID<'src> {
-        self.push_node(DataKind::Load {
-            mem: self.current_ctrl(),
+    pub fn add_load(&mut self, addr: DataID<'src>) -> GraphResult<'src, DataID<'src>> {
+        Ok(self.push_node(DataKind::Load {
+            mem: self.get_ctrl()?,
             addr,
-        })
+        }))
     }
 
     pub fn add_literal(&mut self, literal: Literal<'src>) -> DataID<'src> {
@@ -238,8 +247,24 @@ impl<'src> Graph<'src> {
         self.push_node(DataKind::Never)
     }
 
-    pub fn current_ctrl(&self) -> CtrlID<'src> {
-        self.current_ctrl.clone()
+    pub fn is_unreachable(&self) -> bool {
+        *self.current_ctrl == CtrlKind::Never
+    }
+
+    pub fn make_unreachable(&mut self) {
+        self.current_ctrl = self.push_ctrl_node(CtrlKind::Never)
+    }
+
+    pub fn get_ctrl(&self) -> GraphResult<'src, CtrlID<'src>> {
+        if *self.current_ctrl == CtrlKind::Never {
+            return Err(GraphError::UnreachableCtrl);
+        }
+
+        Ok(self.current_ctrl.clone())
+    }
+
+    pub fn set_ctrl(&mut self, ctrl: CtrlID<'src>) {
+        self.current_ctrl = ctrl
     }
 }
 

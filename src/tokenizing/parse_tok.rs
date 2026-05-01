@@ -8,7 +8,7 @@ use crate::{
         Data,
         TokenKind::*,
         quote::{EmbeddingSyntax, parse_quote},
-        token::{Bracket, Keyword, Token, TokenKind},
+        token::{Bracket, Token, TokenKind, as_keyword},
         whitespace_at_start_or_empty,
     },
     type_parsing::{self, TypeSize},
@@ -125,9 +125,7 @@ pub(super) fn parse_token<'src>(
                 "true" => Boolean(true),
                 "false" => Boolean(false),
                 _ if src.trim_start_matches('_').is_empty() => TokenKind::Underscore,
-                _ => Keyword::from_str(src)
-                    .map(TokenKind::Keyword)
-                    .unwrap_or(TokenKind::Name),
+                _ => as_keyword(src).unwrap_or(TokenKind::Ident),
             },
         },
         None,

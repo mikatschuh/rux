@@ -38,11 +38,24 @@ impl<'src> Token<'src> {
             | RightArrow
             | Underscore
             | DashDashDash
-            | Name
+            | Ident
             | Not
             | Literal
             | Quote { .. }
-            | Keyword(..)
+            // keywords:
+            | Fn
+            | Enum
+            | Struct
+            | Let
+            | Var
+            | If
+            | Else
+            | Loop
+            | In
+            | Continue
+            | Break
+            | Return
+            // =========
             | Type
             | Open(Bracket::Curly)
             | Semicolon

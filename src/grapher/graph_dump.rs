@@ -46,7 +46,14 @@ impl<'src> Graph<'src> {
             graph.add_edge(name, value, "mutable".to_string());
         }
 
-        process_ctrl_node(&mut graph, &mut visited, self.current_ctrl.clone());
+        let current = if let Ok(latest) = self.get_ctrl() {
+            process_ctrl_node(&mut graph, &mut visited, latest)
+        } else {
+            graph.add_node(mem!("never"))
+        };
+
+        let current_node = graph.add_node(mem!("current"));
+        graph.add_edge(current_node, current, "".to_string());
 
         dump_cytoscape(&graph)
     }
@@ -147,7 +154,14 @@ pub fn process_merge_node<'src>(
         return *idx;
     }
 
-    let merge = graph.add_node(mem!("merge"));
+    let merge = graph.add_node(mem!(
+        "{}",
+        if node.branches.is_empty() {
+            "never"
+        } else {
+            "merge"
+        }
+    ));
     visited.insert(node_addr, merge);
     node.branches.iter().enumerate().for_each(|(i, b)| {
         let branch = process_ctrl_node(graph, visited, b.clone());
@@ -209,6 +223,11 @@ pub fn process_ctrl_node<'src>(
         }
         Merge { merge } => {
             let idx = process_merge_node(graph, visited, merge);
+            visited.insert(node_addr, idx);
+            idx
+        }
+        Never {} => {
+            let idx = graph.add_node(mem!("{}", mem!("never")));
             visited.insert(node_addr, idx);
             idx
         }

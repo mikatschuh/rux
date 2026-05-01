@@ -92,11 +92,26 @@ pub enum TokenKind {
 
     Comma, // ,
 
-    Keyword(Keyword), // if / loop / ..
-    Type,             // i32
-    Literal,          // 1001010101
+    // keywords:
+    Fn,
+    Enum,
+    Struct,
+
+    Let,
+    Var,
+
+    If,
+    Else,
+    Loop,
+    In,
+    Continue,
+    Break,
+    Return,
+    // =========
+    Type,    // i32
+    Literal, // 1001010101
     Boolean(bool),
-    Name,       // x
+    Ident,      // x
     Underscore, // _
 
     Quote {
@@ -107,6 +122,29 @@ pub enum TokenKind {
     Closed(Bracket), // ) / ] / }
 
     Eof,
+}
+
+use Bracket::*;
+use TokenKind::*;
+
+pub fn as_keyword(string: &str) -> Option<TokenKind> {
+    Some(match string {
+        "fn" => Fn,
+        "enum" => Enum,
+        "struct" => Struct,
+
+        "let" => Let,
+        "var" => Var,
+
+        "if" => If,
+        "else" => Else,
+        "loop" => Loop,
+        "in" => In,
+        "continue" => Continue,
+        "break" => Break,
+        "return" => Return,
+        _ => return None,
+    })
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -131,69 +169,6 @@ impl Bracket {
         }
     }
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Keyword {
-    Fn,
-    Enum,
-    Struct,
-
-    Let,
-    Var,
-
-    If,
-    Else,
-    Loop,
-    In,
-    Continue,
-    Break,
-    Return,
-}
-
-impl Keyword {
-    pub fn display(&self) -> &'static str {
-        match self {
-            Fn => "fn",
-            Enum => "enum",
-            Struct => "struct",
-
-            Let => "let",
-            Var => "var",
-
-            If => "if",
-            Else => "else",
-            Loop => "loop",
-            In => "in",
-            Continue => "continue",
-            Break => "break",
-            Return => "return",
-        }
-    }
-    pub fn from_str(string: &str) -> Option<Self> {
-        Some(match string {
-            "fn" => Fn,
-            "enum" => Enum,
-            "struct" => Struct,
-
-            "let" => Let,
-            "var" => Var,
-
-            "if" => If,
-            "else" => Else,
-            "loop" => Loop,
-            "in" => In,
-            "continue" => Continue,
-            "break" => Break,
-            "return" => Return,
-            _ => return None,
-        })
-    }
-}
-
-use super::token::Keyword::*;
-use Bracket::*;
-use TokenKind::*;
-
 const FIRST_CENTER_DOT_CHARACTER: u8 = "·".as_bytes()[0];
 const SECOND_CENTER_DOT_CHARACTER: u8 = "·".as_bytes()[1];
 
