@@ -1,5 +1,6 @@
 mod jumps;
 pub mod symbols;
+#[cfg(test)]
 mod test;
 
 pub use symbols::{ScopedSymbolTable, Symbol, SymbolDump};
@@ -7,7 +8,10 @@ pub use symbols::{ScopedSymbolTable, Symbol, SymbolDump};
 use crate::{
     grapher::{
         Graph, GraphError, GraphResult, IdentToken,
-        builder::jumps::{BranchID, JumpTableStack, Jumps},
+        builder::{
+            jumps::{BranchID, JumpTableStack, Jumps},
+            symbols::MutableState,
+        },
         graph::{CtrlID, DataID, MergeID, PhiID},
     },
     tokenizing::{
@@ -90,10 +94,11 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         mutable: bool,
     ) {
         if mutable {
-            self.symbol_table.add_mutable(name, Symbol { type_, value });
+            self.symbol_table
+                .add_mutable(name, Symbol { ty: type_, value });
         } else {
             self.symbol_table
-                .add_immutable(name, Symbol { type_, value })
+                .add_immutable(name, Symbol { ty: type_, value })
         }
     }
 
@@ -233,16 +238,19 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             Ok(break_values.pop().unwrap())
         } else {
             let exit_merge = self.graph.add_merge(break_points); // merge them
-            self.graph.add_merge_to_ctrl(exit_merge.clone()); // make it the control flow of the code after that
-
             self.merge_states(exit_merge.clone(), break_states);
+            let phi = self.graph.add_phi(exit_merge.clone(), break_values);
 
-            let phi = self.graph.add_phi(exit_merge, break_values);
+            self.graph.add_merge_to_ctrl(exit_merge); // make it the control flow of the code after that
             Ok(self.graph.add_data_phi(phi))
         }
     }
 
-    pub fn merge_states(&mut self, merge: MergeID<'src>, states: Vec<Vec<DataID<'src>>>) {
+    pub fn current_state(&self) -> GraphResult<'src, (MutableState<'src>, CtrlID<'src>)> {
+        Ok((self.symbol_table.snapshot_state(), self.graph.get_ctrl()?))
+    }
+
+    pub fn merge_states(&mut self, merge: MergeID<'src>, states: Vec<MutableState<'src>>) {
         debug_assert_eq!(merge.branches.len(), states.len());
 
         if states.is_empty() {
@@ -267,7 +275,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         });
     }
 
-    pub fn go_back_to_state(&mut self, state: Vec<DataID<'src>>) {
+    pub fn restore_state(&mut self, state: MutableState<'src>) {
         let mut state = state.into_iter();
         self.symbol_table
             .for_every_mutable(|_, m| *m = state.next().unwrap());

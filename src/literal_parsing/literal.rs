@@ -62,11 +62,11 @@ pub struct Literal<'src> {
     pub suffix: &'src str,
 }
 
-impl<'src, N: Into<u128>> From<N> for Literal<'src> {
-    fn from(num: N) -> Self {
+impl<'src> From<u32> for Literal<'src> {
+    fn from(num: u32) -> Self {
         Self {
             base: Base::Decimal,
-            digits: BigUint::from_u128(num.into()).expect("BigUint"),
+            digits: BigUint::from_u32(num).expect("BigUint"),
             num_digits_after_dot: None,
             exponent: None,
             suffix: "",

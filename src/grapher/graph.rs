@@ -29,7 +29,7 @@ pub struct Branch<'src> {
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Merge<'src> {
-    pub branches: Vec<CtrlID<'src>>, // classically: false - true
+    pub branches: Vec<CtrlID<'src>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -222,7 +222,11 @@ impl<'src> Graph<'src> {
     }
 
     pub fn add_data_phi(&mut self, phi: PhiID<'src>) -> DataID<'src> {
-        self.push_node(DataKind::Phi { phi })
+        if phi.variants.is_empty() {
+            self.push_node(DataKind::Never)
+        } else {
+            self.push_node(DataKind::Phi { phi })
+        }
     }
 
     pub fn add_phi_no_dedup(&mut self, phi: PhiID<'src>) -> DataID<'src> {

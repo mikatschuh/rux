@@ -246,7 +246,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         } else if let Some(op) = self.peek().as_inc_or_dec() {
             let span = self.advance().span;
             let lhs = self.read_variable(name);
-            let rhs = self.graph.add_literal(Literal::from(1_u8));
+            let rhs = self.graph.add_literal(Literal::from(1));
             let value = self.graph.add_binary(op, lhs, rhs);
 
             self.symbol_table.write_symbol(span, name.src, value)?;
@@ -266,17 +266,17 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
     fn parse_if(&mut self, _if: Token<'src>) -> GraphResult<'src, DataID<'src>> {
         let condition = self.parse_expr(0)?;
-        let before_branch = self.graph.get_ctrl()?;
+
+        let (state_before_branch, before_branch) = self.current_state()?;
         let (false_branch, true_branch) = self
             .graph
             .add_branch(before_branch.clone(), condition.clone())?;
 
-        let state_before_branch = self.symbol_table.snapshot_state();
-
         self.graph.set_ctrl(true_branch);
         let when_true = self.parse_stmt_expr()?;
 
-        if self.graph.is_unreachable() {
+        let Ok((state_when_true, true_branch)) = self.current_state() else {
+            self.restore_state(state_before_branch);
             self.graph.set_ctrl(false_branch);
             return if self.peek().kind == TokenKind::Else {
                 self.advance();
@@ -288,30 +288,24 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
                 Ok(when_false)
             } else {
-                self.go_back_to_state(state_before_branch);
                 Ok(self.graph.add_unit())
             };
-        }
-
-        let true_branch = self.graph.get_ctrl().unwrap();
-        let state_when_true = self.symbol_table.snapshot_state();
+        };
 
         if self.peek().kind == TokenKind::Else {
             self.advance();
 
+            self.restore_state(state_before_branch);
             self.graph.set_ctrl(false_branch);
             let when_false = self.parse_stmt_expr()?;
-            if self.graph.is_unreachable() {
-                self.graph.set_ctrl(true_branch);
-                self.go_back_to_state(state_when_true);
-                return Ok(when_true);
-            }
 
-            let false_branch = self.graph.get_ctrl().unwrap();
-            let state_when_false = self.symbol_table.snapshot_state();
+            let Ok((state_when_false, false_branch)) = self.current_state() else {
+                self.restore_state(state_when_true);
+                self.graph.set_ctrl(true_branch);
+                return Ok(when_true);
+            };
 
             let merge = self.graph.add_merge(vec![false_branch, true_branch]);
-
             self.merge_states(merge.clone(), vec![state_when_false, state_when_true]);
             let phi = self
                 .graph

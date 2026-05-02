@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Index, vec::IntoIter};
 
 use nonempty::NonEmpty;
 
@@ -7,12 +7,13 @@ use crate::{
     grapher::{Graph, GraphError, GraphResult, graph::DataID},
 };
 
+#[must_use]
 pub struct OpenScope(());
 
 #[derive(Debug, Clone)]
 pub struct Symbol<'src> {
     #[allow(unused)]
-    pub type_: DataID<'src>,
+    pub ty: DataID<'src>,
     pub value: DataID<'src>,
 }
 
@@ -30,6 +31,24 @@ pub struct ScopedSymbolTable<'src> {
 
 #[derive(Clone, Copy)]
 pub struct ScopeID(usize);
+
+#[derive(Clone, Copy)]
+pub struct MutableIdx(usize);
+
+pub struct MutableState<'src>(Vec<DataID<'src>>);
+
+impl<'src> Index<MutableIdx> for MutableState<'src> {
+    type Output = DataID<'src>;
+    fn index(&self, index: MutableIdx) -> &Self::Output {
+        &self.0[index.0]
+    }
+}
+
+impl<'src> MutableState<'src> {
+    pub fn into_iter(self) -> IntoIter<DataID<'src>> {
+        self.0.into_iter()
+    }
+}
 
 impl<'src> Scope<'src> {
     fn new() -> Self {
@@ -57,7 +76,6 @@ impl<'src> ScopedSymbolTable<'src> {
         self.scopes.last_mut()
     }
 
-    #[must_use]
     pub fn open_scope(&mut self) -> OpenScope {
         self.scopes.push(Scope::new());
         OpenScope(())
@@ -65,42 +83,39 @@ impl<'src> ScopedSymbolTable<'src> {
 
     pub fn close_scope(&mut self, _: OpenScope) {
         debug_assert!(self.scopes.len() >= 2);
-        let mut scope = self.scopes.pop().unwrap();
+        let scope = self.scopes.pop().unwrap();
         // add all the symbols to the symbol dump
-        scope
-            .immutables
-            .drain()
-            .for_each(|i| self.symbol_dump.immutables.push(i));
-        scope
-            .mutables
-            .drain()
-            .for_each(|i| self.symbol_dump.mutables.push(i));
+        self.symbol_dump.append_scope(scope);
     }
 
     /// is equal to `self.snapshot_state_of_scope(self.opened_scope_id())`
-    pub fn snapshot_state(&self) -> Vec<DataID<'src>> {
-        self.scopes
-            .iter()
-            .flat_map(|s| s.mutables.iter())
-            .map(|(_, symbol)| symbol.value.clone())
-            .collect()
+    pub(super) fn snapshot_state(&self) -> MutableState<'src> {
+        MutableState(
+            self.scopes
+                .iter()
+                .flat_map(|s| s.mutables.iter())
+                .map(|(_, symbol)| symbol.value.clone())
+                .collect(),
+        )
     }
 
-    pub fn snapshot_state_of_scope(&self, scope_id: ScopeID) -> Vec<DataID<'src>> {
-        self.scopes
-            .iter()
-            .take(scope_id.0 + 1)
-            .flat_map(|s| s.mutables.iter())
-            .map(|(_, symbol)| symbol.value.clone())
-            .collect()
+    pub(super) fn snapshot_state_of_scope(&self, scope_id: ScopeID) -> MutableState<'src> {
+        MutableState(
+            self.scopes
+                .iter()
+                .take(scope_id.0 + 1)
+                .flat_map(|s| s.mutables.iter())
+                .map(|(_, symbol)| symbol.value.clone())
+                .collect(),
+        )
     }
 
-    pub(super) fn for_every_mutable(&mut self, mut f: impl FnMut(usize, &mut DataID<'src>)) {
+    pub(super) fn for_every_mutable(&mut self, mut f: impl FnMut(MutableIdx, &mut DataID<'src>)) {
         self.scopes
             .iter_mut()
             .flat_map(|s| s.mutables.iter_mut())
             .enumerate()
-            .for_each(|(i, (_, symbol))| f(i, &mut symbol.value));
+            .for_each(|(i, (_, symbol))| f(MutableIdx(i), &mut symbol.value));
     }
 
     pub fn write_symbol(
@@ -177,13 +192,8 @@ impl<'src> ScopedSymbolTable<'src> {
     }*/
 
     pub fn all_symbols(mut self) -> SymbolDump<'src> {
-        self.scopes.iter_mut().for_each(|s| {
-            s.immutables
-                .drain()
-                .for_each(|i| self.symbol_dump.immutables.push(i));
-            s.mutables
-                .drain()
-                .for_each(|i| self.symbol_dump.mutables.push(i));
+        self.scopes.into_iter().for_each(|scope| {
+            self.symbol_dump.append_scope(scope);
         });
 
         self.symbol_dump
@@ -191,15 +201,24 @@ impl<'src> ScopedSymbolTable<'src> {
 }
 
 pub struct SymbolDump<'src> {
-    pub immutables: Vec<(&'src str, Symbol<'src>)>,
-    pub mutables: Vec<(&'src str, Symbol<'src>)>,
+    pub immutables: HashMap<&'src str, Symbol<'src>>,
+    pub mutables: HashMap<&'src str, Symbol<'src>>,
 }
 
 impl<'src> SymbolDump<'src> {
     fn new() -> Self {
         Self {
-            immutables: Vec::new(),
-            mutables: Vec::new(),
+            immutables: HashMap::new(),
+            mutables: HashMap::new(),
         }
+    }
+
+    fn append_scope(&mut self, mut scope: Scope<'src>) {
+        scope.immutables.drain().for_each(|(name, immutable)| {
+            self.immutables.insert(name, immutable);
+        });
+        scope.mutables.drain().for_each(|(name, mutable)| {
+            self.mutables.insert(name, mutable);
+        });
     }
 }

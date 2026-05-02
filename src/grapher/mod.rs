@@ -9,10 +9,10 @@ mod builder;
 #[allow(unused)]
 mod graph;
 pub mod graph_dump;
-mod parsing;
+mod parser;
 #[allow(unused)]
-//  #[cfg(test)]
-// mod test;
+#[cfg(test)]
+mod test;
 pub use graph::Graph;
 
 #[allow(unused)]

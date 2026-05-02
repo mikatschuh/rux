@@ -1,24 +1,24 @@
 use crate::grapher::{
-    builder::symbols::ScopeID,
+    builder::symbols::{MutableState, ScopeID},
     graph::{CtrlID, DataID},
 };
 
 pub struct Jumps<'src> {
     pub continue_points: Vec<CtrlID<'src>>,
-    pub continue_states: Vec<Vec<DataID<'src>>>,
+    pub continue_states: Vec<MutableState<'src>>,
     pub break_points: Vec<CtrlID<'src>>,
-    pub break_states: Vec<Vec<DataID<'src>>>,
+    pub break_states: Vec<MutableState<'src>>,
     pub break_values: Vec<DataID<'src>>,
 }
 
 pub struct ContinueJump<'src> {
     ctrl: CtrlID<'src>,
-    state: Vec<DataID<'src>>,
+    state: MutableState<'src>,
 }
 
 pub struct BreakJump<'src> {
     ctrl: CtrlID<'src>,
-    state: Vec<DataID<'src>>,
+    state: MutableState<'src>,
     value: DataID<'src>,
 }
 
@@ -82,7 +82,7 @@ impl<'src> JumpTableStack<'src> {
         }
     }
 
-    pub fn add_continue(&mut self, ctrl: CtrlID<'src>, state: Vec<DataID<'src>>) {
+    pub fn add_continue(&mut self, ctrl: CtrlID<'src>, state: MutableState<'src>) {
         self.branches
             .last_mut()
             .unwrap()
@@ -94,14 +94,19 @@ impl<'src> JumpTableStack<'src> {
         &mut self,
         branch: BranchID,
         ctrl: CtrlID<'src>,
-        state: Vec<DataID<'src>>,
+        state: MutableState<'src>,
     ) {
         self.branches[branch.0]
             .continue_jumps
             .push(ContinueJump { ctrl, state });
     }
 
-    pub fn add_break(&mut self, ctrl: CtrlID<'src>, state: Vec<DataID<'src>>, value: DataID<'src>) {
+    pub fn add_break(
+        &mut self,
+        ctrl: CtrlID<'src>,
+        state: MutableState<'src>,
+        value: DataID<'src>,
+    ) {
         self.branches
             .last_mut()
             .unwrap()
@@ -113,7 +118,7 @@ impl<'src> JumpTableStack<'src> {
         &mut self,
         branch: BranchID,
         ctrl: CtrlID<'src>,
-        state: Vec<DataID<'src>>,
+        state: MutableState<'src>,
         value: DataID<'src>,
     ) {
         self.branches[branch.0]
