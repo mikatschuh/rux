@@ -22,13 +22,13 @@ pub struct BreakJump<'src> {
     value: DataID<'src>,
 }
 
-pub struct Branch<'src> {
-    scope: ScopeID,
+pub struct Loop<'src> {
+    scope: ScopeID, // scope the loop lives in
     continue_jumps: Vec<ContinueJump<'src>>,
     break_jumps: Vec<BreakJump<'src>>,
 }
 
-impl<'src> Branch<'src> {
+impl<'src> Loop<'src> {
     fn new(scope: ScopeID) -> Self {
         Self {
             scope,
@@ -80,21 +80,21 @@ mod tests {
     fn tracks_nested_branch_scopes_and_restores_parent_on_close() {
         let mut jumps = JumpTableStack::new();
         let outer_scope = scope_id(3);
-        let (outer_tok, outer) = jumps.open_branch(outer_scope);
+        let (outer_tok, outer) = jumps.open_block(outer_scope);
         assert!(jumps.scope().is_some());
 
         let inner_scope = scope_id(7);
-        let (inner_tok, inner) = jumps.open_branch(inner_scope);
+        let (inner_tok, inner) = jumps.open_block(inner_scope);
         assert!(jumps.scope().is_some());
         let _ = jumps.scope_of(outer);
         let _ = jumps.scope_of(inner);
 
-        let inner_jumps = jumps.close_branch(inner_tok);
+        let inner_jumps = jumps.close_block(inner_tok);
         assert!(inner_jumps.continue_points.is_empty());
         assert!(inner_jumps.break_points.is_empty());
         assert!(jumps.scope().is_some());
 
-        let outer_jumps = jumps.close_branch(outer_tok);
+        let outer_jumps = jumps.close_block(outer_tok);
         assert!(outer_jumps.continue_points.is_empty());
         assert!(outer_jumps.break_points.is_empty());
         assert!(jumps.scope().is_none());
@@ -104,7 +104,7 @@ mod tests {
     fn records_continue_and_break_jumps_on_the_current_branch() {
         let mut graph = Graph::new();
         let mut jumps = JumpTableStack::new();
-        let (branch, _) = jumps.open_branch(scope_id(0));
+        let (branch, _) = jumps.open_block(scope_id(0));
 
         let continue_ctrl = graph.get_ctrl().expect("ctrl");
         let break_merge = graph.add_merge(vec![continue_ctrl.clone()]);
@@ -122,7 +122,7 @@ mod tests {
             break_value.clone(),
         );
 
-        let closed = jumps.close_branch(branch);
+        let closed = jumps.close_block(branch);
         assert_eq!(closed.continue_points.len(), 1);
         assert_eq!(closed.continue_points[0].addr(), continue_ctrl.addr());
         assert_eq!(closed.continue_states.len(), 1);
@@ -160,8 +160,8 @@ mod tests {
     fn can_route_labelled_jumps_to_an_outer_branch_while_inner_branch_is_active() {
         let mut graph = Graph::new();
         let mut jumps = JumpTableStack::new();
-        let (outer_tok, outer) = jumps.open_branch(scope_id(0));
-        let (inner_tok, _) = jumps.open_branch(scope_id(1));
+        let (outer_tok, outer) = jumps.open_block(scope_id(0));
+        let (inner_tok, _) = jumps.open_block(scope_id(1));
 
         let ctrl = graph.get_ctrl().expect("ctrl");
         let continue_value = graph.add_literal(Literal::from(1));
@@ -179,11 +179,11 @@ mod tests {
             break_value.clone(),
         );
 
-        let inner_jumps = jumps.close_branch(inner_tok);
+        let inner_jumps = jumps.close_block(inner_tok);
         assert!(inner_jumps.continue_points.is_empty());
         assert!(inner_jumps.break_points.is_empty());
 
-        let outer_jumps = jumps.close_branch(outer_tok);
+        let outer_jumps = jumps.close_block(outer_tok);
         assert_eq!(outer_jumps.continue_points[0].addr(), ctrl.addr());
         assert_eq!(outer_jumps.break_points[0].addr(), ctrl.addr());
         assert_eq!(outer_jumps.break_values[0].addr(), break_value.addr());
@@ -193,7 +193,7 @@ mod tests {
     fn preserves_jump_insertion_order_when_closing_a_branch() {
         let mut graph = Graph::new();
         let mut jumps = JumpTableStack::new();
-        let (tok, _) = jumps.open_branch(scope_id(0));
+        let (tok, _) = jumps.open_block(scope_id(0));
 
         let ctrl = graph.get_ctrl().expect("ctrl");
         let first = graph.add_literal(Literal::from(1));
@@ -202,7 +202,7 @@ mod tests {
         jumps.add_continue(ctrl.clone(), state_with(&mut graph, first.clone()));
         jumps.add_continue(ctrl, state_with(&mut graph, second.clone()));
 
-        let closed = jumps.close_branch(tok);
+        let closed = jumps.close_block(tok);
         let states = closed
             .continue_states
             .into_iter()
@@ -213,42 +213,42 @@ mod tests {
 }
 
 pub struct JumpTableStack<'src> {
-    branches: Vec<Branch<'src>>,
+    loops: Vec<Loop<'src>>,
 }
 
 #[derive(Clone, Copy)]
-pub struct BranchID(usize);
+pub struct LoopID(usize);
 
 #[must_use]
-pub struct OpenBranch(());
+pub struct OpenLoop(());
 
 impl<'src> JumpTableStack<'src> {
     pub fn new() -> Self {
-        Self { branches: vec![] }
+        Self { loops: vec![] }
     }
 
     pub fn scope(&self) -> Option<ScopeID> {
-        self.branches.last().map(|b| b.scope)
+        self.loops.last().map(|b| b.scope)
     }
 
-    pub fn scope_of(&self, branch: BranchID) -> ScopeID {
-        self.branches[branch.0].scope
+    pub fn scope_of(&self, loop_id: LoopID) -> ScopeID {
+        self.loops[loop_id.0].scope
     }
 
-    pub fn open_branch(&mut self, scope: ScopeID) -> (OpenBranch, BranchID) {
-        let branch = self.branches.len();
-        self.branches.push(Branch::new(scope));
-        (OpenBranch(()), BranchID(branch))
+    pub fn open_block(&mut self, scope: ScopeID) -> (OpenLoop, LoopID) {
+        let branch = self.loops.len();
+        self.loops.push(Loop::new(scope));
+        (OpenLoop(()), LoopID(branch))
     }
 
     #[must_use]
-    pub fn close_branch(&mut self, _: OpenBranch) -> Jumps<'src> {
-        debug_assert!(!self.branches.is_empty());
-        let Branch {
+    pub fn close_block(&mut self, _: OpenLoop) -> Jumps<'src> {
+        debug_assert!(!self.loops.is_empty());
+        let Loop {
             continue_jumps,
             break_jumps,
             ..
-        } = self.branches.pop().unwrap();
+        } = self.loops.pop().unwrap();
 
         Jumps {
             continue_points: continue_jumps.iter().map(|c| c.ctrl.clone()).collect(),
@@ -260,7 +260,7 @@ impl<'src> JumpTableStack<'src> {
     }
 
     pub fn add_continue(&mut self, ctrl: CtrlID<'src>, state: MutableState<'src>) {
-        self.branches
+        self.loops
             .last_mut()
             .unwrap()
             .continue_jumps
@@ -269,11 +269,11 @@ impl<'src> JumpTableStack<'src> {
 
     pub fn add_continue_to(
         &mut self,
-        branch: BranchID,
+        branch: LoopID,
         ctrl: CtrlID<'src>,
         state: MutableState<'src>,
     ) {
-        self.branches[branch.0]
+        self.loops[branch.0]
             .continue_jumps
             .push(ContinueJump { ctrl, state });
     }
@@ -284,7 +284,7 @@ impl<'src> JumpTableStack<'src> {
         state: MutableState<'src>,
         value: DataID<'src>,
     ) {
-        self.branches
+        self.loops
             .last_mut()
             .unwrap()
             .break_jumps
@@ -293,12 +293,12 @@ impl<'src> JumpTableStack<'src> {
 
     pub fn add_break_to(
         &mut self,
-        branch: BranchID,
+        branch: LoopID,
         ctrl: CtrlID<'src>,
         state: MutableState<'src>,
         value: DataID<'src>,
     ) {
-        self.branches[branch.0]
+        self.loops[branch.0]
             .break_jumps
             .push(BreakJump { ctrl, state, value });
     }

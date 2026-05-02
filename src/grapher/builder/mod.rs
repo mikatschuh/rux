@@ -9,7 +9,7 @@ use crate::{
     grapher::{
         Graph, GraphError, GraphResult, IdentToken,
         builder::{
-            jumps::{BranchID, JumpTableStack, Jumps, OpenBranch},
+            jumps::{JumpTableStack, Jumps, LoopID, OpenLoop},
             symbols::MutableState,
         },
         graph::{CtrlID, DataID, MergeID, PhiID},
@@ -28,7 +28,7 @@ pub struct GraphBuilder<'tokens, 'src, T: TokenStream<'src>> {
 
     pub symbol_table: ScopedSymbolTable<'src>,
 
-    pub labels: HashMap<&'src str, BranchID>,
+    pub labels: HashMap<&'src str, LoopID>,
     jumps: JumpTableStack<'src>,
 }
 
@@ -106,8 +106,8 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         self.symbol_table.read_symbol(&mut self.graph, name.src)
     }
 
-    pub fn open_branch(&mut self) -> (OpenBranch, BranchID) {
-        self.jumps.open_branch(self.symbol_table.open_scope_id())
+    pub fn open_branch(&mut self) -> (OpenLoop, LoopID) {
+        self.jumps.open_block(self.symbol_table.open_scope_id())
     }
 
     pub fn add_continue(&mut self, keyword: Token<'src>) -> GraphResult<'src, DataID<'src>> {
@@ -197,7 +197,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
     pub fn close_loop(
         &mut self,
-        tok: OpenBranch,
+        tok: OpenLoop,
         loop_backedge: Option<DataID<'src>>,
         mut loop_head: MergeID<'src>,
         mut loop_phis: Vec<PhiID<'src>>,
@@ -208,7 +208,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             mut break_points,
             mut break_states,
             mut break_values,
-        } = self.jumps.close_branch(tok);
+        } = self.jumps.close_block(tok);
 
         if !self.graph.is_unreachable() {
             let body_end = self.graph.get_ctrl()?;
