@@ -1,6 +1,6 @@
 use crate::{
     error::Span,
-    grapher::{GraphError, GraphResult, IdentToken, graph::DataID, parser::builder::GraphBuilder},
+    grapher::{GraphError, GraphResult, IdentToken, builder::GraphBuilder, graph::DataID},
     literal_parsing::Literal,
     tokenizing::{
         TokenStream,

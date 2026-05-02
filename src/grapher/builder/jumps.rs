@@ -1,6 +1,6 @@
 use crate::grapher::{
+    builder::symbols::ScopeID,
     graph::{CtrlID, DataID},
-    parser::symbols::ScopeID,
 };
 
 pub struct Jumps<'src> {

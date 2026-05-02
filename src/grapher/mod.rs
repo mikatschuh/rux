@@ -1,14 +1,14 @@
 use crate::{
     error::Span,
-    grapher::parser::{ScopedSymbolTable, builder::GraphBuilder},
+    grapher::builder::{GraphBuilder, ScopedSymbolTable},
     tokenizing::{TokenStream, token::Token},
 };
 use std::fmt::{self};
 
+mod builder;
 #[allow(unused)]
 mod graph;
 pub mod graph_dump;
-mod parser;
 mod parsing;
 #[allow(unused)]
 //  #[cfg(test)]

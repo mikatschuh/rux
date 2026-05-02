@@ -1,19 +1,22 @@
-use std::collections::HashMap;
+mod jumps;
+pub mod symbols;
+mod test;
+
+pub use symbols::{ScopedSymbolTable, Symbol, SymbolDump};
 
 use crate::{
     grapher::{
         Graph, GraphError, GraphResult, IdentToken,
+        builder::jumps::{BranchID, JumpTableStack, Jumps},
         graph::{CtrlID, DataID, MergeID, PhiID},
-        parser::{
-            ScopedSymbolTable, Symbol,
-            jumps::{BranchID, JumpTableStack, Jumps},
-        },
     },
     tokenizing::{
         TokenStream,
         token::{Token, TokenKind},
     },
 };
+
+use std::collections::HashMap;
 
 pub struct GraphBuilder<'tokens, 'src, T: TokenStream<'src>> {
     pub tokens: &'tokens mut T,

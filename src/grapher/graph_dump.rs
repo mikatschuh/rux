@@ -5,8 +5,8 @@ use petgraph::{graph::NodeIndex, visit::EdgeRef};
 use crate::{
     grapher::{
         Graph,
+        builder::{ScopedSymbolTable, SymbolDump},
         graph::{BranchID, CtrlID, CtrlKind, DataID, DataKind, MergeID},
-        parser::{ScopedSymbolTable, SymbolDump},
     },
     tokenizing,
 };
