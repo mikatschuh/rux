@@ -1,7 +1,6 @@
-var i i32 = 0
+var last_last i32 = 0
+var last i32 = 1
 
-label: loop {
-    let x i32 = if i == 11 unreachable else 10
-
-    if true break
+loop {
+    break
 }

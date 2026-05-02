@@ -11,11 +11,12 @@ use crate::{
 impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     pub fn parse_file(&mut self) -> GraphResult<'src, ()> {
         while self.peek().kind != TokenKind::Eof {
-            self.parse_statement()?;
+            self.parse_decl_or_statement()?;
         }
         Ok(())
     }
 
+    #[allow(unused)]
     fn parse_item(&mut self) -> GraphResult<'src, ()> {
         match self.peek().kind {
             TokenKind::Let => {
@@ -34,7 +35,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_statement(&mut self) -> GraphResult<'src, DataID<'src>> {
+    fn parse_decl_or_statement(&mut self) -> GraphResult<'src, DataID<'src>> {
         match self.peek().kind {
             TokenKind::Semicolon => {
                 self.advance();
@@ -56,11 +57,16 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
                 Ok(self.graph.add_unit())
             }
 
+            _ => self.parse_stmt_expr(),
+        }
+    }
+
+    fn parse_stmt_expr(&mut self) -> GraphResult<'src, DataID<'src>> {
+        match self.peek().kind {
             TokenKind::Ident => {
                 let name = self.expect_name().unwrap();
-                self.parse_assignment(name)
+                self.parse_name_pattern(name)
             }
-
             _ => self.parse_expr(0),
         }
     }
@@ -104,12 +110,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             }
             TokenKind::Ident => {
                 let name = self.expect_name()?;
-                if self.peek().kind == TokenKind::Colon {
-                    let colon = self.advance();
-                    self.parse_label(name, colon)
-                } else {
-                    Ok(self.read_variable(name))
-                }
+                Ok(self.read_variable(name))
             }
             TokenKind::Open(Bracket::Curly) => {
                 let opener = self.advance();
@@ -194,7 +195,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             return Ok(self.graph.add_unit());
         }
         loop {
-            let value = self.parse_statement()?;
+            let value = self.parse_decl_or_statement()?;
             if self.peek().kind == TokenKind::Closed(Bracket::Curly) {
                 self.advance();
                 self.symbols.close_scope();
@@ -225,36 +226,42 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_assignment(&mut self, name: IdentToken<'src>) -> GraphResult<'src, DataID<'src>> {
+    fn parse_name_pattern(&mut self, name: IdentToken<'src>) -> GraphResult<'src, DataID<'src>> {
+        // assignments:
+        if self.peek().kind == TokenKind::Equal {
+            let span = self.advance().span;
+            let value = self.parse_expr(0)?;
+            self.symbols
+                .write_symbol(span - self.tokens.last_pos(), name.src, value)?;
+            return Ok(self.graph.add_unit());
+        } else if let Some(op) = self.peek().as_assign() {
+            let span = self.advance().span;
+            let rhs = self.parse_expr(0)?;
+            let lhs = self.read_variable(name);
+            let value = self.graph.add_binary(op, lhs, rhs);
+
+            self.symbols
+                .write_symbol(span - self.tokens.last_pos(), name.src, value)?;
+            return Ok(self.graph.add_unit());
+        } else if let Some(op) = self.peek().as_inc_or_dec() {
+            let span = self.advance().span;
+            let lhs = self.read_variable(name);
+            let rhs = self.graph.add_literal(Literal::from(1_u8));
+            let value = self.graph.add_binary(op, lhs, rhs);
+
+            self.symbols.write_symbol(span, name.src, value)?;
+            return Ok(self.graph.add_unit());
+        }
+
+        // if we actually didnt have a pattern here
+        // labels: `name: blk`
         if self.peek().kind == TokenKind::Colon {
             let colon = self.advance();
             return self.parse_label(name, colon);
         }
-        loop {
-            if self.peek().kind == TokenKind::Equal {
-                let span = self.advance().span;
-                let value = self.parse_expr(0)?;
-                self.symbols
-                    .write_symbol(span - self.tokens.last_pos(), name.src, value)?;
-            } else if let Some(op) = self.peek().as_assign() {
-                let span = self.advance().span;
-                let rhs = self.parse_expr(0)?;
-                let lhs = self.read_variable(name);
-                let value = self.graph.add_binary(op, lhs, rhs);
 
-                self.symbols
-                    .write_symbol(span - self.tokens.last_pos(), name.src, value)?;
-            } else if let Some(op) = self.peek().as_inc_or_dec() {
-                let span = self.advance().span;
-                let lhs = self.read_variable(name);
-                let rhs = self.graph.add_literal(Literal::from(1_u8));
-                let value = self.graph.add_binary(op, lhs, rhs);
-
-                self.symbols.write_symbol(span, name.src, value)?;
-            } else {
-                return Ok(self.read_variable(name));
-            }
-        }
+        let lhs = self.read_variable(name);
+        self.parse_expr_tail(lhs, 0)
     }
 
     fn parse_if(&mut self, _if: Token<'src>) -> GraphResult<'src, DataID<'src>> {
@@ -267,14 +274,14 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         let state_before_branch = self.symbols.snapshot_state();
 
         self.graph.set_ctrl(true_branch);
-        let when_true = self.parse_expr(0)?;
+        let when_true = self.parse_stmt_expr()?;
 
         if self.graph.is_unreachable() {
             self.graph.set_ctrl(false_branch);
             return if self.peek().kind == TokenKind::Else {
                 self.advance();
 
-                let when_false = self.parse_expr(0)?;
+                let when_false = self.parse_stmt_expr()?;
                 if self.graph.is_unreachable() {
                     return Ok(self.graph.add_never());
                 }
@@ -293,7 +300,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             self.advance();
 
             self.graph.set_ctrl(false_branch);
-            let when_false = self.parse_expr(0)?;
+            let when_false = self.parse_stmt_expr()?;
             if self.graph.is_unreachable() {
                 self.graph.set_ctrl(true_branch);
                 self.go_back_to_state(state_when_true);
@@ -331,7 +338,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         self.jumps.open_branch(self.symbols.open_scope_id());
         self.labels.insert(name.src, self.jumps.open_branch_id());
 
-        let value = self.parse_expr(0)?; // parse the hole body
+        let value = self.parse_stmt_expr()?; // parse the hole body
         self.labels.remove(name.src);
         self.close_loop(Some(value), loop_head, loop_phis)
     }
@@ -412,7 +419,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         let (loop_head, loop_phis) = self.set_up_loop_merge(entry);
         self.jumps.open_branch(self.symbols.open_scope_id()); // jump branches
 
-        let _ = self.parse_expr(0)?; // parse the hole body
+        let _ = self.parse_stmt_expr()?; // parse the hole body
 
         self.close_loop(None, loop_head, loop_phis)
     }

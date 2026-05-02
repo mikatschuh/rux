@@ -34,7 +34,7 @@ pub struct Merge<'src> {
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Phi<'src> {
-    pub merge: MergeID<'src>,
+    pub merge: MergeID<'src>, // merge always needs to have the same number of branches as the phi variants
     pub variants: Vec<DataID<'src>>,
 }
 

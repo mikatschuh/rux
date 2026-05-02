@@ -9,6 +9,7 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub struct Symbol<'src> {
+    #[allow(unused)]
     pub type_: DataID<'src>,
     pub value: DataID<'src>,
 }
