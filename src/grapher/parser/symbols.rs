@@ -7,6 +7,8 @@ use crate::{
     grapher::{Graph, GraphError, GraphResult, graph::DataID},
 };
 
+pub struct OpenScope(());
+
 #[derive(Debug, Clone)]
 pub struct Symbol<'src> {
     #[allow(unused)]
@@ -25,7 +27,9 @@ pub struct ScopedSymbolTable<'src> {
     scopes: NonEmpty<Scope<'src>>,
     unknowns: HashMap<&'src str, DataID<'src>>, // all nodes that represent the unknown constants
 }
-pub type ScopeIdx = usize;
+
+#[derive(Clone, Copy)]
+pub struct ScopeID(usize);
 
 impl<'src> Scope<'src> {
     fn new() -> Self {
@@ -45,19 +49,21 @@ impl<'src> ScopedSymbolTable<'src> {
         }
     }
 
-    pub fn open_scope_id(&self) -> ScopeIdx {
-        self.scopes.len() - 1
+    pub fn open_scope_id(&self) -> ScopeID {
+        ScopeID(self.scopes.len() - 1)
     }
 
-    pub fn current_scope(&mut self) -> &mut Scope<'src> {
+    fn current_scope(&mut self) -> &mut Scope<'src> {
         self.scopes.last_mut()
     }
 
-    pub fn open_scope(&mut self) {
+    #[must_use]
+    pub fn open_scope(&mut self) -> OpenScope {
         self.scopes.push(Scope::new());
+        OpenScope(())
     }
 
-    pub fn close_scope(&mut self) {
+    pub fn close_scope(&mut self, _: OpenScope) {
         debug_assert!(self.scopes.len() >= 2);
         let mut scope = self.scopes.pop().unwrap();
         // add all the symbols to the symbol dump
@@ -80,16 +86,16 @@ impl<'src> ScopedSymbolTable<'src> {
             .collect()
     }
 
-    pub fn snapshot_state_of_scope(&self, scope_id: usize) -> Vec<DataID<'src>> {
+    pub fn snapshot_state_of_scope(&self, scope_id: ScopeID) -> Vec<DataID<'src>> {
         self.scopes
             .iter()
-            .take(scope_id + 1)
+            .take(scope_id.0 + 1)
             .flat_map(|s| s.mutables.iter())
             .map(|(_, symbol)| symbol.value.clone())
             .collect()
     }
 
-    pub fn for_every_mutable(&mut self, mut f: impl FnMut(usize, &mut DataID<'src>)) {
+    pub(super) fn for_every_mutable(&mut self, mut f: impl FnMut(usize, &mut DataID<'src>)) {
         self.scopes
             .iter_mut()
             .flat_map(|s| s.mutables.iter_mut())

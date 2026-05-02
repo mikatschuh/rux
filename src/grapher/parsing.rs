@@ -1,6 +1,6 @@
 use crate::{
     error::Span,
-    grapher::{GraphError, GraphResult, IdentToken, graph::DataID, parser::GraphBuilder},
+    grapher::{GraphError, GraphResult, IdentToken, graph::DataID, parser::builder::GraphBuilder},
     literal_parsing::Literal,
     tokenizing::{
         TokenStream,
@@ -188,17 +188,17 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     }
 
     fn parse_block(&mut self, _opener: Token<'src>) -> GraphResult<'src, DataID<'src>> {
-        self.symbols.open_scope();
+        let open_scope = self.symbol_table.open_scope();
         if self.peek().kind == TokenKind::Closed(Bracket::Curly) {
             self.advance();
-            self.symbols.close_scope();
+            self.symbol_table.close_scope(open_scope);
             return Ok(self.graph.add_unit());
         }
         loop {
             let value = self.parse_decl_or_statement()?;
             if self.peek().kind == TokenKind::Closed(Bracket::Curly) {
                 self.advance();
-                self.symbols.close_scope();
+                self.symbol_table.close_scope(open_scope);
                 return Ok(value);
             }
         }
@@ -231,7 +231,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         if self.peek().kind == TokenKind::Equal {
             let span = self.advance().span;
             let value = self.parse_expr(0)?;
-            self.symbols
+            self.symbol_table
                 .write_symbol(span - self.tokens.last_pos(), name.src, value)?;
             return Ok(self.graph.add_unit());
         } else if let Some(op) = self.peek().as_assign() {
@@ -240,7 +240,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             let lhs = self.read_variable(name);
             let value = self.graph.add_binary(op, lhs, rhs);
 
-            self.symbols
+            self.symbol_table
                 .write_symbol(span - self.tokens.last_pos(), name.src, value)?;
             return Ok(self.graph.add_unit());
         } else if let Some(op) = self.peek().as_inc_or_dec() {
@@ -249,7 +249,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             let rhs = self.graph.add_literal(Literal::from(1_u8));
             let value = self.graph.add_binary(op, lhs, rhs);
 
-            self.symbols.write_symbol(span, name.src, value)?;
+            self.symbol_table.write_symbol(span, name.src, value)?;
             return Ok(self.graph.add_unit());
         }
 
@@ -271,7 +271,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             .graph
             .add_branch(before_branch.clone(), condition.clone())?;
 
-        let state_before_branch = self.symbols.snapshot_state();
+        let state_before_branch = self.symbol_table.snapshot_state();
 
         self.graph.set_ctrl(true_branch);
         let when_true = self.parse_stmt_expr()?;
@@ -294,7 +294,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
 
         let true_branch = self.graph.get_ctrl().unwrap();
-        let state_when_true = self.symbols.snapshot_state();
+        let state_when_true = self.symbol_table.snapshot_state();
 
         if self.peek().kind == TokenKind::Else {
             self.advance();
@@ -308,7 +308,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             }
 
             let false_branch = self.graph.get_ctrl().unwrap();
-            let state_when_false = self.symbols.snapshot_state();
+            let state_when_false = self.symbol_table.snapshot_state();
 
             let merge = self.graph.add_merge(vec![false_branch, true_branch]);
 
@@ -335,8 +335,8 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     ) -> GraphResult<'src, DataID<'src>> {
         let entry = self.graph.get_ctrl()?;
         let (loop_head, loop_phis) = self.set_up_loop_merge(entry);
-        self.jumps.open_branch(self.symbols.open_scope_id());
-        self.labels.insert(name.src, self.jumps.open_branch_id());
+        let branch = self.open_branch();
+        self.labels.insert(name.src, branch);
 
         let value = self.parse_stmt_expr()?; // parse the hole body
         self.labels.remove(name.src);
@@ -347,69 +347,25 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         if self.peek().kind == TokenKind::Colon {
             self.advance();
             let name = self.expect_name()?;
-            let Some(branch) = self.labels.get(name.src).cloned() else {
-                return Err(GraphError::UnknownLabel { label: name });
-            };
-            let scope = self.jumps.scope_of(branch);
-            self.jumps.add_continue_to(
-                branch,
-                self.graph.get_ctrl()?,
-                self.symbols.snapshot_state_of_scope(scope),
-            );
-            self.graph.make_unreachable();
-            return Ok(self.graph.add_never());
+            return self.add_continue_to(keyword, name);
         }
-
-        if let Some(current_loop) = self.jumps.scope() {
-            self.jumps.add_continue(
-                self.graph.get_ctrl()?,
-                self.symbols.snapshot_state_of_scope(current_loop),
-            );
-            self.graph.make_unreachable();
-            Ok(self.graph.add_never())
-        } else {
-            Err(GraphError::JumpOutsideLoop { keyword })
-        }
+        self.add_continue(keyword)
     }
 
     fn parse_break(&mut self, keyword: Token<'src>) -> GraphResult<'src, DataID<'src>> {
         if self.peek().kind == TokenKind::Colon {
             self.advance();
             let name = self.expect_name()?;
-            let Some(branch) = self.labels.get(name.src).cloned() else {
-                return Err(GraphError::UnknownLabel { label: name });
-            };
-
             let value = self
                 .parse_optional_expr(0)?
                 .unwrap_or(self.graph.add_unit());
-
-            let scope = self.jumps.scope_of(branch);
-            self.jumps.add_break_to(
-                branch,
-                self.graph.get_ctrl()?,
-                self.symbols.snapshot_state_of_scope(scope),
-                value,
-            );
-            self.graph.make_unreachable();
-            return Ok(self.graph.add_never());
+            return self.add_break_to(keyword, name, value);
         }
 
-        if let Some(current_loop) = self.jumps.scope() {
-            let value = self
-                .parse_optional_expr(0)?
-                .unwrap_or(self.graph.add_unit());
-
-            self.jumps.add_break(
-                self.graph.get_ctrl()?,
-                self.symbols.snapshot_state_of_scope(current_loop),
-                value,
-            );
-            self.graph.make_unreachable();
-            Ok(self.graph.add_never())
-        } else {
-            Err(GraphError::JumpOutsideLoop { keyword })
-        }
+        let value = self
+            .parse_optional_expr(0)?
+            .unwrap_or(self.graph.add_unit());
+        self.add_break(keyword, value)
     }
 
     fn parse_loop(&mut self, _loop: Token<'src>) -> GraphResult<'src, DataID<'src>> {
@@ -417,7 +373,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
         let entry = self.graph.get_ctrl()?;
         let (loop_head, loop_phis) = self.set_up_loop_merge(entry);
-        self.jumps.open_branch(self.symbols.open_scope_id()); // jump branches
+        self.open_branch(); // jump branches
 
         let _ = self.parse_stmt_expr()?; // parse the hole body
 

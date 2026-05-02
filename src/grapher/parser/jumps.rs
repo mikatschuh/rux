@@ -1,6 +1,6 @@
 use crate::grapher::{
     graph::{CtrlID, DataID},
-    parser::symbols::ScopeIdx,
+    parser::symbols::ScopeID,
 };
 
 pub struct Jumps<'src> {
@@ -23,13 +23,13 @@ pub struct BreakJump<'src> {
 }
 
 pub struct Branch<'src> {
-    scope: ScopeIdx,
+    scope: ScopeID,
     continue_jumps: Vec<ContinueJump<'src>>,
     break_jumps: Vec<BreakJump<'src>>,
 }
 
 impl<'src> Branch<'src> {
-    fn new(scope: ScopeIdx) -> Self {
+    fn new(scope: ScopeID) -> Self {
         Self {
             scope,
             continue_jumps: vec![],
@@ -41,27 +41,27 @@ impl<'src> Branch<'src> {
 pub struct JumpTableStack<'src> {
     branches: Vec<Branch<'src>>,
 }
-pub type BranchIdx = usize;
+
+#[derive(Clone, Copy)]
+pub struct BranchID(usize);
 
 impl<'src> JumpTableStack<'src> {
     pub fn new() -> Self {
         Self { branches: vec![] }
     }
 
-    pub fn open_branch_id(&self) -> BranchIdx {
-        self.branches.len() - 1
-    }
-
-    pub fn scope(&self) -> Option<ScopeIdx> {
+    pub fn scope(&self) -> Option<ScopeID> {
         self.branches.last().map(|b| b.scope)
     }
 
-    pub fn scope_of(&self, branch: BranchIdx) -> ScopeIdx {
-        self.branches[branch].scope
+    pub fn scope_of(&self, branch: BranchID) -> ScopeID {
+        self.branches[branch.0].scope
     }
 
-    pub fn open_branch(&mut self, scope: ScopeIdx) {
-        self.branches.push(Branch::new(scope))
+    pub fn open_branch(&mut self, scope: ScopeID) -> BranchID {
+        let branch = self.branches.len();
+        self.branches.push(Branch::new(scope));
+        BranchID(branch)
     }
 
     #[must_use]
@@ -92,11 +92,11 @@ impl<'src> JumpTableStack<'src> {
 
     pub fn add_continue_to(
         &mut self,
-        branch: BranchIdx,
+        branch: BranchID,
         ctrl: CtrlID<'src>,
         state: Vec<DataID<'src>>,
     ) {
-        self.branches[branch]
+        self.branches[branch.0]
             .continue_jumps
             .push(ContinueJump { ctrl, state });
     }
@@ -111,12 +111,12 @@ impl<'src> JumpTableStack<'src> {
 
     pub fn add_break_to(
         &mut self,
-        branch: BranchIdx,
+        branch: BranchID,
         ctrl: CtrlID<'src>,
         state: Vec<DataID<'src>>,
         value: DataID<'src>,
     ) {
-        self.branches[branch]
+        self.branches[branch.0]
             .break_jumps
             .push(BreakJump { ctrl, state, value });
     }

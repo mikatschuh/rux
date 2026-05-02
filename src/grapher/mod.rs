@@ -1,6 +1,6 @@
 use crate::{
     error::Span,
-    grapher::parser::{GraphBuilder, ScopedSymbolTable},
+    grapher::parser::{ScopedSymbolTable, builder::GraphBuilder},
     tokenizing::{TokenStream, token::Token},
 };
 use std::fmt::{self};
@@ -9,11 +9,13 @@ use std::fmt::{self};
 mod graph;
 pub mod graph_dump;
 mod parser;
+mod parsing;
 #[allow(unused)]
-// #[cfg(test)]
+//  #[cfg(test)]
 // mod test;
 pub use graph::Graph;
 
+#[allow(unused)]
 pub fn build_graph<'src>(tokens: &mut impl TokenStream<'src>) -> GraphResult<'src, Graph<'src>> {
     GraphBuilder::new(tokens).build()
 }
@@ -87,6 +89,7 @@ pub enum GraphError<'src> {
     },
 
     UnknownLabel {
+        keyword: Token<'src>,
         label: IdentToken<'src>,
     },
     JumpOutsideLoop {
@@ -148,8 +151,14 @@ impl fmt::Display for GraphError<'_> {
                 opener.span, closer.src, closer.span
             ),
 
-            UnknownLabel { label } => {
-                write!(f, "used unknown label {} at {:?}", label.src, label.span)
+            UnknownLabel { keyword, label } => {
+                write!(
+                    f,
+                    "used unknown label {} in a {} at {:?}",
+                    label.src,
+                    keyword.src,
+                    keyword.span - label.span
+                )
             }
             JumpOutsideLoop { keyword } => write!(
                 f,

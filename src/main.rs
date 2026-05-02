@@ -46,6 +46,7 @@ fn main() {
     match Cli::try_parse() {
         Ok(parsed) => match parsed.command {
             Some(Commands::Build { path }) => {
+                #[allow(unused)]
                 let now = Instant::now();
                 if let Err(e) = (|| -> Result<(), CliError> {
                     let mut threadpool = Threadpool::new();
@@ -53,7 +54,7 @@ fn main() {
                     threadpool.launch(None);
                     threadpool.drop()
                 })() {
-                    // println!("{e}");
+                    println!("{e}");
                 } else if !parsed.mute {
                     // print_time(now.elapsed().as_nanos(), "compiling", "no optimizations");
                 }
@@ -76,6 +77,8 @@ fn main() {
         }
     }
 }
+
+#[allow(unused)]
 fn print_time(time_past: u128, task: &str, attributes: &str) {
     println!(
         "\n{}  {} with {} in: {}\n",
