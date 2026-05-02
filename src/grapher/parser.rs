@@ -329,12 +329,12 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     ) -> GraphResult<'src, DataID<'src>> {
         let entry = self.graph.get_ctrl()?;
         let (loop_head, loop_phis) = self.set_up_loop_merge(entry);
-        let branch = self.open_branch();
+        let (tok, branch) = self.open_branch();
         self.labels.insert(name.src, branch);
 
         let value = self.parse_stmt_expr()?; // parse the hole body
         self.labels.remove(name.src);
-        self.close_loop(Some(value), loop_head, loop_phis)
+        self.close_loop(tok, Some(value), loop_head, loop_phis)
     }
 
     fn parse_continue(&mut self, keyword: Token<'src>) -> GraphResult<'src, DataID<'src>> {
@@ -367,10 +367,10 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
         let entry = self.graph.get_ctrl()?;
         let (loop_head, loop_phis) = self.set_up_loop_merge(entry);
-        self.open_branch(); // jump branches
+        let (tok, _) = self.open_branch(); // jump branches
 
         let _ = self.parse_stmt_expr()?; // parse the hole body
 
-        self.close_loop(None, loop_head, loop_phis)
+        self.close_loop(tok, None, loop_head, loop_phis)
     }
 }

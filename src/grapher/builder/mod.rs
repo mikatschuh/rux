@@ -9,7 +9,7 @@ use crate::{
     grapher::{
         Graph, GraphError, GraphResult, IdentToken,
         builder::{
-            jumps::{BranchID, JumpTableStack, Jumps},
+            jumps::{BranchID, JumpTableStack, Jumps, OpenBranch},
             symbols::MutableState,
         },
         graph::{CtrlID, DataID, MergeID, PhiID},
@@ -106,7 +106,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         self.symbol_table.read_symbol(&mut self.graph, name.src)
     }
 
-    pub fn open_branch(&mut self) -> BranchID {
+    pub fn open_branch(&mut self) -> (OpenBranch, BranchID) {
         self.jumps.open_branch(self.symbol_table.open_scope_id())
     }
 
@@ -197,6 +197,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
     pub fn close_loop(
         &mut self,
+        tok: OpenBranch,
         loop_backedge: Option<DataID<'src>>,
         mut loop_head: MergeID<'src>,
         mut loop_phis: Vec<PhiID<'src>>,
@@ -207,7 +208,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             mut break_points,
             mut break_states,
             mut break_values,
-        } = self.jumps.close_branch();
+        } = self.jumps.close_branch(tok);
 
         if !self.graph.is_unreachable() {
             let body_end = self.graph.get_ctrl()?;

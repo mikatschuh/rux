@@ -9,9 +9,3 @@ let y i32 = 11 let a u32=1 // also possible to have on the same line
 let abc bool = "abc"
 
 let complex usize = x ++ // complex == (10*10)*20 + 1
-
-// variables have to be declared before they can be used
-
-// variable declaration is defined by having a statement
-// starting with an identifier followed by something that cant connect
-// to the identifier like an operator would do

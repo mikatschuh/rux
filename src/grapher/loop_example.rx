@@ -1,23 +1,13 @@
-x i32 = -> 10
-y i32
+var x i32 = 10
 
-loop x > 0 {
+loop {
+    if x == 0 break;
     x--
 }
 
-y = x + 1 // y == 1 // we can change the variable because we didnt initialize it yet
+var a i32 = 0
 
-a i32 = -> 0
-
-loop a < 10 { a++ }
-// a == 10
-
-loop i ux = -> 0 : i < 10 : i++ {a--} // setup : condition : continue
-// a == 0
-
-loop i > 0 : i -= b { // condition : continue
-    b ux = 1
+loop {
+    if a >= 10 break;
+    a++
 }
-// i == 0
-
-// NOTE: while the condition is parsed as an expression, setup and continue are parsed as statements

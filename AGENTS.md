@@ -9,11 +9,11 @@
 - `src/` hosts the Rust compiler
 - tokenizing work in `tokenizing/`,
 - to understand the tokenizing api a look at `src/tokenizing/test.rs` and the `TokenStream` trait in 
-`src/tokenizing/mod.rs` can be taken
-- `src/grapher` contains the Sea of Nodes framework in mod.rs, the parser in parser.rs and in test.rs the tests 
+`src/tokenizing/mod.rs` can be taken (peek/consume based)
+- `src/grapher` contains the Sea of Nodes framework in graph.rs, the parser in parser.rs and in test.rs the tests 
 - `codegen/`, `vms/` and `interpreter/` are yet to be filled with content in future sessions
-- `my_project/` is the sample Rux workspace (`main.rx`, `module/inter.rx`) used by integration tests and quick demos.
-- `docs/` contains design references on Rux but is partially outdated and should be ignored.
+- `test-project/` is the sample Rux workspace (`test.rx`) used by integration tests and quick demos.
+- `docs/` contains design references on Rux but is fully outdated and has to be ignored.
 
 ## Build, Test, and Development Commands
 - `cargo build --release` compiles the toolchain; `cargo run -- build my_project/inter.rx` compiles the demo program end-to-end.
@@ -29,7 +29,7 @@
 ## Testing Guidelines
 - Mirror module names in tests: e.g., module-specific tests live in `src/module/test.rs` or inline `mod tests` blocks.
 - Use the `#[test] fn parses_basic_block()` naming pattern and document Rux syntax edge cases inline.
-- Keep coverage high on tokenizer, grapher, and VM boundary layers; new opcodes require golden samples in `docs/examples/` plus runtime assertions.
+- Keep coverage high on tokenizer, grapher
 
 ## Commit & Pull Request Guidelines
 - Match the existing Git history: short, imperative commit subjects such as `"Add SSA lowering"`; describe impact in the body if needed.

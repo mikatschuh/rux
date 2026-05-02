@@ -312,3 +312,112 @@ impl<'src> DataKind<'src> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{CtrlKind, DataKind, Graph};
+    use crate::{
+        grapher::GraphError,
+        literal_parsing::Literal,
+        tokenizing::{binary_op::BinaryOp, unary_op::UnaryOp},
+        type_parsing::AtomicType,
+    };
+
+    #[test]
+    fn deduplicates_stable_data_nodes_by_default() {
+        let mut graph = Graph::new();
+
+        let lit_a = graph.add_literal(Literal::from(7));
+        let lit_b = graph.add_literal(Literal::from(7));
+        assert_eq!(lit_a.addr(), lit_b.addr());
+
+        let ty_a = graph.add_type(AtomicType::Signed { size: 32 });
+        let ty_b = graph.add_type(AtomicType::Signed { size: 32 });
+        assert_eq!(ty_a.addr(), ty_b.addr());
+
+        let unary_a = graph.add_unary(UnaryOp::Neg, lit_a.clone());
+        let unary_b = graph.add_unary(UnaryOp::Neg, lit_b.clone());
+        assert_eq!(unary_a.addr(), unary_b.addr());
+
+        let binary_a = graph.add_binary(BinaryOp::Add, lit_a.clone(), ty_a.clone());
+        let binary_b = graph.add_binary(BinaryOp::Add, lit_b, ty_b);
+        assert_eq!(binary_a.addr(), binary_b.addr());
+    }
+
+    #[test]
+    fn does_not_deduplicate_unknowns_or_explicit_no_dedup_phis() {
+        let mut graph = Graph::new();
+
+        let unknown_a = graph.add_unknown();
+        let unknown_b = graph.add_unknown();
+        assert_ne!(unknown_a.addr(), unknown_b.addr());
+        assert!(matches!(unknown_a.kind, DataKind::Unknown));
+        assert!(matches!(unknown_b.kind, DataKind::Unknown));
+
+        let ctrl = graph.get_ctrl().expect("start ctrl");
+        let merge = graph.add_merge(vec![ctrl]);
+        let phi = graph.add_phi(merge, vec![unknown_a]);
+        let data_a = graph.add_phi_no_dedup(phi.clone());
+        let data_b = graph.add_phi_no_dedup(phi);
+        assert_ne!(data_a.addr(), data_b.addr());
+    }
+
+    #[test]
+    fn deduplicates_phi_data_when_requested_through_regular_path() {
+        let mut graph = Graph::new();
+        let value = graph.add_literal(Literal::from(1));
+        let ctrl = graph.get_ctrl().expect("start ctrl");
+        let merge = graph.add_merge(vec![ctrl]);
+        let phi = graph.add_phi(merge, vec![value]);
+
+        let data_a = graph.add_data_phi(phi.clone());
+        let data_b = graph.add_data_phi(phi);
+
+        assert_eq!(data_a.addr(), data_b.addr());
+    }
+
+    #[test]
+    fn empty_phi_and_empty_merge_represent_unreachable_flow() {
+        let mut graph = Graph::new();
+
+        let start = graph.get_ctrl().expect("start ctrl");
+        assert!(matches!(*start, CtrlKind::Start));
+
+        let empty_merge = graph.add_merge(vec![]);
+        graph.add_merge_to_ctrl(empty_merge.clone());
+        assert!(graph.is_unreachable());
+        assert!(matches!(graph.get_ctrl(), Err(GraphError::UnreachableCtrl)));
+
+        let empty_phi = graph.add_phi(empty_merge, vec![]);
+        let data = graph.add_data_phi(empty_phi);
+        assert!(matches!(data.kind, DataKind::Never));
+    }
+
+    #[test]
+    fn branches_remember_their_input_control_and_condition() {
+        let mut graph = Graph::new();
+        let ctrl = graph.get_ctrl().expect("start ctrl");
+        let condition = graph.add_bool(true);
+
+        let (false_ctrl, true_ctrl) = graph
+            .add_branch(ctrl.clone(), condition.clone())
+            .expect("branch");
+
+        let CtrlKind::FalseBranch {
+            branch: false_branch,
+        } = &*false_ctrl
+        else {
+            panic!("expected false branch control");
+        };
+        let CtrlKind::TrueBranch {
+            branch: true_branch,
+        } = &*true_ctrl
+        else {
+            panic!("expected true branch control");
+        };
+
+        assert_eq!(false_branch.addr(), true_branch.addr());
+        assert_eq!(false_branch.ctrl.addr(), ctrl.addr());
+        assert_eq!(false_branch.condition.addr(), condition.addr());
+    }
+}

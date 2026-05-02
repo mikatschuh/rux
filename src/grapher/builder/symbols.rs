@@ -222,3 +222,167 @@ impl<'src> SymbolDump<'src> {
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{ScopedSymbolTable, Symbol};
+    use crate::{
+        error::Span,
+        grapher::{Graph, GraphError},
+        literal_parsing::Literal,
+        type_parsing::AtomicType,
+    };
+
+    fn symbol<'src>(
+        ty: crate::grapher::graph::DataID<'src>,
+        value: crate::grapher::graph::DataID<'src>,
+    ) -> Symbol<'src> {
+        Symbol { ty, value }
+    }
+
+    #[test]
+    fn reads_nearest_symbol_and_restores_outer_symbol_after_scope_closes() {
+        let mut graph = Graph::new();
+        let mut table = ScopedSymbolTable::new();
+        let ty = graph.add_type(AtomicType::Signed { size: 32 });
+        let outer = graph.add_literal(Literal::from(1));
+        let inner = graph.add_literal(Literal::from(2));
+
+        table.add_immutable("setting", symbol(ty.clone(), outer.clone()));
+        assert_eq!(
+            table.read_symbol(&mut graph, "setting").addr(),
+            outer.addr()
+        );
+
+        let scope = table.open_scope();
+        table.add_immutable("setting", symbol(ty, inner.clone()));
+        assert_eq!(
+            table.read_symbol(&mut graph, "setting").addr(),
+            inner.addr()
+        );
+
+        table.close_scope(scope);
+        assert_eq!(
+            table.read_symbol(&mut graph, "setting").addr(),
+            outer.addr()
+        );
+    }
+
+    #[test]
+    fn caches_unknown_reads_by_name() {
+        let mut graph = Graph::new();
+        let mut table = ScopedSymbolTable::new();
+
+        let first = table.read_symbol(&mut graph, "future_constant");
+        let second = table.read_symbol(&mut graph, "future_constant");
+        let other = table.read_symbol(&mut graph, "other_constant");
+
+        assert_eq!(first.addr(), second.addr());
+        assert_ne!(first.addr(), other.addr());
+    }
+
+    #[test]
+    fn writes_to_nearest_mutable_and_rejects_immutables() {
+        let mut graph = Graph::new();
+        let mut table = ScopedSymbolTable::new();
+        let ty = graph.add_type(AtomicType::Signed { size: 32 });
+        let initial = graph.add_literal(Literal::from(1));
+        let overwritten = graph.add_literal(Literal::from(2));
+        let immutable = graph.add_literal(Literal::from(3));
+
+        table.add_mutable("counter", symbol(ty.clone(), initial));
+        table.add_immutable("limit", symbol(ty, immutable));
+
+        table
+            .write_symbol(Span::beginning(), "counter", overwritten.clone())
+            .expect("write mutable");
+        assert_eq!(
+            table.read_symbol(&mut graph, "counter").addr(),
+            overwritten.addr()
+        );
+
+        let err = table
+            .write_symbol(
+                Span::beginning(),
+                "limit",
+                graph.add_literal(Literal::from(4)),
+            )
+            .expect_err("immutable write should fail");
+        assert!(matches!(
+            err,
+            GraphError::AssignmentToImmutableIdent { name: "limit", .. }
+        ));
+    }
+
+    #[test]
+    fn reports_writes_to_unknown_variables() {
+        let mut graph = Graph::new();
+        let mut table = ScopedSymbolTable::new();
+        let value = graph.add_literal(Literal::from(1));
+
+        let err = table
+            .write_symbol(Span::beginning(), "missing", value)
+            .expect_err("unknown write should fail");
+
+        assert!(matches!(
+            err,
+            GraphError::AssignmentToUnknownVar {
+                name: "missing",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn snapshots_and_restores_mutable_state_in_scope_order() {
+        let mut graph = Graph::new();
+        let mut table = ScopedSymbolTable::new();
+        let ty = graph.add_type(AtomicType::Signed { size: 32 });
+        let first = graph.add_literal(Literal::from(1));
+        let second = graph.add_literal(Literal::from(2));
+        let first_new = graph.add_literal(Literal::from(10));
+        let second_new = graph.add_literal(Literal::from(20));
+
+        table.add_mutable("first", symbol(ty.clone(), first.clone()));
+        let scope = table.open_scope();
+        table.add_mutable("second", symbol(ty, second.clone()));
+
+        let snapshot = table.snapshot_state();
+        table
+            .write_symbol(Span::beginning(), "first", first_new.clone())
+            .expect("write first");
+        table
+            .write_symbol(Span::beginning(), "second", second_new.clone())
+            .expect("write second");
+
+        table.for_every_mutable(|idx, value| *value = snapshot[idx].clone());
+
+        assert_eq!(table.read_symbol(&mut graph, "first").addr(), first.addr());
+        assert_eq!(
+            table.read_symbol(&mut graph, "second").addr(),
+            second.addr()
+        );
+
+        let outer_snapshot = table.snapshot_state_of_scope(table.open_scope_id());
+        assert_eq!(outer_snapshot.into_iter().count(), 2);
+        table.close_scope(scope);
+    }
+
+    #[test]
+    fn all_symbols_includes_open_and_closed_scopes() {
+        let mut graph = Graph::new();
+        let mut table = ScopedSymbolTable::new();
+        let ty = graph.add_type(AtomicType::Signed { size: 32 });
+        let global = graph.add_literal(Literal::from(1));
+        let local = graph.add_literal(Literal::from(2));
+
+        table.add_immutable("global", symbol(ty.clone(), global.clone()));
+        let scope = table.open_scope();
+        table.add_mutable("local", symbol(ty, local.clone()));
+        table.close_scope(scope);
+
+        let dump = table.all_symbols();
+        assert_eq!(dump.immutables["global"].value.addr(), global.addr());
+        assert_eq!(dump.mutables["local"].value.addr(), local.addr());
+    }
+}
