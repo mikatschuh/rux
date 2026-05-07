@@ -79,7 +79,7 @@ pub enum DataKind<'src> {
         phi: PhiID<'src>,
     },
 
-    Unknown,
+    Deferred,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -245,8 +245,8 @@ impl<'src> Graph<'src> {
         self.push_node(DataKind::AtomicType { ty: type_ })
     }
 
-    pub fn add_unknown(&mut self) -> DataID<'src> {
-        self.push_node_no_dedup(DataKind::Unknown)
+    pub fn add_deferred(&mut self) -> DataID<'src> {
+        self.push_node_no_dedup(DataKind::Deferred)
     }
 
     pub fn add_unit(&mut self) -> DataID<'src> {
@@ -308,7 +308,7 @@ impl<'src> DataKind<'src> {
                 merge: phi.merge.addr(),
                 variants: phi.variants.iter().map(|variant| variant.addr()).collect(),
             }),
-            DataKind::Unknown => None,
+            DataKind::Deferred => None,
         }
     }
 }
@@ -345,14 +345,14 @@ mod tests {
     }
 
     #[test]
-    fn does_not_deduplicate_unknowns_or_explicit_no_dedup_phis() {
+    fn does_not_deduplicate_deferred_or_explicit_no_dedup_phis() {
         let mut graph = Graph::new();
 
-        let unknown_a = graph.add_unknown();
-        let unknown_b = graph.add_unknown();
+        let unknown_a = graph.add_deferred();
+        let unknown_b = graph.add_deferred();
         assert_ne!(unknown_a.addr(), unknown_b.addr());
-        assert!(matches!(unknown_a.kind, DataKind::Unknown));
-        assert!(matches!(unknown_b.kind, DataKind::Unknown));
+        assert!(matches!(unknown_a.kind, DataKind::Deferred));
+        assert!(matches!(unknown_b.kind, DataKind::Deferred));
 
         let ctrl = graph.get_ctrl().expect("start ctrl");
         let merge = graph.add_merge(vec![ctrl]);

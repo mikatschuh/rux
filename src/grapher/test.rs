@@ -129,7 +129,7 @@ let adjusted i32 = -base + 0x10
         panic!("base lhs should be an addition");
     };
     assert_eq!(rhs.addr(), ten.addr());
-    assert!(matches!(sensor.kind, DataKind::Unknown));
+    assert!(matches!(sensor.kind, DataKind::Deferred));
 
     let adjusted = immutables.get("adjusted").expect("adjusted");
     let DataKind::Binary {
@@ -200,7 +200,7 @@ let final_energy i32 = energy
         panic!("compound assignment should become subtraction");
     };
     assert_eq!(lhs.addr(), hundred.addr());
-    assert!(matches!(rhs.kind, DataKind::Unknown));
+    assert!(matches!(rhs.kind, DataKind::Deferred));
 }
 
 #[test]
@@ -219,7 +219,7 @@ let next_velocity i32 = velocity
     );
 
     let next_velocity = immutables.get("next_velocity").expect("next_velocity");
-    assert!(!matches!(next_velocity.value.kind, DataKind::Unknown));
+    assert!(!matches!(next_velocity.value.kind, DataKind::Deferred));
 }
 
 #[test]
@@ -274,7 +274,7 @@ let after_loop i32 = x
     );
 
     let after_loop = immutables.get("after_loop").expect("after_loop");
-    assert!(!matches!(after_loop.value.kind, DataKind::Unknown));
+    assert!(!matches!(after_loop.value.kind, DataKind::Deferred));
 }
 
 #[test]
@@ -293,7 +293,7 @@ let result i32 = checksum
     );
 
     let result = immutables.get("result").expect("result");
-    assert!(!matches!(result.value.kind, DataKind::Unknown));
+    assert!(!matches!(result.value.kind, DataKind::Deferred));
 }
 
 #[test]

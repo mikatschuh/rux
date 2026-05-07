@@ -26,7 +26,7 @@ pub struct Scope<'src> {
 pub struct ScopedSymbolTable<'src> {
     symbol_dump: SymbolDump<'src>,
     scopes: NonEmpty<Scope<'src>>,
-    unknowns: HashMap<&'src str, DataID<'src>>, // all nodes that represent the unknown constants
+    deferred: HashMap<&'src str, DataID<'src>>, // all nodes that represent the currently unknown constants
 }
 
 #[derive(Clone, Copy)]
@@ -64,7 +64,7 @@ impl<'src> ScopedSymbolTable<'src> {
         Self {
             symbol_dump: SymbolDump::new(),
             scopes: NonEmpty::new(Scope::new()),
-            unknowns: HashMap::new(),
+            deferred: HashMap::new(),
         }
     }
 
@@ -151,13 +151,13 @@ impl<'src> ScopedSymbolTable<'src> {
             }
         }
 
-        if let Some(unknown) = self.unknowns.get(name) {
-            unknown.clone()
+        if let Some(deferred) = self.deferred.get(name) {
+            deferred.clone()
         } else {
-            let new_unknown = graph.add_unknown();
-            self.unknowns.insert(name, new_unknown.clone());
+            let new_deferred = graph.add_deferred();
+            self.deferred.insert(name, new_deferred.clone());
 
-            new_unknown
+            new_deferred
         }
     }
 

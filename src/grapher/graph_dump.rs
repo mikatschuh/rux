@@ -136,8 +136,8 @@ pub fn process_data_node<'src>(
             phi_node
         }
 
-        Unknown => {
-            let idx = graph.add_node("unknown".to_string());
+        Deferred => {
+            let idx = graph.add_node("deferred".to_string());
             visited.insert(node_addr, idx);
             idx
         }
