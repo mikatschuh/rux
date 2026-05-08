@@ -29,7 +29,7 @@ pub enum StmtKind {
         symbol: Spanned<Symbol>,
         ty: Option<Expr>,
         equal: Span,
-        value: Option<Expr>,
+        value: Expr,
     },
     StmtExpr {
         stmt_expr: StmtExpr,
@@ -166,13 +166,10 @@ impl Ast {
         symbol: Spanned<Symbol>,
         ty: Option<Expr>,
         equal: Span,
-        value: Option<Expr>,
+        value: Expr,
     ) -> Stmt {
         self.push_stmt(
-            keyword
-                - value
-                    .clone()
-                    .map_or(ty.clone().unwrap().span, |value| value.span),
+            keyword - value.span,
             StmtKind::Binding {
                 mutable,
                 keyword,

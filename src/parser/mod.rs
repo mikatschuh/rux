@@ -20,10 +20,15 @@ use crate::{
 mod ast;
 mod intern;
 
+pub struct Item {
+    ty: Option<Expr>,
+    value: Expr,
+}
+
 pub struct SymbolTable {
-    arena: Bump,
-    interner: Interner,
-    symbols: HashMap<Symbol, Expr>,
+    pub arena: Bump,
+    pub interner: Interner,
+    pub symbols: HashMap<Symbol, Item>,
 }
 
 pub struct Parser<'tokens, 'errors, T> {
@@ -31,7 +36,7 @@ pub struct Parser<'tokens, 'errors, T> {
     errors: Rc<Errors<'errors>>,
     graph: Ast,
     interner: Interner,
-    symbols: HashMap<Symbol, Expr>,
+    symbols: HashMap<Symbol, Item>,
 }
 
 impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
@@ -100,19 +105,20 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
 
     pub fn parse_file(&mut self) {
         while self.peek().kind != TokenKind::Eof {
-            self.parse_stmt();
+            self.parse_item();
         }
     }
 
     fn parse_item(&mut self) {
         match self.peek().kind {
             TokenKind::Let => {
-                /*
-                    let const_ = self.advance();
-                    self.parse_const(const_)
-                */
-
-                todo!()
+                let symbol = self.expect_name();
+                let ty = self.parse_optional_expr(0);
+                if self.peek().kind == TokenKind::Equal {
+                    self.advance();
+                }
+                let value = self.parse_expr(0);
+                self.symbols.insert(symbol.val, Item { ty, value });
             }
             TokenKind::Fn => todo!(),
             TokenKind::Enum => todo!(),
@@ -352,27 +358,17 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
         let keyword = keyword.span;
         let symbol = self.expect_name();
 
+        let ty = self.parse_optional_expr(0);
         if self.peek().kind == TokenKind::Equal {
             // type inference
             let equal = self.advance();
             let value = self.parse_expr(0);
 
             self.graph
-                .add_binding(mutable, keyword, symbol, None, equal.span, Some(value))
+                .add_binding(mutable, keyword, symbol, ty, equal.span, value)
         } else {
-            // no type inference
-            let ty = self.parse_expr(0);
-
-            if self.peek().kind == TokenKind::Equal {
-                let equal = self.advance();
-                let value = self.parse_expr(0);
-
-                self.graph
-                    .add_binding(mutable, keyword, symbol, Some(ty), equal.span, Some(value))
-            } else {
-                // unitialized
-                todo!()
-            }
+            // unitialized
+            todo!()
         }
     }
 

@@ -61,6 +61,7 @@ pub enum ErrorCode {
     ExpectedTerminator,
     ExpectedOpenParen,
     ExpectedComma,
+    ExpectedAssignment,
 
     ExpectedItemDeclaration,
 
@@ -229,6 +230,9 @@ impl Error {
                     "expected open parentheses {}",
                     ["("]
                 )
+            }
+            ExpectedAssignment => {
+                format_error!(self.span.to_string(path), "expected an assignment")
             }
             ExpectedItemDeclaration => format_error!(
                 self.span.to_string(path),
