@@ -24,8 +24,8 @@ type GraphDump = petgraph::Graph<String, String>;
 
 pub type Visited = HashMap<usize, NodeIndex>;
 
-impl<'src> Graph<'src> {
-    pub fn dump_text(&self, scope: ScopedSymbolTable<'src>) -> String {
+impl Graph {
+    pub fn dump_text(&self, scope: ScopedSymbolTable) -> String {
         let mut visited = Visited::new();
 
         let mut graph: GraphDump = petgraph::Graph::new();
@@ -59,12 +59,7 @@ impl<'src> Graph<'src> {
     }
 }
 
-pub fn process_data_node<'src>(
-    graph: &mut GraphDump,
-
-    visited: &mut Visited,
-    node: DataID<'src>,
-) -> NodeIndex {
+pub fn process_data_node(graph: &mut GraphDump, visited: &mut Visited, node: DataID) -> NodeIndex {
     let node_addr = node.addr();
     if let Some(idx) = visited.get(&node_addr) {
         return *idx;
@@ -144,10 +139,10 @@ pub fn process_data_node<'src>(
     }
 }
 
-pub fn process_merge_node<'src>(
+pub fn process_merge_node(
     graph: &mut GraphDump,
     visited: &mut Visited,
-    node: MergeID<'src>,
+    node: MergeID,
 ) -> NodeIndex {
     let node_addr = node.addr();
     if let Some(idx) = visited.get(&node_addr) {
@@ -170,10 +165,10 @@ pub fn process_merge_node<'src>(
     merge
 }
 
-pub fn process_branch_node<'src>(
+pub fn process_branch_node(
     graph: &mut GraphDump,
     visited: &mut Visited,
-    node: BranchID<'src>,
+    node: BranchID,
 ) -> NodeIndex {
     let node_addr = node.addr();
     if let Some(idx) = visited.get(&node_addr) {
@@ -189,12 +184,7 @@ pub fn process_branch_node<'src>(
     branch
 }
 
-pub fn process_ctrl_node<'src>(
-    graph: &mut GraphDump,
-
-    visited: &mut Visited,
-    node: CtrlID<'src>,
-) -> NodeIndex {
+pub fn process_ctrl_node(graph: &mut GraphDump, visited: &mut Visited, node: CtrlID) -> NodeIndex {
     let node_addr = node.addr();
     if let Some(idx) = visited.get(&node_addr) {
         return *idx;

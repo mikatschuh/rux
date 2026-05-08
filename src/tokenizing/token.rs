@@ -4,9 +4,9 @@ use colored::{ColoredString, Colorize};
 use std::fmt::Display;
 
 #[derive(PartialEq, Debug, Clone, Copy, Eq)]
-pub struct Token<'src> {
+pub struct Token {
     pub span: Span,
-    pub src: &'src str,
+    pub src: &'static str,
     pub kind: TokenKind,
 }
 
@@ -37,13 +37,12 @@ pub enum TokenKind {
     NotRightEqual,   // !>=
     RightArrow,      // ->
 
-    Plus,         // +
-    PlusPlus,     // ++
-    PlusEqual,    // +=
-    Dash,         // -
-    DashDash,     // --
-    DashDashDash, // ---
-    DashEqual,    // -=
+    Plus,      // +
+    PlusPlus,  // ++
+    PlusEqual, // +=
+    Dash,      // -
+    DashDash,  // --
+    DashEqual, // -=
 
     Star,         // *
     StarEqual,    // *=
@@ -174,15 +173,15 @@ impl Bracket {
 const FIRST_CENTER_DOT_CHARACTER: u8 = "·".as_bytes()[0];
 const SECOND_CENTER_DOT_CHARACTER: u8 = "·".as_bytes()[1];
 
-impl Display for Token<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.src)
     }
 }
 
-impl<'a> Token<'a> {
+impl Token {
     #[inline]
-    pub const fn new(span: Span, src: &'a str, kind: TokenKind) -> Self {
+    pub const fn new(span: Span, src: &'static str, kind: TokenKind) -> Self {
         Self { span, src, kind }
     }
     #[inline]
@@ -271,7 +270,6 @@ impl TokenKind {
             Plus if c == b'=' => PlusEqual,
 
             Dash if c == b'-' => DashDash,
-            DashDash if c == b'-' => DashDashDash,
             Dash if c == b'=' => DashEqual,
             Dash if c == b'>' => RightArrow,
 
@@ -360,10 +358,11 @@ impl TokenKind {
     }
 
     pub const fn is_terminator(self) -> bool {
-        matches!(self, Closed(..) | Comma | Semicolon)
+        matches!(self, Closed(..) | Comma | Semicolon | Eof)
     }
 }
-impl<'src> Token<'src> {
+
+impl Token {
     pub fn as_prefix(self) -> Option<UnaryOp> {
         use UnaryOp::*;
         Some(match self.kind {

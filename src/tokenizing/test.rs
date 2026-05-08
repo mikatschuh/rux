@@ -4,7 +4,7 @@ use num::BigUint;
 
 use crate::{
     error::{ErrorCode, Errors, Span},
-    literal_parsing::{Base, Literal},
+    literal_parsing::{self, Base},
     tokenizing::{
         TokenStream, Tokenizer,
         token::{Token, TokenKind::*},
@@ -12,9 +12,9 @@ use crate::{
     utilities::Rc,
 };
 
-fn collect_tokens_and_quotes<'src>(
-    input: &'src str,
-) -> (Vec<Token<'src>>, Vec<String>, Rc<Errors<'static>>) {
+fn collect_tokens_and_quotes(
+    input: &'static str,
+) -> (Vec<Token>, Vec<String>, Rc<Errors<'static>>) {
     let errors = Rc::new(Errors::empty(Path::new("example.rx")));
     let mut tokenizer = Tokenizer::new(input.as_bytes(), errors.clone(), 64);
 
@@ -192,7 +192,7 @@ fn tokenizes_literal_sequences() {
     );
     assert_eq!(
         tokenizer.get_literal(),
-        Literal {
+        literal_parsing::Literal {
             base: Base::Decimal,
             digits: BigUint::from(13_u8),
             num_digits_after_dot: Some(1),
@@ -225,7 +225,7 @@ fn tokenizes_literal_sequences() {
     );
     assert_eq!(
         tokenizer.get_literal(),
-        Literal {
+        literal_parsing::Literal {
             base: Base::Hexadecimal,
             digits: BigUint::from(0x345_u32),
             num_digits_after_dot: None,

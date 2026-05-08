@@ -3,32 +3,32 @@ use crate::grapher::{
     graph::{CtrlID, DataID},
 };
 
-pub struct Jumps<'src> {
-    pub continue_points: Vec<CtrlID<'src>>,
-    pub continue_states: Vec<MutableState<'src>>,
-    pub break_points: Vec<CtrlID<'src>>,
-    pub break_states: Vec<MutableState<'src>>,
-    pub break_values: Vec<DataID<'src>>,
+pub struct Jumps {
+    pub continue_points: Vec<CtrlID>,
+    pub continue_states: Vec<MutableState>,
+    pub break_points: Vec<CtrlID>,
+    pub break_states: Vec<MutableState>,
+    pub break_values: Vec<DataID>,
 }
 
-pub struct ContinueJump<'src> {
-    ctrl: CtrlID<'src>,
-    state: MutableState<'src>,
+pub struct ContinueJump {
+    ctrl: CtrlID,
+    state: MutableState,
 }
 
-pub struct BreakJump<'src> {
-    ctrl: CtrlID<'src>,
-    state: MutableState<'src>,
-    value: DataID<'src>,
+pub struct BreakJump {
+    ctrl: CtrlID,
+    state: MutableState,
+    value: DataID,
 }
 
-pub struct Loop<'src> {
+pub struct Loop {
     scope: ScopeID, // scope the loop lives in
-    continue_jumps: Vec<ContinueJump<'src>>,
-    break_jumps: Vec<BreakJump<'src>>,
+    continue_jumps: Vec<ContinueJump>,
+    break_jumps: Vec<BreakJump>,
 }
 
-impl<'src> Loop<'src> {
+impl Loop {
     fn new(scope: ScopeID) -> Self {
         Self {
             scope,
@@ -63,7 +63,7 @@ mod tests {
         table.open_scope_id()
     }
 
-    fn state_with<'src>(graph: &mut Graph<'src>, value: DataID<'src>) -> MutableState<'src> {
+    fn state_with(graph: &mut Graph, value: DataID) -> MutableState {
         let mut table = ScopedSymbolTable::new();
         let ty = graph.add_type(AtomicType::Signed { size: 32 });
         table.add_mutable("state", Symbol { ty, value });
@@ -212,8 +212,8 @@ mod tests {
     }
 }
 
-pub struct JumpTableStack<'src> {
-    loops: Vec<Loop<'src>>,
+pub struct JumpTableStack {
+    loops: Vec<Loop>,
 }
 
 #[derive(Clone, Copy)]
@@ -222,7 +222,7 @@ pub struct LoopID(usize);
 #[must_use]
 pub struct OpenLoop(());
 
-impl<'src> JumpTableStack<'src> {
+impl JumpTableStack {
     pub fn new() -> Self {
         Self { loops: vec![] }
     }
@@ -242,7 +242,7 @@ impl<'src> JumpTableStack<'src> {
     }
 
     #[must_use]
-    pub fn close_block(&mut self, _: OpenLoop) -> Jumps<'src> {
+    pub fn close_block(&mut self, _: OpenLoop) -> Jumps {
         debug_assert!(!self.loops.is_empty());
         let Loop {
             continue_jumps,
@@ -259,7 +259,7 @@ impl<'src> JumpTableStack<'src> {
         }
     }
 
-    pub fn add_continue(&mut self, ctrl: CtrlID<'src>, state: MutableState<'src>) {
+    pub fn add_continue(&mut self, ctrl: CtrlID, state: MutableState) {
         self.loops
             .last_mut()
             .unwrap()
@@ -267,23 +267,13 @@ impl<'src> JumpTableStack<'src> {
             .push(ContinueJump { ctrl, state });
     }
 
-    pub fn add_continue_to(
-        &mut self,
-        branch: LoopID,
-        ctrl: CtrlID<'src>,
-        state: MutableState<'src>,
-    ) {
+    pub fn add_continue_to(&mut self, branch: LoopID, ctrl: CtrlID, state: MutableState) {
         self.loops[branch.0]
             .continue_jumps
             .push(ContinueJump { ctrl, state });
     }
 
-    pub fn add_break(
-        &mut self,
-        ctrl: CtrlID<'src>,
-        state: MutableState<'src>,
-        value: DataID<'src>,
-    ) {
+    pub fn add_break(&mut self, ctrl: CtrlID, state: MutableState, value: DataID) {
         self.loops
             .last_mut()
             .unwrap()
@@ -294,9 +284,9 @@ impl<'src> JumpTableStack<'src> {
     pub fn add_break_to(
         &mut self,
         branch: LoopID,
-        ctrl: CtrlID<'src>,
-        state: MutableState<'src>,
-        value: DataID<'src>,
+        ctrl: CtrlID,
+        state: MutableState,
+        value: DataID,
     ) {
         self.loops[branch.0]
             .break_jumps

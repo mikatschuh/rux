@@ -24,11 +24,11 @@ pub use literal::{Base, Literal};
 /// ```
 /// If instead of a base specifier, a digit is given, its assumed that the leading zero
 /// was just a typo. The number will be continued regulary.
-pub fn parse_literal<'src>(
-    text: &mut &'src [u8],
+pub fn parse_literal(
+    text: &mut &'static [u8],
     span: &mut Span,
     errors: &mut Errors,
-) -> Option<Literal<'src>> {
+) -> Option<Literal> {
     let original_len = text.len();
 
     let (base, mut digits) = parse_integer(text);

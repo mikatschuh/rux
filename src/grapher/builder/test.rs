@@ -12,7 +12,7 @@ use crate::{
     utilities::Rc,
 };
 
-fn builder_for(source: &'static str) -> GraphBuilder<'static, 'static, Tokenizer<'static>> {
+fn builder_for(source: &'static str) -> GraphBuilder<'static, Tokenizer<'static>> {
     let errors = Rc::new(Errors::empty(Path::new("builder-test.rx")));
     let tokenizer = Box::leak(Box::new(Tokenizer::new(source.as_bytes(), errors, 64)));
     GraphBuilder::new(tokenizer)
@@ -139,7 +139,7 @@ fn set_up_loop_merge_replaces_mutables_with_open_loop_phis() {
     builder.declare_variable("index", ty, initial.clone(), true);
 
     let entry = builder.graph.get_ctrl().expect("entry");
-    let (loop_head, loop_phis): (_, Vec<PhiID<'_>>) = builder.set_up_loop_merge(entry.clone());
+    let (loop_head, loop_phis): (_, Vec<PhiID>) = builder.set_up_loop_merge(entry.clone());
 
     assert_eq!(loop_head.branches.len(), 1);
     assert_eq!(loop_head.branches[0].addr(), entry.addr());

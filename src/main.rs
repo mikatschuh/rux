@@ -18,6 +18,7 @@ mod utilities;
 mod codegen;
 mod grapher;
 mod literal_parsing;
+mod parser;
 /*
 ___    __
 |#/    `"\_

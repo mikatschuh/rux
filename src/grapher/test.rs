@@ -22,9 +22,7 @@ fn tokenizer_for(source: &'static str) -> Tokenizer<'static> {
     Tokenizer::new(source.as_bytes(), errors, TARGET_PTR_SIZE)
 }
 
-fn parse(
-    source: &'static str,
-) -> GraphResult<'static, (Graph<'static>, ScopedSymbolTable<'static>)> {
+fn parse(source: &'static str) -> GraphResult<(Graph, ScopedSymbolTable)> {
     let mut tokenizer = tokenizer_for(source);
     GraphBuilder::new(&mut tokenizer).debug_build()
 }
@@ -379,13 +377,7 @@ loop {
     assert!(matches!(err, GraphError::UnknownLabel { .. }));
 }
 
-fn symbol<'src>(
-    symbols: &HashMap<&'src str, Symbol<'src>>,
-    name: &'src str,
-    ty: &DataID<'src>,
-
-    val: &DataID<'src>,
-) {
+fn symbol<'src>(symbols: &HashMap<&'src str, Symbol>, name: &'src str, ty: &DataID, val: &DataID) {
     let symbol = symbols.get(name).expect("symbol");
     assert_eq!(symbol.ty.addr(), ty.addr());
     assert_eq!(symbol.value.addr(), val.addr());

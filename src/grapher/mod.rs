@@ -16,90 +16,88 @@ mod test;
 pub use graph::Graph;
 
 #[allow(unused)]
-pub fn build_graph<'src>(tokens: &mut impl TokenStream<'src>) -> GraphResult<'src, Graph<'src>> {
+pub fn build_graph(tokens: &mut impl TokenStream) -> GraphResult<Graph> {
     GraphBuilder::new(tokens).build()
 }
 
-pub fn build_debug_graph<'src>(
-    tokens: &mut impl TokenStream<'src>,
-) -> GraphResult<'src, (Graph<'src>, ScopedSymbolTable<'src>)> {
+pub fn build_debug_graph(tokens: &mut impl TokenStream) -> GraphResult<(Graph, ScopedSymbolTable)> {
     GraphBuilder::new(tokens).debug_build()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct IdentToken<'src> {
-    src: &'src str,
+pub struct IdentToken {
+    src: &'static str,
     span: Span,
 }
 
-pub type GraphResult<'src, T> = Result<T, GraphError<'src>>;
+pub type GraphResult<T> = Result<T, GraphError>;
 
 #[allow(unused)]
 #[derive(Debug)]
-pub enum GraphError<'src> {
+pub enum GraphError {
     UnexpectedToken {
         expected: &'static str,
-        found: Token<'src>,
+        found: Token,
     },
     MismatchedBracket {
-        opener: Token<'src>,
-        closer: Token<'src>,
+        opener: Token,
+        closer: Token,
     },
 
     ExpectedItem {
-        found: Token<'src>,
+        found: Token,
     },
     ExpectedStatement {
-        found: Token<'src>,
+        found: Token,
     },
     ExpectedExpression {
-        found: Token<'src>,
+        found: Token,
     },
     ExpectedIdent {
-        found: Token<'src>,
+        found: Token,
     },
     ExpectedAssignment {
-        found: Token<'src>,
+        found: Token,
     },
 
     ConstShadowing {
-        name: &'src str,
+        name: &'static str,
         decl: Span,
     },
     ShadowingConst {
-        name: &'src str,
+        name: &'static str,
         decl: Span,
     },
     ConflictingItems {
-        name: &'src str,
+        name: &'static str,
         decl: Span,
     },
 
     AssignmentToUnknownVar {
-        name: &'src str,
+        name: &'static str,
         assignment: Span,
     },
     AssignmentToImmutableIdent {
-        name: &'src str,
+        name: &'static str,
         assignment: Span,
     },
 
     TriedToReadUnitialized {
-        name: IdentToken<'src>,
+        name: IdentToken,
     },
 
     UnknownLabel {
-        keyword: Token<'src>,
-        label: IdentToken<'src>,
+        keyword: Token,
+        label: IdentToken,
     },
     JumpOutsideLoop {
-        keyword: Token<'src>,
+        keyword: Token,
     },
     UnreachableCtrl,
 }
 
-impl fmt::Display for GraphError<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl fmt::Display for GraphError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use GraphError::*;
         match self {
             ExpectedItem { found } => write!(f, "expected item at {:?}", found.span),
@@ -170,4 +168,4 @@ impl fmt::Display for GraphError<'_> {
     }
 }
 
-impl std::error::Error for GraphError<'_> {}
+impl std::error::Error for GraphError {}

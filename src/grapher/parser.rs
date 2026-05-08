@@ -8,34 +8,15 @@ use crate::{
     },
 };
 
-impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
-    pub fn parse_file(&mut self) -> GraphResult<'src, ()> {
+impl<'tokens, T: TokenStream> GraphBuilder<'tokens, T> {
+    pub fn parse_file(&mut self) -> GraphResult<()> {
         while self.peek().kind != TokenKind::Eof {
             self.parse_decl_or_statement()?;
         }
         Ok(())
     }
 
-    #[allow(unused)]
-    fn parse_item(&mut self) -> GraphResult<'src, ()> {
-        match self.peek().kind {
-            TokenKind::Let => {
-                /*
-                    let const_ = self.advance();
-                    self.parse_const(const_)
-                */
-
-                todo!()
-            }
-            TokenKind::Fn => todo!(),
-            TokenKind::Enum => todo!(),
-            TokenKind::Struct => todo!(),
-
-            _ => Err(GraphError::ExpectedItem { found: self.peek() }),
-        }
-    }
-
-    fn parse_decl_or_statement(&mut self) -> GraphResult<'src, DataID<'src>> {
+    fn parse_decl_or_statement(&mut self) -> GraphResult<DataID> {
         match self.peek().kind {
             TokenKind::Semicolon => {
                 self.advance();
@@ -61,7 +42,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_stmt_expr(&mut self) -> GraphResult<'src, DataID<'src>> {
+    fn parse_stmt_expr(&mut self) -> GraphResult<DataID> {
         match self.peek().kind {
             TokenKind::Ident => {
                 let name = self.expect_name().unwrap();
@@ -71,12 +52,12 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_expr(&mut self, min_bp: u8) -> GraphResult<'src, DataID<'src>> {
+    fn parse_expr(&mut self, min_bp: u8) -> GraphResult<DataID> {
         let lhs = self.parse_primary()?;
         self.parse_expr_tail(lhs, min_bp)
     }
 
-    fn parse_optional_expr(&mut self, min_bp: u8) -> GraphResult<'src, Option<DataID<'src>>> {
+    fn parse_optional_expr(&mut self, min_bp: u8) -> GraphResult<Option<DataID>> {
         let lhs = match self.parse_primary() {
             Ok(lhs) => lhs,
             Err(e) => match e {
@@ -87,7 +68,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         self.parse_expr_tail(lhs, min_bp).map(Some)
     }
 
-    fn parse_primary(&mut self) -> GraphResult<'src, DataID<'src>> {
+    fn parse_primary(&mut self) -> GraphResult<DataID> {
         match self.peek().kind {
             TokenKind::Type => {
                 let type_ = self.tokens.get_type();
@@ -163,11 +144,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_expr_tail(
-        &mut self,
-        mut lhs: DataID<'src>,
-        min_bp: u8,
-    ) -> GraphResult<'src, DataID<'src>> {
+    fn parse_expr_tail(&mut self, mut lhs: DataID, min_bp: u8) -> GraphResult<DataID> {
         loop {
             if self.peek().binding_pow() < min_bp {
                 return Ok(lhs);
@@ -187,7 +164,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_block(&mut self, _opener: Token<'src>) -> GraphResult<'src, DataID<'src>> {
+    fn parse_block(&mut self, _opener: Token) -> GraphResult<DataID> {
         let open_scope = self.symbol_table.open_scope();
         if self.peek().kind == TokenKind::Closed(Bracket::Curly) {
             self.advance();
@@ -204,7 +181,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_decl(&mut self, _binding: Span, mutable: bool) -> GraphResult<'src, ()> {
+    fn parse_decl(&mut self, _binding: Span, mutable: bool) -> GraphResult<()> {
         let name = self.expect_name()?.src;
 
         if self.peek().kind == TokenKind::Equal {
@@ -226,7 +203,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_name_pattern(&mut self, name: IdentToken<'src>) -> GraphResult<'src, DataID<'src>> {
+    fn parse_name_pattern(&mut self, name: IdentToken) -> GraphResult<DataID> {
         // assignments:
         if self.peek().kind == TokenKind::Equal {
             let span = self.advance().span;
@@ -264,7 +241,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         self.parse_expr_tail(lhs, 0)
     }
 
-    fn parse_if(&mut self, _if: Token<'src>) -> GraphResult<'src, DataID<'src>> {
+    fn parse_if(&mut self, _if: Token) -> GraphResult<DataID> {
         let condition = self.parse_expr(0)?;
 
         let (state_before_branch, before_branch) = self.current_state()?;
@@ -322,11 +299,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    fn parse_label(
-        &mut self,
-        name: IdentToken<'src>,
-        _colon: Token<'src>,
-    ) -> GraphResult<'src, DataID<'src>> {
+    fn parse_label(&mut self, name: IdentToken, _colon: Token) -> GraphResult<DataID> {
         let entry = self.graph.get_ctrl()?;
         let (loop_head, loop_phis) = self.set_up_loop_merge(entry);
         let (tok, branch) = self.open_branch();
@@ -337,7 +310,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         self.close_loop(tok, Some(value), loop_head, loop_phis)
     }
 
-    fn parse_continue(&mut self, keyword: Token<'src>) -> GraphResult<'src, DataID<'src>> {
+    fn parse_continue(&mut self, keyword: Token) -> GraphResult<DataID> {
         if self.peek().kind == TokenKind::Colon {
             self.advance();
             let name = self.expect_name()?;
@@ -346,7 +319,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         self.add_continue(keyword)
     }
 
-    fn parse_break(&mut self, keyword: Token<'src>) -> GraphResult<'src, DataID<'src>> {
+    fn parse_break(&mut self, keyword: Token) -> GraphResult<DataID> {
         if self.peek().kind == TokenKind::Colon {
             self.advance();
             let name = self.expect_name()?;
@@ -362,7 +335,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         self.add_break(keyword, value)
     }
 
-    fn parse_loop(&mut self, _loop: Token<'src>) -> GraphResult<'src, DataID<'src>> {
+    fn parse_loop(&mut self, _loop: Token) -> GraphResult<DataID> {
         // let condition = self.parse_expr(0)?;
 
         let entry = self.graph.get_ctrl()?;

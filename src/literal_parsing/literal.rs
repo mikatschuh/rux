@@ -54,15 +54,15 @@ impl Base {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Literal<'src> {
+pub struct Literal {
     pub base: Base,
     pub digits: BigUint,
     pub num_digits_after_dot: Option<usize>,
     pub exponent: Option<BigInt>,
-    pub suffix: &'src str,
+    pub suffix: &'static str,
 }
 
-impl<'src> From<u32> for Literal<'src> {
+impl From<u32> for Literal {
     fn from(num: u32) -> Self {
         Self {
             base: Base::Decimal,
@@ -74,8 +74,8 @@ impl<'src> From<u32> for Literal<'src> {
     }
 }
 
-impl<'src> fmt::Display for Literal<'src> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl fmt::Display for Literal {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut out = self.base.prefix().to_string();
         let digits = self.base.fmt_in_base(self.digits.clone());
 

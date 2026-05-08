@@ -20,12 +20,12 @@ impl EmbeddingSyntax {
         }
     }
 
-    pub fn closing_curly_brace<'src>(
+    pub fn closing_curly_brace(
         &mut self,
-        text: &mut &'src [u8],
+        text: &mut &'static [u8],
         pos: Position,
         errors: &mut Errors,
-    ) -> Option<(Token<'src>, String)> {
+    ) -> Option<(Token, String)> {
         if let Some(open_braces_after_embedding_quote) =
             self.open_braces_after_embedding_quote.last_mut()
         {
@@ -68,14 +68,14 @@ pub fn with_written_out_escape_sequences(quote: &str) -> String {
     output_string
 }
 
-pub fn parse_quote<'src>(
-    text: &mut &'src [u8],
+pub fn parse_quote(
+    text: &mut &'static [u8],
     pos: Position,
     state: &mut EmbeddingSyntax,
     closing_scope: bool,
 
     errors: &mut Errors,
-) -> (Token<'src>, String) {
+) -> (Token, String) {
     let mut quote = String::new();
     let quote_ptr = unsafe { quote.as_mut_vec() };
 

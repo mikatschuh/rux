@@ -31,11 +31,10 @@ pub mod unary_op;
 
 pub use quote::with_written_out_escape_sequences;
 
-pub trait TokenStream<'src> {
-    fn peek(&self) -> Token<'src>; // has to be free
-    fn last_pos(&self) -> Position; // has to be free
+pub trait TokenStream {
+    fn peek(&self) -> Token; // has to be free
 
-    fn get_literal(&mut self) -> Literal<'src>;
+    fn get_literal(&mut self) -> Literal;
     fn get_quote(&mut self) -> String;
     fn get_type(&mut self) -> AtomicType;
     fn consume(&mut self);
@@ -63,28 +62,31 @@ pub trait TokenStream<'src> {
     }*/
 }
 
-pub struct Tokenizer<'src> {
-    text: &'src [u8],
+pub struct Tokenizer<'errors> {
+    text: &'static [u8],
 
-    last_pos: Position,
-    tok: Token<'src>,
-    data: Option<Data<'src>>,
+    tok: Token,
+    data: Option<Data>,
 
     state: EmbeddingSyntax,
 
-    errors: Rc<Errors<'src>>,
+    errors: Rc<Errors<'errors>>,
     target_ptr_size: TypeSize, // necessary for type parsing
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum Data<'src> {
-    Lit(Literal<'src>),
+enum Data {
+    Lit(Literal),
     Quote(String),
     Type(AtomicType),
 }
 
 impl<'src> Tokenizer<'src> {
-    pub fn new(mut text: &'src [u8], mut errors: Rc<Errors<'src>>, target_ptr_size: u128) -> Self {
+    pub fn new(
+        mut text: &'static [u8],
+        mut errors: Rc<Errors<'src>>,
+        target_ptr_size: u128,
+    ) -> Self {
         let mut state = EmbeddingSyntax::default();
 
         let (tok, data) = parse_token(
@@ -97,7 +99,6 @@ impl<'src> Tokenizer<'src> {
 
         Self {
             text,
-            last_pos: Position::beginning(),
             tok,
             data,
             state,
@@ -107,15 +108,12 @@ impl<'src> Tokenizer<'src> {
     }
 }
 
-impl<'src> TokenStream<'src> for Tokenizer<'src> {
-    fn peek(&self) -> Token<'src> {
+impl<'src> TokenStream for Tokenizer<'src> {
+    fn peek(&self) -> Token {
         self.tok
     }
-    fn last_pos(&self) -> Position {
-        self.last_pos
-    }
 
-    fn get_literal(&mut self) -> Literal<'src> {
+    fn get_literal(&mut self) -> Literal {
         match mem::take(&mut self.data) {
             Some(Data::Lit(lit)) => lit,
             _ => unreachable!(),
@@ -140,8 +138,6 @@ impl<'src> TokenStream<'src> for Tokenizer<'src> {
         if self.tok.kind == Eof {
             return;
         }
-
-        self.last_pos = self.tok.span.end;
 
         let (tok, data) = parse_token(
             &mut self.text,

@@ -22,18 +22,18 @@ use crate::{
 
 use std::collections::HashMap;
 
-pub struct GraphBuilder<'tokens, 'src, T: TokenStream<'src>> {
+pub struct GraphBuilder<'tokens, T: TokenStream> {
     pub tokens: &'tokens mut T,
-    pub graph: Graph<'src>,
+    pub graph: Graph,
 
-    pub symbol_table: ScopedSymbolTable<'src>,
+    pub symbol_table: ScopedSymbolTable,
 
-    pub labels: HashMap<&'src str, LoopID>,
-    jumps: JumpTableStack<'src>,
+    pub labels: HashMap<&'static str, LoopID>,
+    jumps: JumpTableStack,
 }
 
 #[allow(dead_code)]
-impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
+impl<'tokens, T: TokenStream> GraphBuilder<'tokens, T> {
     pub fn new(tokens: &'tokens mut T) -> Self {
         Self {
             tokens,
@@ -46,27 +46,27 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    pub fn build(mut self) -> GraphResult<'src, Graph<'src>> {
+    pub fn build(mut self) -> GraphResult<Graph> {
         self.parse_file()?;
         Ok(self.graph)
     }
 
-    pub fn debug_build(mut self) -> GraphResult<'src, (Graph<'src>, ScopedSymbolTable<'src>)> {
+    pub fn debug_build(mut self) -> GraphResult<(Graph, ScopedSymbolTable)> {
         self.parse_file()?;
         Ok((self.graph, self.symbol_table))
     }
 
-    pub fn advance(&mut self) -> Token<'src> {
+    pub fn advance(&mut self) -> Token {
         let tok = self.tokens.peek();
         self.tokens.consume();
         tok
     }
 
-    pub fn peek(&self) -> Token<'src> {
+    pub fn peek(&self) -> Token {
         self.tokens.peek()
     }
 
-    pub fn get_name(&mut self) -> IdentToken<'src> {
+    pub fn get_name(&mut self) -> IdentToken {
         let tok = self.advance();
         IdentToken {
             src: tok.src,
@@ -74,7 +74,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    pub fn expect_name(&mut self) -> GraphResult<'src, IdentToken<'src>> {
+    pub fn expect_name(&mut self) -> GraphResult<IdentToken> {
         if self.peek().kind == TokenKind::Ident {
             let name = self.advance();
             Ok(IdentToken {
@@ -88,9 +88,9 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
     pub fn declare_variable(
         &mut self,
-        name: &'src str,
-        type_: DataID<'src>,
-        value: DataID<'src>,
+        name: &'static str,
+        type_: DataID,
+        value: DataID,
         mutable: bool,
     ) {
         if mutable {
@@ -102,7 +102,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    pub fn read_variable(&mut self, name: IdentToken<'src>) -> DataID<'src> {
+    pub fn read_variable(&mut self, name: IdentToken) -> DataID {
         self.symbol_table.read_symbol(&mut self.graph, name.src)
     }
 
@@ -110,7 +110,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         self.jumps.open_block(self.symbol_table.open_scope_id())
     }
 
-    pub fn add_continue(&mut self, keyword: Token<'src>) -> GraphResult<'src, DataID<'src>> {
+    pub fn add_continue(&mut self, keyword: Token) -> GraphResult<DataID> {
         if let Some(current_loop) = self.jumps.scope() {
             self.jumps.add_continue(
                 self.graph.get_ctrl()?,
@@ -123,11 +123,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    pub fn add_continue_to(
-        &mut self,
-        keyword: Token<'src>,
-        label: IdentToken<'src>,
-    ) -> GraphResult<'src, DataID<'src>> {
+    pub fn add_continue_to(&mut self, keyword: Token, label: IdentToken) -> GraphResult<DataID> {
         let Some(branch) = self.labels.get(label.src).cloned() else {
             return Err(GraphError::UnknownLabel { keyword, label });
         };
@@ -141,11 +137,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         Ok(self.graph.add_never())
     }
 
-    pub fn add_break(
-        &mut self,
-        keyword: Token<'src>,
-        value: DataID<'src>,
-    ) -> GraphResult<'src, DataID<'src>> {
+    pub fn add_break(&mut self, keyword: Token, value: DataID) -> GraphResult<DataID> {
         if let Some(current_loop) = self.jumps.scope() {
             self.jumps.add_break(
                 self.graph.get_ctrl()?,
@@ -161,10 +153,10 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
 
     pub fn add_break_to(
         &mut self,
-        keyword: Token<'src>,
-        label: IdentToken<'src>,
-        value: DataID<'src>,
-    ) -> GraphResult<'src, DataID<'src>> {
+        keyword: Token,
+        label: IdentToken,
+        value: DataID,
+    ) -> GraphResult<DataID> {
         let Some(branch) = self.labels.get(label.src).cloned() else {
             return Err(GraphError::UnknownLabel { keyword, label });
         };
@@ -180,7 +172,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         Ok(self.graph.add_never())
     }
 
-    pub fn set_up_loop_merge(&mut self, entry: CtrlID<'src>) -> (MergeID<'src>, Vec<PhiID<'src>>) {
+    pub fn set_up_loop_merge(&mut self, entry: CtrlID) -> (MergeID, Vec<PhiID>) {
         // ctrl node structure setup
         let loop_head = self.graph.add_merge(vec![entry]);
 
@@ -198,10 +190,10 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
     pub fn close_loop(
         &mut self,
         tok: OpenLoop,
-        loop_backedge: Option<DataID<'src>>,
-        mut loop_head: MergeID<'src>,
-        mut loop_phis: Vec<PhiID<'src>>,
-    ) -> GraphResult<'src, DataID<'src>> {
+        loop_backedge: Option<DataID>,
+        mut loop_head: MergeID,
+        mut loop_phis: Vec<PhiID>,
+    ) -> GraphResult<DataID> {
         let Jumps {
             mut continue_points,
             mut continue_states,
@@ -210,8 +202,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
             mut break_values,
         } = self.jumps.close_block(tok);
 
-        if !self.graph.is_unreachable() {
-            let body_end = self.graph.get_ctrl()?;
+        if let Ok(body_end) = self.graph.get_ctrl() {
             let body_end_state = self.symbol_table.snapshot_state(); // the state of every symbol after the hole body
             if let Some(data) = loop_backedge {
                 break_points.push(body_end);
@@ -247,11 +238,11 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         }
     }
 
-    pub fn current_state(&self) -> GraphResult<'src, (MutableState<'src>, CtrlID<'src>)> {
+    pub fn current_state(&self) -> GraphResult<(MutableState, CtrlID)> {
         Ok((self.symbol_table.snapshot_state(), self.graph.get_ctrl()?))
     }
 
-    pub fn merge_states(&mut self, merge: MergeID<'src>, states: Vec<MutableState<'src>>) {
+    pub fn merge_states(&mut self, merge: MergeID, states: Vec<MutableState>) {
         debug_assert_eq!(merge.branches.len(), states.len());
 
         if states.is_empty() {
@@ -276,7 +267,7 @@ impl<'tokens, 'src, T: TokenStream<'src>> GraphBuilder<'tokens, 'src, T> {
         });
     }
 
-    pub fn restore_state(&mut self, state: MutableState<'src>) {
+    pub fn restore_state(&mut self, state: MutableState) {
         let mut state = state.into_iter();
         self.symbol_table
             .for_every_mutable(|_, m| *m = state.next().unwrap());

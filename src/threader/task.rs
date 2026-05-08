@@ -96,13 +96,14 @@ impl Task {
                 let mut file = OpenOptions::new().read(true).open(path)?;
                 let mut content = vec![];
                 file.read_to_end(&mut content)?;
+                let content = content.leak();
 
                 // let now = Instant::now();
 
                 let parsing_errors = Rc::new(Errors::empty(path));
 
                 // lazy tokenizing
-                let mut tokenizer = Tokenizer::new(&content, parsing_errors.clone(), 64);
+                let mut tokenizer = Tokenizer::new(content, parsing_errors.clone(), 64);
                 let (graph, scope) = build_debug_graph(&mut tokenizer).expect("graph");
 
                 // Debug Print

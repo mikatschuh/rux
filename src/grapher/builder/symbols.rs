@@ -11,22 +11,22 @@ use crate::{
 pub struct OpenScope(());
 
 #[derive(Debug, Clone)]
-pub struct Symbol<'src> {
+pub struct Symbol {
     #[allow(unused)]
-    pub ty: DataID<'src>,
-    pub value: DataID<'src>,
+    pub ty: DataID,
+    pub value: DataID,
 }
 
 #[derive(Debug)]
-pub struct Scope<'src> {
-    immutables: HashMap<&'src str, Symbol<'src>>,
-    mutables: HashMap<&'src str, Symbol<'src>>,
+pub struct Scope {
+    immutables: HashMap<&'static str, Symbol>,
+    mutables: HashMap<&'static str, Symbol>,
 }
 
-pub struct ScopedSymbolTable<'src> {
-    symbol_dump: SymbolDump<'src>,
-    scopes: NonEmpty<Scope<'src>>,
-    deferred: HashMap<&'src str, DataID<'src>>, // all nodes that represent the currently unknown constants
+pub struct ScopedSymbolTable {
+    symbol_dump: SymbolDump,
+    scopes: NonEmpty<Scope>,
+    deferred: HashMap<&'static str, DataID>, // all nodes that represent the currently unknown constants
 }
 
 #[derive(Clone, Copy)]
@@ -35,22 +35,22 @@ pub struct ScopeID(usize);
 #[derive(Clone, Copy)]
 pub struct MutableIdx(usize);
 
-pub struct MutableState<'src>(Vec<DataID<'src>>);
+pub struct MutableState(Vec<DataID>);
 
-impl<'src> Index<MutableIdx> for MutableState<'src> {
-    type Output = DataID<'src>;
+impl Index<MutableIdx> for MutableState {
+    type Output = DataID;
     fn index(&self, index: MutableIdx) -> &Self::Output {
         &self.0[index.0]
     }
 }
 
-impl<'src> MutableState<'src> {
-    pub fn into_iter(self) -> IntoIter<DataID<'src>> {
+impl MutableState {
+    pub fn into_iter(self) -> IntoIter<DataID> {
         self.0.into_iter()
     }
 }
 
-impl<'src> Scope<'src> {
+impl Scope {
     fn new() -> Self {
         Self {
             immutables: HashMap::new(),
@@ -59,7 +59,7 @@ impl<'src> Scope<'src> {
     }
 }
 
-impl<'src> ScopedSymbolTable<'src> {
+impl ScopedSymbolTable {
     pub fn new() -> Self {
         Self {
             symbol_dump: SymbolDump::new(),
@@ -72,7 +72,7 @@ impl<'src> ScopedSymbolTable<'src> {
         ScopeID(self.scopes.len() - 1)
     }
 
-    fn current_scope(&mut self) -> &mut Scope<'src> {
+    fn current_scope(&mut self) -> &mut Scope {
         self.scopes.last_mut()
     }
 
@@ -89,7 +89,7 @@ impl<'src> ScopedSymbolTable<'src> {
     }
 
     /// is equal to `self.snapshot_state_of_scope(self.opened_scope_id())`
-    pub(super) fn snapshot_state(&self) -> MutableState<'src> {
+    pub(super) fn snapshot_state(&self) -> MutableState {
         MutableState(
             self.scopes
                 .iter()
@@ -99,7 +99,7 @@ impl<'src> ScopedSymbolTable<'src> {
         )
     }
 
-    pub(super) fn snapshot_state_of_scope(&self, scope_id: ScopeID) -> MutableState<'src> {
+    pub(super) fn snapshot_state_of_scope(&self, scope_id: ScopeID) -> MutableState {
         MutableState(
             self.scopes
                 .iter()
@@ -110,7 +110,7 @@ impl<'src> ScopedSymbolTable<'src> {
         )
     }
 
-    pub(super) fn for_every_mutable(&mut self, mut f: impl FnMut(MutableIdx, &mut DataID<'src>)) {
+    pub(super) fn for_every_mutable(&mut self, mut f: impl FnMut(MutableIdx, &mut DataID)) {
         self.scopes
             .iter_mut()
             .flat_map(|s| s.mutables.iter_mut())
@@ -121,9 +121,9 @@ impl<'src> ScopedSymbolTable<'src> {
     pub fn write_symbol(
         &mut self,
         assignment: Span,
-        name: &'src str,
-        value: DataID<'src>,
-    ) -> GraphResult<'src, ()> {
+        name: &'static str,
+        value: DataID,
+    ) -> GraphResult<()> {
         for scope in self.scopes.iter_mut().rev() {
             if scope.immutables.contains_key(name) {
                 return Err(GraphError::AssignmentToImmutableIdent { name, assignment });
@@ -141,7 +141,7 @@ impl<'src> ScopedSymbolTable<'src> {
         Err(GraphError::AssignmentToUnknownVar { name, assignment })
     }
 
-    pub fn read_symbol(&mut self, graph: &mut Graph<'src>, name: &'src str) -> DataID<'src> {
+    pub fn read_symbol(&mut self, graph: &mut Graph, name: &'static str) -> DataID {
         for scope in self.scopes.iter().rev() {
             if let Some(symbol) = scope.immutables.get(name) {
                 return symbol.value.clone();
@@ -161,19 +161,19 @@ impl<'src> ScopedSymbolTable<'src> {
         }
     }
 
-    pub fn add_immutable(&mut self, name: &'src str, symbol: Symbol<'src>) {
+    pub fn add_immutable(&mut self, name: &'static str, symbol: Symbol) {
         self.current_scope().immutables.insert(name, symbol);
     }
-    pub fn add_mutable(&mut self, name: &'src str, symbol: Symbol<'src>) {
+    pub fn add_mutable(&mut self, name: &'static str, symbol: Symbol) {
         self.current_scope().mutables.insert(name, symbol);
     }
 
     /*pub fn add_constant(
         &mut self,
         decl: Span,
-        name: &'src str,
-        symbol: Symbol<'src>,
-    ) -> GraphResult<'src, ()> {
+        name: &'static str,
+        symbol: Symbol,
+    ) -> GraphResult<()> {
         if self.current().variables.contains_key(name) {
             return Err(GraphError::ConstShadowing { name, decl });
         }
@@ -191,7 +191,7 @@ impl<'src> ScopedSymbolTable<'src> {
         Ok(())
     }*/
 
-    pub fn all_symbols(mut self) -> SymbolDump<'src> {
+    pub fn all_symbols(mut self) -> SymbolDump {
         self.scopes.into_iter().for_each(|scope| {
             self.symbol_dump.append_scope(scope);
         });
@@ -200,12 +200,12 @@ impl<'src> ScopedSymbolTable<'src> {
     }
 }
 
-pub struct SymbolDump<'src> {
-    pub immutables: HashMap<&'src str, Symbol<'src>>,
-    pub mutables: HashMap<&'src str, Symbol<'src>>,
+pub struct SymbolDump {
+    pub immutables: HashMap<&'static str, Symbol>,
+    pub mutables: HashMap<&'static str, Symbol>,
 }
 
-impl<'src> SymbolDump<'src> {
+impl SymbolDump {
     fn new() -> Self {
         Self {
             immutables: HashMap::new(),
@@ -213,7 +213,7 @@ impl<'src> SymbolDump<'src> {
         }
     }
 
-    fn append_scope(&mut self, mut scope: Scope<'src>) {
+    fn append_scope(&mut self, mut scope: Scope) {
         scope.immutables.drain().for_each(|(name, immutable)| {
             self.immutables.insert(name, immutable);
         });
@@ -233,10 +233,7 @@ mod tests {
         type_parsing::AtomicType,
     };
 
-    fn symbol<'src>(
-        ty: crate::grapher::graph::DataID<'src>,
-        value: crate::grapher::graph::DataID<'src>,
-    ) -> Symbol<'src> {
+    fn symbol(ty: crate::grapher::graph::DataID, value: crate::grapher::graph::DataID) -> Symbol {
         Symbol { ty, value }
     }
 

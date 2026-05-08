@@ -10,49 +10,49 @@ use crate::{
     utilities::{NoDealloc, Rc},
 };
 
-pub type DataID<'src> = Rc<DataNode<'src>, NoDealloc>;
-pub type CtrlID<'src> = Rc<CtrlKind<'src>, NoDealloc>;
-pub type BranchID<'src> = Rc<Branch<'src>, NoDealloc>;
-pub type MergeID<'src> = Rc<Merge<'src>, NoDealloc>;
-pub type PhiID<'src> = Rc<Phi<'src>, NoDealloc>;
+pub type DataID = Rc<DataNode, NoDealloc>;
+pub type CtrlID = Rc<CtrlKind, NoDealloc>;
+pub type BranchID = Rc<Branch, NoDealloc>;
+pub type MergeID = Rc<Merge, NoDealloc>;
+pub type PhiID = Rc<Phi, NoDealloc>;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct DataNode<'src> {
-    pub kind: DataKind<'src>,
+pub struct DataNode {
+    pub kind: DataKind,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct Branch<'src> {
-    pub ctrl: CtrlID<'src>,
-    pub condition: DataID<'src>,
+pub struct Branch {
+    pub ctrl: CtrlID,
+    pub condition: DataID,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct Merge<'src> {
-    pub branches: Vec<CtrlID<'src>>,
+pub struct Merge {
+    pub branches: Vec<CtrlID>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct Phi<'src> {
-    pub merge: MergeID<'src>, // merge always needs to have the same number of branches as the phi variants
-    pub variants: Vec<DataID<'src>>,
+pub struct Phi {
+    pub merge: MergeID, // merge always needs to have the same number of branches as the phi variants
+    pub variants: Vec<DataID>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub enum CtrlKind<'src> {
+pub enum CtrlKind {
     Start,
-    Merge { merge: MergeID<'src> },
-    TrueBranch { branch: BranchID<'src> },
-    FalseBranch { branch: BranchID<'src> },
+    Merge { merge: MergeID },
+    TrueBranch { branch: BranchID },
+    FalseBranch { branch: BranchID },
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub enum DataKind<'src> {
+pub enum DataKind {
     AtomicType {
         ty: AtomicType,
     },
     Literal {
-        literal: Literal<'src>,
+        literal: Literal,
     },
     Quote {
         quote: String,
@@ -63,32 +63,32 @@ pub enum DataKind<'src> {
 
     Unary {
         op: UnaryOp,
-        input: DataID<'src>,
+        input: DataID,
     },
     Binary {
         op: BinaryOp,
-        lhs: DataID<'src>,
-        rhs: DataID<'src>,
+        lhs: DataID,
+        rhs: DataID,
     },
     Load {
-        mem: CtrlID<'src>,
-        addr: DataID<'src>,
+        mem: CtrlID,
+        addr: DataID,
     },
 
     Phi {
-        phi: PhiID<'src>,
+        phi: PhiID,
     },
 
     Deferred,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-enum DataKey<'src> {
+enum DataKey {
     AtomicType {
         ty: AtomicType,
     },
     Literal {
-        literal: Literal<'src>,
+        literal: Literal,
     },
     Quote {
         quote: String,
@@ -116,18 +116,18 @@ enum DataKey<'src> {
 }
 
 #[derive(Debug)]
-pub struct Graph<'src> {
+pub struct Graph {
     arena: Bump,
-    node_cache: HashMap<DataKey<'src>, DataID<'src>>,
-    current_ctrl: Option<CtrlID<'src>>,
+    node_cache: HashMap<DataKey, DataID>,
+    current_ctrl: Option<CtrlID>,
 }
-impl<'src> Graph<'src> {
+impl Graph {
     pub fn new() -> Self {
         let arena = Bump::new();
 
         Self {
             node_cache: HashMap::new(),
-            current_ctrl: Some(Rc::<CtrlKind<'src>, NoDealloc>::new_in_bump(
+            current_ctrl: Some(Rc::<CtrlKind, NoDealloc>::new_in_bump(
                 CtrlKind::Start,
                 &arena,
             )),
@@ -135,7 +135,7 @@ impl<'src> Graph<'src> {
         }
     }
 
-    fn push_node(&mut self, kind: DataKind<'src>) -> DataID<'src> {
+    fn push_node(&mut self, kind: DataKind) -> DataID {
         let key = kind.node_key();
         if let Some(ref key) = key
             && let Some(existing) = self.node_cache.get(key)
@@ -143,35 +143,35 @@ impl<'src> Graph<'src> {
             return existing.clone();
         }
 
-        let node: DataNode<'src> = DataNode { kind };
-        let node_id = Rc::<DataNode<'src>, NoDealloc>::new_in_bump(node, &self.arena);
+        let node: DataNode = DataNode { kind };
+        let node_id = Rc::<DataNode, NoDealloc>::new_in_bump(node, &self.arena);
         if let Some(key) = key {
             self.node_cache.insert(key, node_id.clone());
         }
         node_id
     }
 
-    fn push_node_no_dedup(&mut self, kind: DataKind<'src>) -> DataID<'src> {
-        Rc::<DataNode<'src>, NoDealloc>::new_in_bump(DataNode { kind }, &self.arena)
+    fn push_node_no_dedup(&mut self, kind: DataKind) -> DataID {
+        Rc::<DataNode, NoDealloc>::new_in_bump(DataNode { kind }, &self.arena)
     }
 
-    fn push_ctrl_node(&mut self, node: CtrlKind<'src>) -> CtrlID<'src> {
-        Rc::<CtrlKind<'src>, NoDealloc>::new_in_bump(node, &self.arena)
+    fn push_ctrl_node(&mut self, node: CtrlKind) -> CtrlID {
+        Rc::<CtrlKind, NoDealloc>::new_in_bump(node, &self.arena)
     }
 
-    fn push_branch(&mut self, branch: Branch<'src>) -> BranchID<'src> {
-        Rc::<Branch<'src>, NoDealloc>::new_in_bump(branch, &self.arena)
+    fn push_branch(&mut self, branch: Branch) -> BranchID {
+        Rc::<Branch, NoDealloc>::new_in_bump(branch, &self.arena)
     }
 
-    pub fn add_merge(&mut self, branches: Vec<CtrlID<'src>>) -> MergeID<'src> {
-        Rc::<Merge<'src>, NoDealloc>::new_in_bump(Merge { branches }, &self.arena)
+    pub fn add_merge(&mut self, branches: Vec<CtrlID>) -> MergeID {
+        Rc::<Merge, NoDealloc>::new_in_bump(Merge { branches }, &self.arena)
     }
 
-    pub fn add_ctrl_merge(&mut self, merge: MergeID<'src>) -> CtrlID<'src> {
+    pub fn add_ctrl_merge(&mut self, merge: MergeID) -> CtrlID {
         self.push_ctrl_node(CtrlKind::Merge { merge })
     }
 
-    pub fn add_merge_to_ctrl(&mut self, merge: MergeID<'src>) {
+    pub fn add_merge_to_ctrl(&mut self, merge: MergeID) {
         if merge.branches.is_empty() {
             self.current_ctrl = None;
         } else {
@@ -179,11 +179,7 @@ impl<'src> Graph<'src> {
         }
     }
 
-    pub fn add_branch(
-        &mut self,
-        ctrl: CtrlID<'src>,
-        condition: DataID<'src>,
-    ) -> GraphResult<'src, (CtrlID<'src>, CtrlID<'src>)> {
+    pub fn add_branch(&mut self, ctrl: CtrlID, condition: DataID) -> GraphResult<(CtrlID, CtrlID)> {
         let branch = self.push_branch(Branch { ctrl, condition });
         Ok((
             self.push_ctrl_node(CtrlKind::FalseBranch {
@@ -193,35 +189,30 @@ impl<'src> Graph<'src> {
         ))
     }
 
-    pub fn add_load(&mut self, addr: DataID<'src>) -> GraphResult<'src, DataID<'src>> {
+    pub fn add_load(&mut self, addr: DataID) -> GraphResult<DataID> {
         Ok(self.push_node(DataKind::Load {
             mem: self.get_ctrl()?,
             addr,
         }))
     }
 
-    pub fn add_literal(&mut self, literal: Literal<'src>) -> DataID<'src> {
+    pub fn add_literal(&mut self, literal: Literal) -> DataID {
         self.push_node(DataKind::Literal { literal })
     }
 
-    pub fn add_unary(&mut self, op: UnaryOp, input: DataID<'src>) -> DataID<'src> {
+    pub fn add_unary(&mut self, op: UnaryOp, input: DataID) -> DataID {
         self.push_node(DataKind::Unary { op, input })
     }
 
-    pub fn add_binary(
-        &mut self,
-        op: BinaryOp,
-        lhs: DataID<'src>,
-        rhs: DataID<'src>,
-    ) -> DataID<'src> {
+    pub fn add_binary(&mut self, op: BinaryOp, lhs: DataID, rhs: DataID) -> DataID {
         self.push_node(DataKind::Binary { op, lhs, rhs })
     }
 
-    pub fn add_phi(&mut self, merge: MergeID<'src>, variants: Vec<DataID<'src>>) -> PhiID<'src> {
-        Rc::<Phi<'src>, NoDealloc>::new_in_bump(Phi { merge, variants }, &self.arena)
+    pub fn add_phi(&mut self, merge: MergeID, variants: Vec<DataID>) -> PhiID {
+        Rc::<Phi, NoDealloc>::new_in_bump(Phi { merge, variants }, &self.arena)
     }
 
-    pub fn add_data_phi(&mut self, phi: PhiID<'src>) -> DataID<'src> {
+    pub fn add_data_phi(&mut self, phi: PhiID) -> DataID {
         if phi.variants.is_empty() {
             self.push_node(DataKind::Never)
         } else {
@@ -229,31 +220,31 @@ impl<'src> Graph<'src> {
         }
     }
 
-    pub fn add_phi_no_dedup(&mut self, phi: PhiID<'src>) -> DataID<'src> {
+    pub fn add_phi_no_dedup(&mut self, phi: PhiID) -> DataID {
         self.push_node_no_dedup(DataKind::Phi { phi })
     }
 
-    pub fn add_quote(&mut self, quote: String) -> DataID<'src> {
+    pub fn add_quote(&mut self, quote: String) -> DataID {
         self.push_node(DataKind::Quote { quote })
     }
 
-    pub fn add_bool(&mut self, boolean: bool) -> DataID<'src> {
+    pub fn add_bool(&mut self, boolean: bool) -> DataID {
         self.push_node(DataKind::Boolean(boolean))
     }
 
-    pub fn add_type(&mut self, type_: AtomicType) -> DataID<'src> {
+    pub fn add_type(&mut self, type_: AtomicType) -> DataID {
         self.push_node(DataKind::AtomicType { ty: type_ })
     }
 
-    pub fn add_deferred(&mut self) -> DataID<'src> {
+    pub fn add_deferred(&mut self) -> DataID {
         self.push_node_no_dedup(DataKind::Deferred)
     }
 
-    pub fn add_unit(&mut self) -> DataID<'src> {
+    pub fn add_unit(&mut self) -> DataID {
         self.push_node(DataKind::Unit)
     }
 
-    pub fn add_never(&mut self) -> DataID<'src> {
+    pub fn add_never(&mut self) -> DataID {
         self.push_node(DataKind::Never)
     }
 
@@ -265,7 +256,7 @@ impl<'src> Graph<'src> {
         self.current_ctrl = None
     }
 
-    pub fn get_ctrl(&self) -> GraphResult<'src, CtrlID<'src>> {
+    pub fn get_ctrl(&self) -> GraphResult<CtrlID> {
         if let Some(ctrl) = &self.current_ctrl {
             Ok(ctrl.clone())
         } else {
@@ -273,13 +264,13 @@ impl<'src> Graph<'src> {
         }
     }
 
-    pub fn set_ctrl(&mut self, ctrl: CtrlID<'src>) {
+    pub fn set_ctrl(&mut self, ctrl: CtrlID) {
         self.current_ctrl = Some(ctrl)
     }
 }
 
-impl<'src> DataKind<'src> {
-    fn node_key(&self) -> Option<DataKey<'src>> {
+impl DataKind {
+    fn node_key(&self) -> Option<DataKey> {
         match self {
             DataKind::AtomicType { ty } => Some(DataKey::AtomicType { ty: *ty }),
             DataKind::Literal { literal } => Some(DataKey::Literal {

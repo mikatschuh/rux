@@ -28,7 +28,7 @@ pub const CALL_CONVENTION: u8 = 150;
 pub const ACCESSOR: u8 = 150;
 pub const ACCESSOR_RIGHT: u8 = 151;
 
-impl<'src> Token<'src> {
+impl Token {
     pub const fn binding_pow(self) -> u8 {
         match self.kind {
             Comma
@@ -37,7 +37,6 @@ impl<'src> Token<'src> {
             | HalfCenterDot
             | RightArrow
             | Underscore
-            | DashDashDash
             | Ident
             | Not
             | Literal
