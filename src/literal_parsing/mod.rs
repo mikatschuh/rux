@@ -32,6 +32,11 @@ pub fn parse_literal(
     let original_len = text.len();
 
     let (base, mut digits) = parse_integer(text);
+    if digits.is_none() {
+        return None;
+    }
+    // at this point we know for a fact that the user wanted to input a literal
+    // that means we are definitely returning Some
     let num_digits_after_dot = if !text.is_empty() && text[0] == b'.' {
         *text = &text[1..];
         Some(parse_digits(&mut digits, base as u8, text))
@@ -39,10 +44,8 @@ pub fn parse_literal(
         None
     };
 
-    let digits = digits?;
+    let digits = digits.unwrap(); // we already checked for None
     span.end += original_len - text.len();
-    // at this point we know for a fact that the user wanted to input a literal
-    // that means we are definitely returning Some
 
     // parse exponent
     let exponent = if !text.is_empty()
