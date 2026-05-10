@@ -114,10 +114,10 @@ impl ScopedSymbolTable {
             .for_each(|(i, (_, symbol))| f(MutableIdx(i), &mut symbol.value));
     }
 
-    pub fn write_symbol(&mut self, assignment: Span, symbol: Symbol, value: DataID) -> Result<()> {
+    pub fn write_symbol(&mut self, equal: Span, symbol: Symbol, value: DataID) -> Result<()> {
         for scope in self.scopes.iter_mut().rev() {
             if scope.immutables.contains_key(&symbol) {
-                return Err(Error::AssignmentToImmutableIdent { symbol, assignment });
+                return Err(Error::AssignmentToImmutableIdent { symbol, equal });
             }
 
             match scope.mutables.get_mut(&symbol) {
@@ -129,7 +129,7 @@ impl ScopedSymbolTable {
             }
         }
 
-        Err(Error::AssignmentToUnknownVar { symbol, assignment })
+        Err(Error::AssignmentToUnknownVar { symbol, equal })
     }
 
     pub fn read_symbol(&mut self, symbol: Symbol) -> Option<DataID> {
@@ -164,7 +164,7 @@ impl ScopedSymbolTable {
         }
     }
 
-    pub fn all_symbols(mut self) -> SymbolDump {
+    pub fn symbol_dump(mut self) -> SymbolDump {
         self.scopes.into_iter().for_each(|scope| {
             self.symbol_dump.append_scope(scope);
         });

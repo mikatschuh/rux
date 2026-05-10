@@ -23,43 +23,45 @@ macro_rules! mem {
 
 type GraphDump = petgraph::Graph<String, String>;
 
-pub type Visited = HashMap<usize, NodeIndex>;
+type Visited = HashMap<usize, NodeIndex>;
 
-impl Graph {
-    pub fn dump_text(
-        &self,
-        SymbolDump {
-            immutables,
-            mutables,
-        }: SymbolDump,
-        interner: Interner,
-    ) -> String {
-        let mut visited = Visited::new();
+pub fn dump_text(
+    graph: &Graph,
+    relevant_nodes: Vec<DataID>,
+    SymbolDump {
+        immutables,
+        mutables,
+    }: SymbolDump,
+    interner: &Interner,
+) -> String {
+    let mut visited = Visited::new();
 
-        let mut graph: GraphDump = petgraph::Graph::new();
+    let mut graph_dump: GraphDump = petgraph::Graph::new();
 
-        for (name, symbol) in immutables {
-            let name = graph.add_node(interner.resolve(name).to_string());
-            let value = process_data_node(&mut graph, &mut visited, symbol.value);
-            graph.add_edge(name, value, "immutable".to_string());
-        }
-        for (name, symbol) in mutables {
-            let name = graph.add_node(interner.resolve(name).to_string());
-            let value = process_data_node(&mut graph, &mut visited, symbol.value);
-            graph.add_edge(name, value, "mutable".to_string());
-        }
-
-        let current = if let Ok(latest) = self.get_ctrl() {
-            process_ctrl_node(&mut graph, &mut visited, latest)
-        } else {
-            graph.add_node(mem!("never"))
-        };
-
-        let current_node = graph.add_node(mem!("current"));
-        graph.add_edge(current_node, current, "".to_string());
-
-        dump_cytoscape(&graph)
+    for (name, symbol) in immutables {
+        let name = graph_dump.add_node(interner.resolve(name).to_string());
+        let value = process_data_node(&mut graph_dump, &mut visited, symbol.value);
+        graph_dump.add_edge(name, value, "immutable".to_string());
     }
+    for (name, symbol) in mutables {
+        let name = graph_dump.add_node(interner.resolve(name).to_string());
+        let value = process_data_node(&mut graph_dump, &mut visited, symbol.value);
+        graph_dump.add_edge(name, value, "mutable".to_string());
+    }
+    for node in relevant_nodes {
+        process_data_node(&mut graph_dump, &mut visited, node);
+    }
+
+    let current = if let Ok(latest) = graph.get_ctrl() {
+        process_ctrl_node(&mut graph_dump, &mut visited, latest)
+    } else {
+        graph_dump.add_node(mem!("never"))
+    };
+
+    let current_node = graph_dump.add_node(mem!("current"));
+    graph_dump.add_edge(current_node, current, "".to_string());
+
+    dump_cytoscape(&graph_dump)
 }
 
 pub fn process_data_node(graph: &mut GraphDump, visited: &mut Visited, node: DataID) -> NodeIndex {

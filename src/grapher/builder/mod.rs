@@ -45,13 +45,13 @@ impl Builder {
     pub fn declare_variable(
         &mut self,
         keyword: Span,
-        name: Symbol,
+        symbol: Symbol,
         type_: DataID,
         value: DataID,
         mutable: bool,
     ) {
         self.symbol_table
-            .add_symbol(keyword, name, Binding { ty: type_, value }, mutable);
+            .add_symbol(keyword, symbol, Binding { ty: type_, value }, mutable);
     }
 
     pub fn read_variable(&mut self, symbol: Symbol) -> Option<DataID> {
@@ -145,7 +145,7 @@ impl Builder {
         loop_backedge: Option<DataID>,
         mut loop_head: MergeID,
         mut loop_phis: Vec<PhiID>,
-    ) -> Result<DataID> {
+    ) -> DataID {
         let Jumps {
             mut continue_points,
             mut continue_states,
@@ -179,19 +179,19 @@ impl Builder {
             self.symbol_table
                 .for_every_mutable(|i, value| *value = state[i].clone());
 
-            Ok(break_values.pop().unwrap())
+            break_values.pop().unwrap()
         } else {
             let exit_merge = self.graph.add_merge(break_points); // merge them
             self.merge_states(exit_merge.clone(), break_states);
             let phi = self.graph.add_phi(exit_merge.clone(), break_values);
 
             self.graph.add_merge_to_ctrl(exit_merge); // make it the control flow of the code after that
-            Ok(self.graph.add_data_phi(phi))
+            self.graph.add_data_phi(phi)
         }
     }
 
-    pub fn current_state(&self) -> Result<(MutableState, CtrlID)> {
-        Ok((self.symbol_table.snapshot_state(), self.graph.get_ctrl()?))
+    pub fn snapshot_state(&self) -> MutableState {
+        self.symbol_table.snapshot_state()
     }
 
     pub fn merge_states(&mut self, merge: MergeID, states: Vec<MutableState>) {

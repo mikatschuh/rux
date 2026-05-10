@@ -17,11 +17,11 @@ pub enum Error {
 
     AssignmentToUnknownVar {
         symbol: Symbol,
-        assignment: Span,
+        equal: Span,
     },
     AssignmentToImmutableIdent {
         symbol: Symbol,
-        assignment: Span,
+        equal: Span,
     },
 
     TriedToReadUnitialized {
@@ -56,14 +56,17 @@ impl Error {
                     binding.to_string(path)
                 )
             }
-            AssignmentToUnknownVar { symbol, assignment } => format!(
+            AssignmentToUnknownVar {
+                symbol,
+                equal: assignment,
+            } => format!(
                 "assignment to unknown identifier '{}' at {}",
                 interner.resolve(*symbol),
                 assignment.to_string(path)
             ),
             AssignmentToImmutableIdent {
                 symbol,
-                assignment: assigment,
+                equal: assigment,
             } => format!(
                 "assignment to immutable identifier '{}' at {}",
                 interner.resolve(*symbol),

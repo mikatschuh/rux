@@ -302,9 +302,10 @@ impl DataKind {
     }
 }
 
-#[cfg(never)]
 #[cfg(test)]
 mod tests {
+    use bumpalo::Bump;
+
     use super::{CtrlKind, DataKind, Graph};
     use crate::{
         grapher::BuildError,
@@ -313,9 +314,13 @@ mod tests {
         type_parsing::AtomicType,
     };
 
+    fn new_graph() -> Graph {
+        Graph::new(Bump::new())
+    }
+
     #[test]
     fn deduplicates_stable_data_nodes_by_default() {
-        let mut graph = Graph::new();
+        let mut graph = new_graph();
 
         let lit_a = graph.add_literal(Literal::from(7));
         let lit_b = graph.add_literal(Literal::from(7));
@@ -336,7 +341,7 @@ mod tests {
 
     #[test]
     fn does_not_deduplicate_deferred_or_explicit_no_dedup_phis() {
-        let mut graph = Graph::new();
+        let mut graph = new_graph();
 
         let unknown_a = graph.add_deferred();
         let unknown_b = graph.add_deferred();
@@ -354,7 +359,7 @@ mod tests {
 
     #[test]
     fn deduplicates_phi_data_when_requested_through_regular_path() {
-        let mut graph = Graph::new();
+        let mut graph = new_graph();
         let value = graph.add_literal(Literal::from(1));
         let ctrl = graph.get_ctrl().expect("start ctrl");
         let merge = graph.add_merge(vec![ctrl]);
@@ -368,7 +373,7 @@ mod tests {
 
     #[test]
     fn empty_phi_and_empty_merge_represent_unreachable_flow() {
-        let mut graph = Graph::new();
+        let mut graph = new_graph();
 
         let start = graph.get_ctrl().expect("start ctrl");
         assert!(matches!(*start, CtrlKind::Start));
@@ -385,7 +390,7 @@ mod tests {
 
     #[test]
     fn branches_remember_their_input_control_and_condition() {
-        let mut graph = Graph::new();
+        let mut graph = new_graph();
         let ctrl = graph.get_ctrl().expect("start ctrl");
         let condition = graph.add_bool(true);
 

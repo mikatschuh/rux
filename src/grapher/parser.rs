@@ -241,63 +241,7 @@ impl<'tokens, T: TokenStream> Builder<'tokens, T> {
         self.parse_expr_tail(lhs, 0)
     }
 
-    fn parse_if(&mut self, _if: Token) -> GraphResult<DataID> {
-        let condition = self.parse_expr(0)?;
-
-        let (state_before_branch, before_branch) = self.current_state()?;
-        let (false_branch, true_branch) = self
-            .graph
-            .add_branch(before_branch.clone(), condition.clone())?;
-
-        self.graph.set_ctrl(true_branch);
-        let when_true = self.parse_stmt_expr()?;
-
-        let Ok((state_when_true, true_branch)) = self.current_state() else {
-            self.restore_state(state_before_branch);
-            self.graph.set_ctrl(false_branch);
-            return if self.peek().kind == TokenKind::Else {
-                self.advance();
-
-                let when_false = self.parse_stmt_expr()?;
-                if self.graph.is_unreachable() {
-                    return Ok(self.graph.add_never());
-                }
-
-                Ok(when_false)
-            } else {
-                Ok(self.graph.add_unit())
-            };
-        };
-
-        if self.peek().kind == TokenKind::Else {
-            self.advance();
-
-            self.restore_state(state_before_branch);
-            self.graph.set_ctrl(false_branch);
-            let when_false = self.parse_stmt_expr()?;
-
-            let Ok((state_when_false, false_branch)) = self.current_state() else {
-                self.restore_state(state_when_true);
-                self.graph.set_ctrl(true_branch);
-                return Ok(when_true);
-            };
-
-            let merge = self.graph.add_merge(vec![false_branch, true_branch]);
-            self.merge_states(merge.clone(), vec![state_when_false, state_when_true]);
-            let phi = self
-                .graph
-                .add_phi(merge.clone(), vec![when_false, when_true]);
-
-            self.graph.add_merge_to_ctrl(merge);
-            Ok(self.graph.add_data_phi(phi))
-        } else {
-            let merge = self.graph.add_merge(vec![false_branch, true_branch]);
-            self.merge_states(merge.clone(), vec![state_before_branch, state_when_true]);
-
-            self.graph.add_merge_to_ctrl(merge);
-            Ok(self.graph.add_unit())
-        }
-    }
+    fn parse_if(&mut self, _if: Token) -> GraphResult<DataID> {}
 
     fn parse_label(&mut self, name: IdentToken, _colon: Token) -> GraphResult<DataID> {
         let entry = self.graph.get_ctrl()?;
@@ -336,8 +280,6 @@ impl<'tokens, T: TokenStream> Builder<'tokens, T> {
     }
 
     fn parse_loop(&mut self, _loop: Token) -> GraphResult<DataID> {
-        // let condition = self.parse_expr(0)?;
-
         let entry = self.graph.get_ctrl()?;
         let (loop_head, loop_phis) = self.set_up_loop_merge(entry);
         let (tok, _) = self.open_branch(); // jump branches

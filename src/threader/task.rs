@@ -1,7 +1,7 @@
 use super::files::*;
 use crate::{
     error::{CliError, Errors},
-    tokenizing::Tokenizer,
+    grapher, parser, tokenizing,
     utilities::Rc,
 };
 use std::{
@@ -99,16 +99,20 @@ impl Task {
 
                 // let now = Instant::now();
 
-                let parsing_errors = Rc::new(Errors::empty(path));
+                let errors = Rc::new(Errors::empty(path));
 
                 // lazy tokenizing
-                let mut tokenizer = Tokenizer::new(content, parsing_errors.clone(), 64);
-                let (graph, scope) = build_debug_graph(&mut tokenizer).expect("graph");
+                let mut tokenizer = tokenizing::Tokenizer::new(content, errors.clone(), 64);
+                let mut parser = parser::Parser::new(&mut tokenizer, errors.clone());
+                parser.parse_file();
+                let parser_output = parser.to_symbol_table();
+                let graph_dump = grapher::build_graph_debug(parser_output, "main", errors.clone())
+                    .expect("graph");
 
                 // Debug Print
                 // let time = now.elapsed().as_nanos();
 
-                println!("{}", graph.dump_text(scope));
+                println!("{}", graph_dump);
             }
         }
         Ok(())
