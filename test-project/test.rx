@@ -1,4 +1,4 @@
-let main = {
-    var last_last = 0
-    var last = 1
+let main i32 = {
+    var last_last i32 = 0
+    var last i32 = 1
 }

@@ -111,6 +111,7 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
     fn parse_item(&mut self) {
         match self.peek().kind {
             TokenKind::Let => {
+                self.advance();
                 let symbol = self.expect_name();
                 let ty = self.parse_optional_expr(0);
                 if self.peek().kind == TokenKind::Equal {
@@ -127,13 +128,17 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
                 let pos = self.peek().span.start;
                 self.errors
                     .push(pos.into(), ErrorCode::ExpectedItemDeclaration);
+                self.advance();
             }
         }
     }
 
     fn parse_stmt(&mut self) -> Option<Stmt> {
         match self.peek().kind {
-            TokenKind::Semicolon => None,
+            TokenKind::Semicolon => {
+                self.advance();
+                None
+            }
 
             TokenKind::Fn => todo!(),
             TokenKind::Enum => todo!(),
@@ -343,6 +348,21 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
         }
         let mut statements = vec![];
         loop {
+            if self.peek().kind == TokenKind::Eof {
+                let pos = self.pos();
+                self.errors.push(
+                    pos,
+                    ErrorCode::NoClosedBracket {
+                        opened: Bracket::Curly,
+                    },
+                );
+                return if statements.is_empty() {
+                    self.graph.add_unit(opener.span)
+                } else {
+                    self.graph
+                        .add_block(opener.span - pos, NonEmpty::from_vec(statements).unwrap())
+                };
+            }
             if let Some(statement) = self.parse_stmt() {
                 statements.push(statement);
             }
@@ -454,5 +474,48 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
         let body = self.parse_stmt_expr();
 
         self.graph.add_function(keyword, parameters, output, body)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+    use crate::{tokenizing::Tokenizer, utilities::Rc};
+
+    fn parse(source: &'static str) -> (ParserOutput, Rc<Errors<'static>>) {
+        let errors = Rc::new(Errors::empty(Path::new("example.rx")));
+        let mut tokenizer = Tokenizer::new(source.as_bytes(), errors.clone(), 64);
+        let mut parser = Parser::new(&mut tokenizer, errors.clone());
+        parser.parse_file();
+        (parser.to_symbol_table(), errors)
+    }
+
+    #[test]
+    fn parses_top_level_let_item() {
+        let (mut output, errors) = parse("let main = 0");
+        let main = output.interner.get("main");
+
+        assert!(output.item_table.remove(&main).is_some());
+        assert_eq!(*errors, Errors::empty(Path::new("example.rx")));
+    }
+
+    #[test]
+    fn recovers_after_unexpected_top_level_token() {
+        let (mut output, errors) = parse("else\nlet main = 0");
+        let main = output.interner.get("main");
+
+        assert!(output.item_table.remove(&main).is_some());
+        assert_ne!(*errors, Errors::empty(Path::new("example.rx")));
+    }
+
+    #[test]
+    fn consumes_empty_statements_inside_blocks() {
+        let (mut output, errors) = parse("let main = {; 0}");
+        let main = output.interner.get("main");
+
+        assert!(output.item_table.remove(&main).is_some());
+        assert_eq!(*errors, Errors::empty(Path::new("example.rx")));
     }
 }
