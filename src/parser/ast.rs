@@ -12,9 +12,9 @@ use crate::{
     utilities::{NoDealloc, Rc},
 };
 
-pub type Stmt = Rc<Spanned<StmtKind>, NoDealloc>;
-pub type StmtExpr = Rc<Spanned<StmtExprKind>, NoDealloc>;
-pub type Expr = Rc<Spanned<ExprKind>, NoDealloc>;
+pub type Stmt = Spanned<Rc<StmtKind, NoDealloc>>;
+pub type StmtExpr = Spanned<Rc<StmtExprKind, NoDealloc>>;
+pub type Expr = Spanned<Rc<ExprKind, NoDealloc>>;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct Spanned<T> {
@@ -87,11 +87,10 @@ pub enum ExprKind {
     },
     Boolean(bool),
     Unit,
-    Never,
 
     Unary {
         op: Spanned<UnaryOp>,
-        input: Expr,
+        value: Expr,
     },
     Binary {
         lhs: Expr,
@@ -128,11 +127,11 @@ pub enum ExprKind {
 
 /// This one is DAG
 #[derive(Debug)]
-pub struct Ast {
+pub struct AstBuilder {
     arena: Bump,
 }
 
-impl Ast {
+impl AstBuilder {
     pub fn new() -> Self {
         Self { arena: Bump::new() }
     }
@@ -142,17 +141,23 @@ impl Ast {
     }
 
     fn push_stmt(&mut self, span: Span, kind: StmtKind) -> Stmt {
-        Rc::<Spanned<StmtKind>, NoDealloc>::new_in_bump(Spanned { span, val: kind }, &self.arena)
+        Spanned {
+            span,
+            val: Rc::<StmtKind, NoDealloc>::new_in_bump(kind, &self.arena),
+        }
     }
     fn push_stmt_expr(&mut self, span: Span, kind: StmtExprKind) -> StmtExpr {
-        Rc::<Spanned<StmtExprKind>, NoDealloc>::new_in_bump(
-            Spanned { span, val: kind },
-            &self.arena,
-        )
+        Spanned {
+            span,
+            val: Rc::<StmtExprKind, NoDealloc>::new_in_bump(kind, &self.arena),
+        }
     }
 
     fn push_expr(&mut self, span: Span, kind: ExprKind) -> Expr {
-        Rc::<Spanned<ExprKind>, NoDealloc>::new_in_bump(Spanned { span, val: kind }, &self.arena)
+        Spanned {
+            span,
+            val: Rc::<ExprKind, NoDealloc>::new_in_bump(kind, &self.arena),
+        }
     }
 
     pub fn stmt_expr_as_stmt(&mut self, stmt_expr: StmtExpr) -> Stmt {
@@ -255,7 +260,7 @@ impl Ast {
                     span: op_span,
                     val: op,
                 },
-                input: value,
+                value,
             },
         )
     }

@@ -16,15 +16,15 @@ use crate::{
 mod ast;
 mod intern;
 
-pub use ast::{Ast, Expr, ExprKind, Label, Spanned, Stmt, StmtExpr, StmtExprKind, StmtKind};
+pub use ast::{AstBuilder, Expr, ExprKind, Label, Spanned, Stmt, StmtExpr, StmtExprKind, StmtKind};
 pub use intern::{Interner, Symbol};
 
 pub struct Item {
     pub ty: Option<Expr>,
-    pub value: Expr,
+    pub expr: Expr,
 }
 
-pub struct SymbolTable {
+pub struct ParserOutput {
     pub arena: Bump,
     pub interner: Interner,
     pub item_table: HashMap<Symbol, Item>,
@@ -33,7 +33,7 @@ pub struct SymbolTable {
 pub struct Parser<'tokens, 'errors, T> {
     tokens: &'tokens mut T,
     errors: Rc<Errors<'errors>>,
-    graph: Ast,
+    graph: AstBuilder,
     interner: Interner,
     symbols: HashMap<Symbol, Item>,
 }
@@ -43,14 +43,14 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
         Self {
             tokens: token_stream,
             errors,
-            graph: Ast::new(),
+            graph: AstBuilder::new(),
             interner: Interner::new(),
             symbols: HashMap::new(),
         }
     }
 
-    pub fn to_symbol_table(self) -> SymbolTable {
-        SymbolTable {
+    pub fn to_symbol_table(self) -> ParserOutput {
+        ParserOutput {
             arena: self.graph.to_arena(),
             interner: self.interner,
             item_table: self.symbols,
@@ -117,7 +117,7 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
                     self.advance();
                 }
                 let value = self.parse_expr(0);
-                self.symbols.insert(symbol.val, Item { ty, value });
+                self.symbols.insert(symbol.val, Item { ty, expr: value });
             }
             TokenKind::Fn => todo!(),
             TokenKind::Enum => todo!(),
