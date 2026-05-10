@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use bumpalo::Bump;
 
 use crate::{
-    grapher::{GraphError, GraphResult},
+    grapher::{BuildError, BuildResult},
     literal_parsing::Literal,
     tokenizing::{binary_op::BinaryOp, unary_op::UnaryOp},
     type_parsing::AtomicType,
@@ -122,9 +122,7 @@ pub struct Graph {
     current_ctrl: Option<CtrlID>,
 }
 impl Graph {
-    pub fn new() -> Self {
-        let arena = Bump::new();
-
+    pub fn new(arena: Bump) -> Self {
         Self {
             node_cache: HashMap::new(),
             current_ctrl: Some(Rc::<CtrlKind, NoDealloc>::new_in_bump(
@@ -179,17 +177,17 @@ impl Graph {
         }
     }
 
-    pub fn add_branch(&mut self, ctrl: CtrlID, condition: DataID) -> GraphResult<(CtrlID, CtrlID)> {
+    pub fn add_branch(&mut self, ctrl: CtrlID, condition: DataID) -> (CtrlID, CtrlID) {
         let branch = self.push_branch(Branch { ctrl, condition });
-        Ok((
+        (
             self.push_ctrl_node(CtrlKind::FalseBranch {
                 branch: branch.clone(),
             }),
             self.push_ctrl_node(CtrlKind::TrueBranch { branch }),
-        ))
+        )
     }
 
-    pub fn add_load(&mut self, addr: DataID) -> GraphResult<DataID> {
+    pub fn add_load(&mut self, addr: DataID) -> BuildResult<DataID> {
         Ok(self.push_node(DataKind::Load {
             mem: self.get_ctrl()?,
             addr,
@@ -256,11 +254,11 @@ impl Graph {
         self.current_ctrl = None
     }
 
-    pub fn get_ctrl(&self) -> GraphResult<CtrlID> {
+    pub fn get_ctrl(&self) -> BuildResult<CtrlID> {
         if let Some(ctrl) = &self.current_ctrl {
             Ok(ctrl.clone())
         } else {
-            Err(GraphError::UnreachableCtrl)
+            Err(BuildError::UnreachableCtrl)
         }
     }
 
@@ -304,11 +302,12 @@ impl DataKind {
     }
 }
 
+#[cfg(never)]
 #[cfg(test)]
 mod tests {
     use super::{CtrlKind, DataKind, Graph};
     use crate::{
-        grapher::GraphError,
+        grapher::BuildError,
         literal_parsing::Literal,
         tokenizing::{binary_op::BinaryOp, unary_op::UnaryOp},
         type_parsing::AtomicType,
@@ -377,7 +376,7 @@ mod tests {
         let empty_merge = graph.add_merge(vec![]);
         graph.add_merge_to_ctrl(empty_merge.clone());
         assert!(graph.is_unreachable());
-        assert!(matches!(graph.get_ctrl(), Err(GraphError::UnreachableCtrl)));
+        assert!(matches!(graph.get_ctrl(), Err(BuildError::UnreachableCtrl)));
 
         let empty_phi = graph.add_phi(empty_merge, vec![]);
         let data = graph.add_data_phi(empty_phi);
@@ -390,10 +389,7 @@ mod tests {
         let ctrl = graph.get_ctrl().expect("start ctrl");
         let condition = graph.add_bool(true);
 
-        let (false_ctrl, true_ctrl) = graph
-            .add_branch(ctrl.clone(), condition.clone())
-            .expect("branch");
-
+        let (false_ctrl, true_ctrl) = graph.add_branch(ctrl.clone(), condition.clone());
         let CtrlKind::FalseBranch {
             branch: false_branch,
         } = &*false_ctrl

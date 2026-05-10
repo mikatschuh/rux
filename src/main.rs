@@ -5,7 +5,6 @@ use std::time::Instant;
 use error::CliError;
 use threader::Threadpool;
 
-#[allow(dead_code)]
 #[macro_use]
 mod error;
 mod byte_parsing;

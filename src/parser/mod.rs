@@ -6,10 +6,6 @@ use nonempty::NonEmpty;
 use crate::{
     error::{ErrorCode, Errors, Span},
     literal_parsing::Literal,
-    parser::{
-        ast::{Ast, Expr, Label, Spanned, Stmt, StmtExpr},
-        intern::{Interner, Symbol},
-    },
     tokenizing::{
         TokenStream,
         token::{Bracket, Token, TokenKind},
@@ -20,15 +16,18 @@ use crate::{
 mod ast;
 mod intern;
 
+pub use ast::{Ast, Expr, ExprKind, Label, Spanned, Stmt, StmtExpr, StmtExprKind, StmtKind};
+pub use intern::{Interner, Symbol};
+
 pub struct Item {
-    ty: Option<Expr>,
-    value: Expr,
+    pub ty: Option<Expr>,
+    pub value: Expr,
 }
 
 pub struct SymbolTable {
     pub arena: Bump,
     pub interner: Interner,
-    pub symbols: HashMap<Symbol, Item>,
+    pub item_table: HashMap<Symbol, Item>,
 }
 
 pub struct Parser<'tokens, 'errors, T> {
@@ -54,7 +53,7 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
         SymbolTable {
             arena: self.graph.to_arena(),
             interner: self.interner,
-            symbols: self.symbols,
+            item_table: self.symbols,
         }
     }
 
@@ -301,6 +300,11 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
                 Some(self.graph.add_loop(keyword, body))
             }
 
+            TokenKind::Fn => {
+                let keyword = self.advance();
+                Some(self.parse_function(keyword))
+            }
+
             _ => match self.peek().as_prefix() {
                 Some(op) => {
                     let span = self.advance().span;
@@ -412,5 +416,43 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
         let lhs = self.graph.add_ident(symbol);
         let value = self.parse_expr_tail(lhs, 0);
         self.graph.expr_as_stmt_expr(value)
+    }
+
+    fn parse_function(&mut self, keyword: Token) -> Expr {
+        let keyword = keyword.span;
+        let mut parameters = HashMap::new();
+        if let TokenKind::Open(opened) = self.peek().kind
+            && opened != Bracket::Curly
+        {
+            self.advance();
+            loop {
+                if let TokenKind::Closed(closed) = self.peek().kind {
+                    let span = self.advance().span;
+                    if closed != opened {
+                        self.errors.push(
+                            span,
+                            ErrorCode::WrongClosedBracket {
+                                expected: opened,
+                                found: closed,
+                            },
+                        );
+                    }
+                    break;
+                }
+                let symbol = self.expect_name();
+                let ty = self
+                    .parse_optional_expr(0)
+                    .unwrap_or_else(|| self.graph.add_unit(self.pos()));
+                parameters.insert(symbol, ty);
+            }
+        } else {
+            let span = self.pos();
+            self.errors.push(span, ErrorCode::ExpectedOpenParen);
+        }
+
+        let output = self.parse_expr(0);
+        let body = self.parse_stmt_expr();
+
+        self.graph.add_function(keyword, parameters, output, body)
     }
 }

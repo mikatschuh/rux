@@ -75,6 +75,9 @@ pub enum ErrorCode {
     LonelyElse,
     ExpectedReturn,
 
+    // semantic errors
+    MissingEntryPoint { entry: &'static str },
+
     // bracket errors
     NoOpenedBracket { closed: Bracket },
     ExpectedClosedBracket { opened: Bracket },
@@ -253,6 +256,9 @@ impl Error {
                 "expected return",
                 "you've to add the return keyword"
             ),
+            MissingEntryPoint { entry } => {
+                format_error!(self.span.to_string(path), "entry point {} missing", [entry])
+            }
             NoOpenedBracket { closed } => {
                 format_error!(
                     self.span.to_string(path),
@@ -350,7 +356,7 @@ fn remove_quotes(path: &Path) -> String {
             .unwrap(),
     )
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Position {
     pub collum: usize,
     pub line: usize,
@@ -422,7 +428,7 @@ impl Sub<Span> for Position {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Span {
     pub start: Position,
     pub end: Position,

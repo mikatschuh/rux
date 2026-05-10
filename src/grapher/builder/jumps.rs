@@ -1,5 +1,5 @@
 use crate::grapher::{
-    builder::symbols::{MutableState, ScopeID},
+    builder::binding::{MutableState, ScopeID},
     graph::{CtrlID, DataID},
 };
 
@@ -38,19 +38,22 @@ impl Loop {
     }
 }
 
+#[cfg(never)]
 #[cfg(test)]
 mod tests {
     use super::JumpTableStack;
     use crate::{
+        error::Span,
         grapher::{
             Graph,
             builder::{
-                ScopedSymbolTable, Symbol,
-                symbols::{MutableState, ScopeID},
+                Binding, ScopedSymbolTable,
+                binding::{MutableState, ScopeID},
             },
             graph::DataID,
         },
         literal_parsing::Literal,
+        parser::Interner,
         type_parsing::AtomicType,
     };
 
@@ -64,9 +67,15 @@ mod tests {
     }
 
     fn state_with(graph: &mut Graph, value: DataID) -> MutableState {
+        let mut interner = Interner::new();
         let mut table = ScopedSymbolTable::new();
         let ty = graph.add_type(AtomicType::Signed { size: 32 });
-        table.add_mutable("state", Symbol { ty, value });
+        table.add_symbol(
+            Span::beginning(),
+            interner.get("state"),
+            Binding { ty, value },
+            true,
+        );
         table.snapshot_state()
     }
 

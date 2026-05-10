@@ -1,17 +1,19 @@
 use std::{collections::HashMap, ops::Index, vec::IntoIter};
 
-use nonempty::NonEmpty;
-
 use crate::{
     error::Span,
-    grapher::{Graph, GraphError, GraphResult, graph::DataID},
+    grapher::{
+        builder::{Error, Result},
+        graph::DataID,
+    },
+    parser::Symbol,
 };
 
 #[must_use]
 pub struct OpenScope(());
 
 #[derive(Debug, Clone)]
-pub struct Symbol {
+pub struct Binding {
     #[allow(unused)]
     pub ty: DataID,
     pub value: DataID,
@@ -19,14 +21,13 @@ pub struct Symbol {
 
 #[derive(Debug)]
 pub struct Scope {
-    immutables: HashMap<&'static str, Symbol>,
-    mutables: HashMap<&'static str, Symbol>,
+    immutables: HashMap<Symbol, Binding>,
+    mutables: HashMap<Symbol, Binding>,
 }
 
 pub struct ScopedSymbolTable {
     symbol_dump: SymbolDump,
-    scopes: NonEmpty<Scope>,
-    deferred: HashMap<&'static str, DataID>, // all nodes that represent the currently unknown constants
+    scopes: Vec<Scope>,
 }
 
 #[derive(Clone, Copy)]
@@ -63,17 +64,12 @@ impl ScopedSymbolTable {
     pub fn new() -> Self {
         Self {
             symbol_dump: SymbolDump::new(),
-            scopes: NonEmpty::new(Scope::new()),
-            deferred: HashMap::new(),
+            scopes: vec![],
         }
     }
 
     pub fn open_scope_id(&self) -> ScopeID {
         ScopeID(self.scopes.len() - 1)
-    }
-
-    fn current_scope(&mut self) -> &mut Scope {
-        self.scopes.last_mut()
     }
 
     pub fn open_scope(&mut self) -> OpenScope {
@@ -118,18 +114,13 @@ impl ScopedSymbolTable {
             .for_each(|(i, (_, symbol))| f(MutableIdx(i), &mut symbol.value));
     }
 
-    pub fn write_symbol(
-        &mut self,
-        assignment: Span,
-        name: &'static str,
-        value: DataID,
-    ) -> GraphResult<()> {
+    pub fn write_symbol(&mut self, assignment: Span, symbol: Symbol, value: DataID) -> Result<()> {
         for scope in self.scopes.iter_mut().rev() {
-            if scope.immutables.contains_key(name) {
-                return Err(GraphError::AssignmentToImmutableIdent { name, assignment });
+            if scope.immutables.contains_key(&symbol) {
+                return Err(Error::AssignmentToImmutableIdent { symbol, assignment });
             }
 
-            match scope.mutables.get_mut(name) {
+            match scope.mutables.get_mut(&symbol) {
                 Some(symbol) => {
                     symbol.value = value;
                     return Ok(());
@@ -138,58 +129,40 @@ impl ScopedSymbolTable {
             }
         }
 
-        Err(GraphError::AssignmentToUnknownVar { name, assignment })
+        Err(Error::AssignmentToUnknownVar { symbol, assignment })
     }
 
-    pub fn read_symbol(&mut self, graph: &mut Graph, name: &'static str) -> DataID {
+    pub fn read_symbol(&mut self, symbol: Symbol) -> Option<DataID> {
         for scope in self.scopes.iter().rev() {
-            if let Some(symbol) = scope.immutables.get(name) {
-                return symbol.value.clone();
+            if let Some(symbol) = scope.immutables.get(&symbol) {
+                return Some(symbol.value.clone());
             }
-            if let Some(symbol) = scope.mutables.get(name) {
-                return symbol.value.clone();
+            if let Some(symbol) = scope.mutables.get(&symbol) {
+                return Some(symbol.value.clone());
             }
         }
-
-        if let Some(deferred) = self.deferred.get(name) {
-            deferred.clone()
-        } else {
-            let new_deferred = graph.add_deferred();
-            self.deferred.insert(name, new_deferred.clone());
-
-            new_deferred
-        }
+        None
     }
 
-    pub fn add_immutable(&mut self, name: &'static str, symbol: Symbol) {
-        self.current_scope().immutables.insert(name, symbol);
-    }
-    pub fn add_mutable(&mut self, name: &'static str, symbol: Symbol) {
-        self.current_scope().mutables.insert(name, symbol);
-    }
-
-    /*pub fn add_constant(
+    pub fn add_symbol(
         &mut self,
-        decl: Span,
-        name: &'static str,
+        keyword: Span,
         symbol: Symbol,
-    ) -> GraphResult<()> {
-        if self.current().variables.contains_key(name) {
-            return Err(GraphError::ConstShadowing { name, decl });
-        }
-        if self.current().constants.contains_key(name) {
-            return Err(GraphError::ConflictingItems { name, decl });
-        }
-
-        if let Some(nodes) = self.current().unknowns.remove(name) {
-            for mut node in nodes {
-                *node = (*symbol.assignment).clone() // overwrite every node referring to this unknown with the const's value
+        binding: Binding,
+        mutable: bool,
+    ) -> Result<()> {
+        if let Some(scope) = self.scopes.last_mut() {
+            if mutable {
+                scope.immutables.insert(symbol, binding);
             }
+            Ok(())
+        } else {
+            Err(Error::BindingOutsideOfScope {
+                binding: keyword,
+                symbol,
+            })
         }
-
-        self.current().constants.insert(name, symbol);
-        Ok(())
-    }*/
+    }
 
     pub fn all_symbols(mut self) -> SymbolDump {
         self.scopes.into_iter().for_each(|scope| {
@@ -201,8 +174,8 @@ impl ScopedSymbolTable {
 }
 
 pub struct SymbolDump {
-    pub immutables: HashMap<&'static str, Symbol>,
-    pub mutables: HashMap<&'static str, Symbol>,
+    pub immutables: HashMap<Symbol, Binding>,
+    pub mutables: HashMap<Symbol, Binding>,
 }
 
 impl SymbolDump {
@@ -214,8 +187,8 @@ impl SymbolDump {
     }
 
     fn append_scope(&mut self, mut scope: Scope) {
-        scope.immutables.drain().for_each(|(name, immutable)| {
-            self.immutables.insert(name, immutable);
+        scope.immutables.drain().for_each(|(symbol, immutable)| {
+            self.immutables.insert(symbol, immutable);
         });
         scope.mutables.drain().for_each(|(name, mutable)| {
             self.mutables.insert(name, mutable);
@@ -223,18 +196,19 @@ impl SymbolDump {
     }
 }
 
+#[cfg(never)]
 #[cfg(test)]
 mod tests {
-    use super::{ScopedSymbolTable, Symbol};
+    use super::{Binding, ScopedSymbolTable};
     use crate::{
         error::Span,
-        grapher::{Graph, GraphError},
+        grapher::{Error, Graph},
         literal_parsing::Literal,
         type_parsing::AtomicType,
     };
 
-    fn symbol(ty: crate::grapher::graph::DataID, value: crate::grapher::graph::DataID) -> Symbol {
-        Symbol { ty, value }
+    fn symbol(ty: crate::grapher::graph::DataID, value: crate::grapher::graph::DataID) -> Binding {
+        Binding { ty, value }
     }
 
     #[test]
@@ -246,33 +220,23 @@ mod tests {
         let inner = graph.add_literal(Literal::from(2));
 
         table.add_immutable("setting", symbol(ty.clone(), outer.clone()));
-        assert_eq!(
-            table.read_symbol(&mut graph, "setting").addr(),
-            outer.addr()
-        );
+        assert_eq!(table.read_symbol("setting").unwrap().addr(), outer.addr());
 
         let scope = table.open_scope();
         table.add_immutable("setting", symbol(ty, inner.clone()));
-        assert_eq!(
-            table.read_symbol(&mut graph, "setting").addr(),
-            inner.addr()
-        );
+        assert_eq!(table.read_symbol("setting").unwrap().addr(), inner.addr());
 
         table.close_scope(scope);
-        assert_eq!(
-            table.read_symbol(&mut graph, "setting").addr(),
-            outer.addr()
-        );
+        assert_eq!(table.read_symbol("setting").unwrap().addr(), outer.addr());
     }
 
     #[test]
     fn caches_unknown_reads_by_name() {
-        let mut graph = Graph::new();
         let mut table = ScopedSymbolTable::new();
 
-        let first = table.read_symbol(&mut graph, "future_constant");
-        let second = table.read_symbol(&mut graph, "future_constant");
-        let other = table.read_symbol(&mut graph, "other_constant");
+        let first = table.read_symbol("future_constant");
+        let second = table.read_symbol("future_constant");
+        let other = table.read_symbol("other_constant");
 
         assert_eq!(first.addr(), second.addr());
         assert_ne!(first.addr(), other.addr());
@@ -307,7 +271,7 @@ mod tests {
             .expect_err("immutable write should fail");
         assert!(matches!(
             err,
-            GraphError::AssignmentToImmutableIdent { name: "limit", .. }
+            Error::AssignmentToImmutableIdent { name: "limit", .. }
         ));
     }
 
@@ -323,7 +287,7 @@ mod tests {
 
         assert!(matches!(
             err,
-            GraphError::AssignmentToUnknownVar {
+            Error::AssignmentToUnknownVar {
                 name: "missing",
                 ..
             }

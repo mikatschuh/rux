@@ -1,7 +1,6 @@
 use super::files::*;
 use crate::{
     error::{CliError, Errors},
-    grapher::build_debug_graph,
     tokenizing::Tokenizer,
     utilities::Rc,
 };

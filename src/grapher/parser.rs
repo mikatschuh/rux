@@ -1,6 +1,6 @@
 use crate::{
     error::Span,
-    grapher::{GraphError, GraphResult, IdentToken, builder::GraphBuilder, graph::DataID},
+    grapher::{GraphError, GraphResult, IdentToken, builder::Builder, graph::DataID},
     literal_parsing::Literal,
     tokenizing::{
         TokenStream,
@@ -8,7 +8,7 @@ use crate::{
     },
 };
 
-impl<'tokens, T: TokenStream> GraphBuilder<'tokens, T> {
+impl<'tokens, T: TokenStream> Builder<'tokens, T> {
     pub fn parse_file(&mut self) -> GraphResult<()> {
         while self.peek().kind != TokenKind::Eof {
             self.parse_decl_or_statement()?;

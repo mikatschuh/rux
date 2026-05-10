@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 
-use super::{Graph, GraphError};
+use super::{BuildError, BuildResult, Graph};
 use crate::{
     error::Errors,
     grapher::{
-        GraphResult,
-        builder::{GraphBuilder, ScopedSymbolTable, Symbol},
+        builder::{Binding, GraphBuilder, ScopedSymbolTable},
         graph::{DataID, DataKind},
     },
     literal_parsing::Literal,
@@ -22,7 +21,7 @@ fn tokenizer_for(source: &'static str) -> Tokenizer<'static> {
     Tokenizer::new(source.as_bytes(), errors, TARGET_PTR_SIZE)
 }
 
-fn parse(source: &'static str) -> GraphResult<(Graph, ScopedSymbolTable)> {
+fn parse(source: &'static str) -> BuildResult<(Graph, ScopedSymbolTable)> {
     let mut tokenizer = tokenizer_for(source);
     GraphBuilder::new(&mut tokenizer).debug_build()
 }
@@ -345,7 +344,10 @@ config = 2
 
     assert!(matches!(
         err,
-        GraphError::AssignmentToImmutableIdent { name: "config", .. }
+        BuildError::AssignmentToImmutableIdent {
+            symbol: "config",
+            ..
+        }
     ));
 }
 
@@ -354,12 +356,12 @@ fn reports_break_and_continue_outside_loop() {
     let break_err = parse("break")
         .err()
         .expect("break outside loop should fail");
-    assert!(matches!(break_err, GraphError::JumpOutsideLoop { .. }));
+    assert!(matches!(break_err, BuildError::JumpOutsideLoop { .. }));
 
     let continue_err = parse("continue")
         .err()
         .expect("continue outside loop should fail");
-    assert!(matches!(continue_err, GraphError::JumpOutsideLoop { .. }));
+    assert!(matches!(continue_err, BuildError::JumpOutsideLoop { .. }));
 }
 
 #[test]
@@ -374,10 +376,10 @@ loop {
     .err()
     .expect("unknown label should fail");
 
-    assert!(matches!(err, GraphError::UnknownLabel { .. }));
+    assert!(matches!(err, BuildError::UnknownLabel { .. }));
 }
 
-fn symbol<'src>(symbols: &HashMap<&'src str, Symbol>, name: &'src str, ty: &DataID, val: &DataID) {
+fn symbol<'src>(symbols: &HashMap<&'src str, Binding>, name: &'src str, ty: &DataID, val: &DataID) {
     let symbol = symbols.get(name).expect("symbol");
     assert_eq!(symbol.ty.addr(), ty.addr());
     assert_eq!(symbol.value.addr(), val.addr());

@@ -5,9 +5,10 @@ use petgraph::{graph::NodeIndex, visit::EdgeRef};
 use crate::{
     grapher::{
         Graph,
-        builder::{ScopedSymbolTable, SymbolDump},
+        builder::SymbolDump,
         graph::{BranchID, CtrlID, CtrlKind, DataID, DataKind, MergeID},
     },
+    parser::Interner,
     tokenizing,
 };
 
@@ -25,23 +26,25 @@ type GraphDump = petgraph::Graph<String, String>;
 pub type Visited = HashMap<usize, NodeIndex>;
 
 impl Graph {
-    pub fn dump_text(&self, scope: ScopedSymbolTable) -> String {
+    pub fn dump_text(
+        &self,
+        SymbolDump {
+            immutables,
+            mutables,
+        }: SymbolDump,
+        interner: Interner,
+    ) -> String {
         let mut visited = Visited::new();
 
         let mut graph: GraphDump = petgraph::Graph::new();
 
-        let SymbolDump {
-            immutables,
-            mutables,
-        } = scope.all_symbols();
-
         for (name, symbol) in immutables {
-            let name = graph.add_node(name.to_string());
+            let name = graph.add_node(interner.resolve(name).to_string());
             let value = process_data_node(&mut graph, &mut visited, symbol.value);
             graph.add_edge(name, value, "immutable".to_string());
         }
         for (name, symbol) in mutables {
-            let name = graph.add_node(name.to_string());
+            let name = graph.add_node(interner.resolve(name).to_string());
             let value = process_data_node(&mut graph, &mut visited, symbol.value);
             graph.add_edge(name, value, "mutable".to_string());
         }

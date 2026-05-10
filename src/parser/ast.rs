@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use bumpalo::Bump;
 use nonempty::NonEmpty;
 
@@ -14,13 +16,13 @@ pub type Stmt = Rc<Spanned<StmtKind>, NoDealloc>;
 pub type StmtExpr = Rc<Spanned<StmtExprKind>, NoDealloc>;
 pub type Expr = Rc<Spanned<ExprKind>, NoDealloc>;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct Spanned<T> {
     pub span: Span,
     pub val: T,
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, Debug)]
 pub enum StmtKind {
     /// Either one, type or value
     Binding {
@@ -36,13 +38,13 @@ pub enum StmtKind {
     },
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, Debug)]
 pub struct Label {
     pub colon: Span,
     pub label: Spanned<Symbol>,
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, Debug)]
 pub enum StmtExprKind {
     Assignment {
         symbol: Spanned<Symbol>,
@@ -68,7 +70,7 @@ pub enum StmtExprKind {
     },
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, Debug)]
 pub enum ExprKind {
     Ident {
         symbol: Symbol,
@@ -113,6 +115,13 @@ pub enum ExprKind {
     },
     Label {
         label: Label,
+        body: StmtExpr,
+    },
+
+    Function {
+        keyword: Span,
+        parameters: HashMap<Spanned<Symbol>, Expr>,
+        output: Expr,
         body: StmtExpr,
     },
 }
@@ -317,6 +326,24 @@ impl Ast {
         self.push_expr(
             label.label.span - body.span,
             ExprKind::Label { label, body },
+        )
+    }
+
+    pub fn add_function(
+        &mut self,
+        keyword: Span,
+        parameters: HashMap<Spanned<Symbol>, Expr>,
+        output: Expr,
+        body: StmtExpr,
+    ) -> Expr {
+        self.push_expr(
+            keyword - body.span,
+            ExprKind::Function {
+                keyword,
+                parameters,
+                output,
+                body,
+            },
         )
     }
 }
