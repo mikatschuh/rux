@@ -8,7 +8,7 @@ use crate::{
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[allow(unused)]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum Error {
     BindingOutsideOfScope {
         binding: Span,
@@ -46,7 +46,7 @@ pub enum Error {
 }
 
 impl Error {
-    fn to_string(&self, path: &Path, interner: &Interner) -> String {
+    pub fn display(&self, path: &Path, interner: &Interner) -> String {
         use Error::*;
         match self {
             BindingOutsideOfScope { binding, symbol } => {

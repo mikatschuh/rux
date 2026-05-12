@@ -7,8 +7,11 @@ use std::ops::AddAssign;
 use std::ops::Sub;
 use std::ops::SubAssign;
 
-use crate::literal_parsing::Error as LiteralError;
-use crate::type_parsing::Error as PrimitiveTypeParsingError;
+use crate::parser::Interner;
+use crate::parser::Symbol;
+use crate::{
+    literal_parsing::Error as LiteralError, type_parsing::Error as PrimitiveTypeParsingError,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Errors<'src> {
@@ -32,6 +35,7 @@ impl<'src> Errors<'src> {
     pub fn push(&mut self, pos: Span, error: ErrorCode) {
         self.errors.push(Error::new(pos, error))
     }
+
     pub fn push_err(&mut self, err: Error) {
         self.errors.push(err)
     }
@@ -39,15 +43,7 @@ impl<'src> Errors<'src> {
         self.errors.extend(other.errors.iter().cloned());
     }
 }
-impl fmt::Display for Errors<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut string = String::new();
-        for error in self.errors.iter() {
-            string += &format!("{}\n", error.to_string(self.file));
-        }
-        write!(f, "{string}")
-    }
-}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Error {
     pub span: Span,
@@ -55,6 +51,14 @@ pub struct Error {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ErrorCode {
+    // tokenizing errors:
+    InvalidUTF8,
+    UnknownEscapeSequence { given: String },
+    NoClosingQuotes,
+    LiteralParsingError(LiteralError),
+    TypeParsingError(PrimitiveTypeParsingError),
+
+    // parsing errors:
     ExpectedExpr,
     ExpectedIdent,
     ExpectedInterface,
@@ -62,32 +66,17 @@ pub enum ErrorCode {
     ExpectedOpenParen,
     ExpectedComma,
     ExpectedAssignment,
-
     ExpectedItemDeclaration,
 
-    ParamShadowing,
-
-    UnexpectedToken,
-
-    NoClosingQuotes,
-
-    // control structure mistakes
-    LonelyElse,
-    ExpectedReturn,
-
-    // semantic errors
-    MissingEntryPoint { entry: &'static str },
-
     // bracket errors
-    NoOpenedBracket { closed: Bracket },
     ExpectedClosedBracket { opened: Bracket },
     NoClosedBracket { opened: Bracket },
     WrongClosedBracket { expected: Bracket, found: Bracket },
 
-    UnknownEscapeSequence { given: String },
-    LiteralParsingError(LiteralError),
-    TypeParsingError(PrimitiveTypeParsingError),
-    InvalidUTF8,
+    // graph building errors:
+    MissingEntryPoint { entry: &'static str },
+    BindingOutsideScope,
+    UnknownIdentifier { symbol: Symbol },
 }
 impl Error {
     pub fn new(span: Span, error: ErrorCode) -> Self {
@@ -203,9 +192,19 @@ macro_rules! format_error_arg {
     }};
 }
 impl Error {
-    fn to_string(&self, path: &Path) -> String {
+    fn display(&self, path: &Path, interner: &Interner) -> String {
         use ErrorCode::*;
         (match &self.error {
+            InvalidUTF8 => {
+                format_error!(self.span.to_string(path), "found invalid UTF-8 character")
+            }
+            UnknownEscapeSequence { given } => {
+                format_error!(
+                    self.span.to_string(path),
+                    "unknown escape sequence: {}",
+                    [given]
+                )
+            }
             ExpectedExpr => format_error!(self.span.to_string(path), "expected a value"),
             ExpectedIdent => format_error!(
                 self.span.to_string(path),
@@ -215,10 +214,6 @@ impl Error {
             ExpectedInterface => {
                 format_error!(self.span.to_string(path), "expected a function interface")
             }
-            ParamShadowing => format_error!(
-                self.span.to_string(path),
-                "found shadowing of parameters, which is illegal"
-            ),
             NoClosingQuotes => format_error!(
                 self.span.to_string(path),
                 "the ending quotes of the quote were missing"
@@ -243,29 +238,20 @@ impl Error {
                 ["::"]
             ),
             ExpectedComma => format_error!(self.span.to_string(path), "expected a comma"),
-            UnexpectedToken => format_error!(self.span.to_string(path), "unexpected token"),
-            LonelyElse => {
-                format_error!(
-                    self.span.to_string(path),
-                    "the else - keyword has been used without an if / loop - block infront of it",
-                    "you've to add the if / loop block"
-                )
-            }
-            ExpectedReturn => format_error!(
-                self.span.to_string(path),
-                "expected return",
-                "you've to add the return keyword"
-            ),
             MissingEntryPoint { entry } => {
                 format_error!(self.span.to_string(path), "entry point {} missing", [entry])
             }
-            NoOpenedBracket { closed } => {
+            BindingOutsideScope => {
                 format_error!(
                     self.span.to_string(path),
-                    "there was a closed bracket {} but no opened one",
-                    [closed.display_closed()]
+                    "found a binding outside of any scope"
                 )
             }
+            UnknownIdentifier { symbol } => format_error!(
+                self.span.to_string(path),
+                "found an unknown identifier {}",
+                [interner.resolve(*symbol)]
+            ),
             ExpectedClosedBracket { opened } => {
                 format_error!(
                     self.span.to_string(path),
@@ -287,13 +273,7 @@ impl Error {
                     [found.display_closed(), expected.display_closed()]
                 )
             }
-            UnknownEscapeSequence { given } => {
-                format_error!(
-                    self.span.to_string(path),
-                    "unknown escape sequence: {}",
-                    [given]
-                )
-            }
+
             LiteralParsingError(err) => {
                 format_error!(
                     self.span.to_string(path),
@@ -307,9 +287,6 @@ impl Error {
                     "primitive type parsing error: {}",
                     [err.to_string()]
                 )
-            }
-            InvalidUTF8 => {
-                format_error!(self.span.to_string(path), "found invalid UTF-8 character")
             }
         })
         .to_string()

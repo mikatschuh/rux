@@ -1,4 +1,19 @@
 let main i32 = {
     var last_last i32 = 0
     var last i32 = 1
+    10
+}
+
+let dummy i32 = main + 10 + {
+    var last_last = 1
+    var last = 1
+
+    var i usize = 0; loop { if i > 10 break;
+        let current = last + last_last
+
+        last_last = last
+        last = current
+
+        i++
+    }
 }

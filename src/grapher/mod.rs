@@ -3,13 +3,11 @@ use std::collections::HashMap;
 use crate::{
     error::{ErrorCode, Errors, Span},
     grapher::{
-        builder::{Builder, binding::MutableState},
+        builder::{Binding, Builder, binding::MutableState},
         graph::{CtrlID, DataID},
+        item::ItemTypes,
     },
-    parser::{
-        Expr, ExprKind, Interner, Item, ParserOutput, Spanned, Stmt, StmtExpr, StmtExprKind,
-        StmtKind, Symbol,
-    },
+    parser::{Expr, ExprKind, Item, ParserOutput, Stmt, StmtExpr, StmtExprKind, StmtKind, Symbol},
     utilities::Rc,
 };
 
@@ -17,12 +15,14 @@ mod builder;
 #[allow(unused)]
 mod graph;
 pub mod graph_dump;
+mod item;
 // mod parser;
-#[allow(unused)]
-use builder::{Error as BuildError, Result as BuildResult};
 
 use bumpalo::Bump;
-pub use graph::Graph;
+pub use {
+    builder::{Error as BuildError, Result as BuildResult},
+    graph::Graph,
+};
 
 pub fn build_graph_debug<'errors>(
     ParserOutput {
@@ -62,20 +62,24 @@ pub fn build_graph_debug<'errors>(
 pub struct GraphBuilder<'errors> {
     errors: Rc<Errors<'errors>>,
     builder: Builder,
-    item_table: HashMap<Symbol, Item>,
+    raw_item_table: HashMap<Symbol, Item>,
 }
 
 impl<'errors> GraphBuilder<'errors> {
-    fn new(errors: Rc<Errors<'errors>>, arena: Bump, item_table: HashMap<Symbol, Item>) -> Self {
+    fn new(
+        errors: Rc<Errors<'errors>>,
+        arena: Bump,
+        raw_item_table: HashMap<Symbol, Item>,
+    ) -> Self {
         Self {
             errors,
             builder: Builder::new(arena),
-            item_table,
+            raw_item_table,
         }
     }
 
     fn stmt(&mut self, stmt: Stmt) -> DataID {
-        match (&*stmt.val).clone() {
+        match (*stmt.val).clone() {
             StmtKind::Binding {
                 mutable,
                 keyword,
@@ -87,8 +91,14 @@ impl<'errors> GraphBuilder<'errors> {
                 Some(ty) => {
                     let ty = self.expr(ty);
                     let value = self.expr(value);
-                    self.builder
-                        .declare_variable(keyword, symbol.val, ty, value, mutable);
+                    if let Err(_) = self.builder.symbol_table.add_symbol(
+                        keyword,
+                        symbol.val,
+                        Binding { ty, value },
+                        mutable,
+                    ) {
+                        self.errors.push(keyword, ErrorCode::BindingOutsideScope);
+                    };
                     self.builder.graph.add_unit()
                 }
                 None => todo!(),
@@ -98,7 +108,7 @@ impl<'errors> GraphBuilder<'errors> {
     }
 
     fn stmt_expr(&mut self, stmt_expr: StmtExpr) -> DataID {
-        match (&*stmt_expr.val).clone() {
+        match (*stmt_expr.val).clone() {
             StmtExprKind::Assignment {
                 symbol,
                 equal,
@@ -142,7 +152,7 @@ impl<'errors> GraphBuilder<'errors> {
     }
 
     fn expr(&mut self, expr: Expr) -> DataID {
-        match (&*expr.val).clone() {
+        match (*expr.val).clone() {
             ExprKind::AtomicType { atomic_type } => self.builder.graph.add_type(atomic_type),
             ExprKind::Literal { literal } => self.builder.graph.add_literal(literal),
             ExprKind::Boolean(boolean) => self.builder.graph.add_bool(boolean),
@@ -159,16 +169,30 @@ impl<'errors> GraphBuilder<'errors> {
                 self.builder.graph.add_binary(op.val, lhs, rhs)
             }
 
-            ExprKind::Ident { symbol } => match self.builder.read_variable(symbol) {
+            ExprKind::Ident { symbol } => match self.builder.symbol_table.read_symbol(symbol) {
                 Some(value) => value,
-                None => todo!(),
+                None => match self.raw_item_table.get(&symbol) {
+                    Some(_) => todo!(),
+                    /*Some(Item { ty, expr }) => match ty {
+                        Some(ty) => {
+                            let ty = self.expr(*ty);
+                            let item_ty = self.item_types.add(ty);
+                            self.builder.graph.add_item(item_ty)
+                        }
+                        None => todo!(),
+                    },*/
+                    None => todo!(),
+                },
             },
 
             ExprKind::Block { statements } => {
+                let open_scope = self.builder.symbol_table.open_scope();
+
                 let mut statements = statements.into_iter().peekable();
                 loop {
                     let value = self.stmt(statements.next().unwrap());
                     if statements.peek().is_none() {
+                        self.builder.symbol_table.close_scope(open_scope);
                         break value;
                     }
                 }
@@ -249,9 +273,8 @@ impl<'errors> GraphBuilder<'errors> {
             }
             ExprKind::Label { label, body } => {
                 let entry = self.get_ctrl();
-                let (loop_head, loop_phis) = self.builder.set_up_loop_merge(entry);
-                let (tok, branch) = self.builder.open_branch();
-                self.builder.labels.insert(label.label.val, branch);
+                let (loop_head, loop_phis, tok, loop_id) = self.builder.set_up_loop(entry);
+                self.builder.labels.insert(label.label.val, loop_id);
 
                 let value = self.stmt_expr(body); // parse the hole body
                 self.builder.labels.remove(&label.label.val);
@@ -260,8 +283,7 @@ impl<'errors> GraphBuilder<'errors> {
             }
             ExprKind::Loop { keyword, body } => {
                 let entry = self.get_ctrl();
-                let (loop_head, loop_phis) = self.builder.set_up_loop_merge(entry);
-                let (tok, _) = self.builder.open_branch(); // jump branches
+                let (loop_head, loop_phis, tok, _) = self.builder.set_up_loop(entry);
 
                 let _ = self.stmt_expr(body); // parse the hole body
 

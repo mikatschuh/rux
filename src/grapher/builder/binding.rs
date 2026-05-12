@@ -78,7 +78,6 @@ impl ScopedSymbolTable {
     }
 
     pub fn close_scope(&mut self, _: OpenScope) {
-        debug_assert!(self.scopes.len() >= 2);
         let scope = self.scopes.pop().unwrap();
         // add all the symbols to the symbol dump
         self.symbol_dump.append_scope(scope);
@@ -114,6 +113,30 @@ impl ScopedSymbolTable {
             .for_each(|(i, (_, symbol))| f(MutableIdx(i), &mut symbol.value));
     }
 
+    pub fn add_symbol(
+        &mut self,
+        keyword: Span,
+        symbol: Symbol,
+        binding: Binding,
+        mutable: bool,
+    ) -> Result<()> {
+        if let Some(scope) = self.scopes.last_mut() {
+            if mutable {
+                scope.mutables.insert(symbol, binding);
+                scope.immutables.remove(&symbol);
+            } else {
+                scope.immutables.insert(symbol, binding);
+                scope.mutables.remove(&symbol);
+            }
+            Ok(())
+        } else {
+            Err(Error::BindingOutsideOfScope {
+                binding: keyword,
+                symbol,
+            })
+        }
+    }
+
     pub fn write_symbol(&mut self, equal: Span, symbol: Symbol, value: DataID) -> Result<()> {
         for scope in self.scopes.iter_mut().rev() {
             if scope.immutables.contains_key(&symbol) {
@@ -142,26 +165,6 @@ impl ScopedSymbolTable {
             }
         }
         None
-    }
-
-    pub fn add_symbol(
-        &mut self,
-        keyword: Span,
-        symbol: Symbol,
-        binding: Binding,
-        mutable: bool,
-    ) -> Result<()> {
-        if let Some(scope) = self.scopes.last_mut() {
-            if mutable {
-                scope.immutables.insert(symbol, binding);
-            }
-            Ok(())
-        } else {
-            Err(Error::BindingOutsideOfScope {
-                binding: keyword,
-                symbol,
-            })
-        }
     }
 
     pub fn symbol_dump(mut self) -> SymbolDump {

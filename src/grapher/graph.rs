@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use bumpalo::Bump;
 
 use crate::{
-    grapher::{BuildError, BuildResult},
+    grapher::{BuildError, BuildResult, item::ItemID},
     literal_parsing::Literal,
     tokenizing::{binary_op::BinaryOp, unary_op::UnaryOp},
     type_parsing::AtomicType,
@@ -112,6 +112,10 @@ enum DataKey {
     Phi {
         merge: usize,
         variants: Vec<usize>,
+    },
+
+    Item {
+        item: ItemID,
     },
 }
 
@@ -250,8 +254,9 @@ impl Graph {
         self.current_ctrl.is_none()
     }
 
-    pub fn make_unreachable(&mut self) {
-        self.current_ctrl = None
+    pub fn make_unreachable(&mut self) -> DataID {
+        self.current_ctrl = None;
+        self.add_never()
     }
 
     pub fn get_ctrl(&self) -> BuildResult<CtrlID> {

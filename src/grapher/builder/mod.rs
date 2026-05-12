@@ -27,7 +27,7 @@ pub struct Builder {
     pub symbol_table: ScopedSymbolTable,
 
     pub labels: HashMap<Symbol, LoopID>,
-    jumps: JumpTableStack,
+    jump_stack: JumpTableStack,
 }
 
 impl Builder {
@@ -38,66 +38,48 @@ impl Builder {
             symbol_table: ScopedSymbolTable::new(),
 
             labels: HashMap::new(),
-            jumps: JumpTableStack::new(),
+            jump_stack: JumpTableStack::new(),
         }
     }
 
-    pub fn declare_variable(
-        &mut self,
-        keyword: Span,
-        symbol: Symbol,
-        type_: DataID,
-        value: DataID,
-        mutable: bool,
-    ) {
-        self.symbol_table
-            .add_symbol(keyword, symbol, Binding { ty: type_, value }, mutable);
-    }
-
-    pub fn read_variable(&mut self, symbol: Symbol) -> Option<DataID> {
-        self.symbol_table.read_symbol(symbol)
-    }
-
-    pub fn open_branch(&mut self) -> (OpenLoop, LoopID) {
-        self.jumps.open_block(self.symbol_table.open_scope_id())
-    }
-
     pub fn add_continue(&mut self, keyword: Span) -> Result<DataID> {
-        if let Some(current_loop) = self.jumps.scope() {
-            self.jumps.add_continue(
+        if let Some(current_loop) = self.jump_stack.current_loops_scope() {
+            self.jump_stack.add_continue(
                 self.graph.get_ctrl()?,
                 self.symbol_table.snapshot_state_of_scope(current_loop),
             );
-            self.graph.make_unreachable();
-            Ok(self.graph.add_never())
+            Ok(self.graph.make_unreachable())
         } else {
             Err(Error::ContinueOutsideLoop { keyword })
         }
     }
 
-    pub fn add_continue_to(&mut self, keyword: Span, label: Spanned<Symbol>) -> Result<DataID> {
+    pub fn add_continue_to(
+        &mut self,
+        ctrl: CtrlID,
+        keyword: Span,
+        label: Spanned<Symbol>,
+    ) -> Result<DataID> {
         let Some(branch) = self.labels.get(&label.val).cloned() else {
             return Err(Error::ContinueWithUnknownLabel { keyword, label });
         };
-        let scope = self.jumps.scope_of(branch);
-        self.jumps.add_continue_to(
+        let scope = self.jump_stack.scope_of(branch);
+        self.jump_stack.add_continue_to(
             branch,
             self.graph.get_ctrl()?,
             self.symbol_table.snapshot_state_of_scope(scope),
         );
-        self.graph.make_unreachable();
-        Ok(self.graph.add_never())
+        Ok(self.graph.make_unreachable())
     }
 
     pub fn add_break(&mut self, keyword: Span, value: DataID) -> Result<DataID> {
-        if let Some(current_loop) = self.jumps.scope() {
-            self.jumps.add_break(
+        if let Some(current_loop) = self.jump_stack.current_loops_scope() {
+            self.jump_stack.add_break(
                 self.graph.get_ctrl()?,
                 self.symbol_table.snapshot_state_of_scope(current_loop),
                 value,
             );
-            self.graph.make_unreachable();
-            Ok(self.graph.add_never())
+            Ok(self.graph.make_unreachable())
         } else {
             Err(Error::BreakOutsideLoop { keyword })
         }
@@ -113,18 +95,17 @@ impl Builder {
             return Err(Error::ContinueWithUnknownLabel { keyword, label });
         };
 
-        let scope = self.jumps.scope_of(branch);
-        self.jumps.add_break_to(
+        let scope = self.jump_stack.scope_of(branch);
+        self.jump_stack.add_break_to(
             branch,
             self.graph.get_ctrl()?,
             self.symbol_table.snapshot_state_of_scope(scope),
             value,
         );
-        self.graph.make_unreachable();
-        Ok(self.graph.add_never())
+        Ok(self.graph.make_unreachable())
     }
 
-    pub fn set_up_loop_merge(&mut self, entry: CtrlID) -> (MergeID, Vec<PhiID>) {
+    pub fn set_up_loop(&mut self, entry: CtrlID) -> (MergeID, Vec<PhiID>, OpenLoop, LoopID) {
         // ctrl node structure setup
         let loop_head = self.graph.add_merge(vec![entry]);
 
@@ -136,7 +117,11 @@ impl Builder {
         }); // replace every variable with a phi and keep track of the phi's
 
         self.graph.add_merge_to_ctrl(loop_head.clone()); // with this the body has it as a control flow dependency
-        (loop_head, loop_phis)
+
+        let (tok, loop_id) = self
+            .jump_stack
+            .open_block(self.symbol_table.open_scope_id());
+        (loop_head, loop_phis, tok, loop_id)
     }
 
     pub fn close_loop(
@@ -152,7 +137,7 @@ impl Builder {
             mut break_points,
             mut break_states,
             mut break_values,
-        } = self.jumps.close_block(tok);
+        } = self.jump_stack.close_block(tok);
 
         if let Ok(body_end) = self.graph.get_ctrl() {
             let body_end_state = self.symbol_table.snapshot_state(); // the state of every symbol after the hole body

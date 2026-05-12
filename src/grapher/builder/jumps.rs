@@ -38,6 +38,88 @@ impl Loop {
     }
 }
 
+pub struct JumpTableStack {
+    loops: Vec<Loop>,
+}
+
+#[derive(Clone, Copy)]
+pub struct LoopID(usize);
+
+#[must_use]
+pub struct OpenLoop(());
+
+impl JumpTableStack {
+    pub fn new() -> Self {
+        Self { loops: vec![] }
+    }
+
+    pub fn current_loops_scope(&self) -> Option<ScopeID> {
+        self.loops.last().map(|b| b.scope)
+    }
+
+    pub fn scope_of(&self, loop_id: LoopID) -> ScopeID {
+        self.loops[loop_id.0].scope
+    }
+
+    pub fn open_block(&mut self, scope: ScopeID) -> (OpenLoop, LoopID) {
+        let branch = self.loops.len();
+        self.loops.push(Loop::new(scope));
+        (OpenLoop(()), LoopID(branch))
+    }
+
+    #[must_use]
+    pub fn close_block(&mut self, _: OpenLoop) -> Jumps {
+        debug_assert!(!self.loops.is_empty());
+        let Loop {
+            continue_jumps,
+            break_jumps,
+            ..
+        } = self.loops.pop().unwrap();
+
+        Jumps {
+            continue_points: continue_jumps.iter().map(|c| c.ctrl.clone()).collect(),
+            continue_states: continue_jumps.into_iter().map(|c| c.state).collect(),
+            break_points: break_jumps.iter().map(|b| b.ctrl.clone()).collect(),
+            break_values: break_jumps.iter().map(|b| b.value.clone()).collect(),
+            break_states: break_jumps.into_iter().map(|b| b.state).collect(),
+        }
+    }
+
+    pub fn add_continue(&mut self, ctrl: CtrlID, state: MutableState) {
+        self.loops
+            .last_mut()
+            .unwrap()
+            .continue_jumps
+            .push(ContinueJump { ctrl, state });
+    }
+
+    pub fn add_continue_to(&mut self, branch: LoopID, ctrl: CtrlID, state: MutableState) {
+        self.loops[branch.0]
+            .continue_jumps
+            .push(ContinueJump { ctrl, state });
+    }
+
+    pub fn add_break(&mut self, ctrl: CtrlID, state: MutableState, value: DataID) {
+        self.loops
+            .last_mut()
+            .unwrap()
+            .break_jumps
+            .push(BreakJump { ctrl, state, value });
+    }
+
+    pub fn add_break_to(
+        &mut self,
+        branch: LoopID,
+        ctrl: CtrlID,
+        state: MutableState,
+        value: DataID,
+    ) {
+        self.loops[branch.0]
+            .break_jumps
+            .push(BreakJump { ctrl, state, value });
+    }
+}
+
 #[cfg(never)]
 #[cfg(test)]
 mod tests {
@@ -218,87 +300,5 @@ mod tests {
             .map(|state| state.into_iter().next().unwrap().addr())
             .collect::<Vec<_>>();
         assert_eq!(states, vec![first.addr(), second.addr()]);
-    }
-}
-
-pub struct JumpTableStack {
-    loops: Vec<Loop>,
-}
-
-#[derive(Clone, Copy)]
-pub struct LoopID(usize);
-
-#[must_use]
-pub struct OpenLoop(());
-
-impl JumpTableStack {
-    pub fn new() -> Self {
-        Self { loops: vec![] }
-    }
-
-    pub fn scope(&self) -> Option<ScopeID> {
-        self.loops.last().map(|b| b.scope)
-    }
-
-    pub fn scope_of(&self, loop_id: LoopID) -> ScopeID {
-        self.loops[loop_id.0].scope
-    }
-
-    pub fn open_block(&mut self, scope: ScopeID) -> (OpenLoop, LoopID) {
-        let branch = self.loops.len();
-        self.loops.push(Loop::new(scope));
-        (OpenLoop(()), LoopID(branch))
-    }
-
-    #[must_use]
-    pub fn close_block(&mut self, _: OpenLoop) -> Jumps {
-        debug_assert!(!self.loops.is_empty());
-        let Loop {
-            continue_jumps,
-            break_jumps,
-            ..
-        } = self.loops.pop().unwrap();
-
-        Jumps {
-            continue_points: continue_jumps.iter().map(|c| c.ctrl.clone()).collect(),
-            continue_states: continue_jumps.into_iter().map(|c| c.state).collect(),
-            break_points: break_jumps.iter().map(|b| b.ctrl.clone()).collect(),
-            break_values: break_jumps.iter().map(|b| b.value.clone()).collect(),
-            break_states: break_jumps.into_iter().map(|b| b.state).collect(),
-        }
-    }
-
-    pub fn add_continue(&mut self, ctrl: CtrlID, state: MutableState) {
-        self.loops
-            .last_mut()
-            .unwrap()
-            .continue_jumps
-            .push(ContinueJump { ctrl, state });
-    }
-
-    pub fn add_continue_to(&mut self, branch: LoopID, ctrl: CtrlID, state: MutableState) {
-        self.loops[branch.0]
-            .continue_jumps
-            .push(ContinueJump { ctrl, state });
-    }
-
-    pub fn add_break(&mut self, ctrl: CtrlID, state: MutableState, value: DataID) {
-        self.loops
-            .last_mut()
-            .unwrap()
-            .break_jumps
-            .push(BreakJump { ctrl, state, value });
-    }
-
-    pub fn add_break_to(
-        &mut self,
-        branch: LoopID,
-        ctrl: CtrlID,
-        state: MutableState,
-        value: DataID,
-    ) {
-        self.loops[branch.0]
-            .break_jumps
-            .push(BreakJump { ctrl, state, value });
     }
 }
