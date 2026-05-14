@@ -92,10 +92,10 @@ impl<'errors> GraphBuilder<'errors> {
                     let ty = self.expr(ty);
                     let value = self.expr(value);
                     if let Err(_) = self.builder.symbol_table.add_symbol(
+                        mutable,
                         keyword,
                         symbol.val,
                         Binding { ty, value },
-                        mutable,
                     ) {
                         self.errors.push(keyword, ErrorCode::BindingOutsideScope);
                     };
