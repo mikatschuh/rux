@@ -7,8 +7,8 @@ use crate::{
     error::Span,
     literal_parsing::Literal,
     parser::intern::Symbol,
-    tokenizing::{binary_op::BinaryOp, unary_op::UnaryOp},
-    type_parsing::AtomicType,
+    tokenizing::{binary_op::BinaryOp, token::FloatPrecision, unary_op::UnaryOp},
+    type_parsing::{IntegerType, TypeSize},
     utilities::{NoDealloc, Rc},
 };
 
@@ -71,20 +71,32 @@ pub enum StmtExprKind {
 }
 
 #[derive(Clone, Debug)]
-pub enum ExprKind {
-    Ident {
-        symbol: Symbol,
-    },
+pub enum BuiltinType {
+    Unit,
+    Never,
 
-    AtomicType {
-        atomic_type: AtomicType,
-    },
-    Literal {
-        literal: Literal,
-    },
-    Quote {
-        quote: String,
-    },
+    Bool,
+    Unsigned { size: TypeSize },
+    Signed { size: TypeSize },
+    Float { precision: FloatPrecision },
+}
+
+impl From<IntegerType> for BuiltinType {
+    fn from(value: IntegerType) -> Self {
+        match value {
+            IntegerType::Signed { size } => Self::Signed { size },
+            IntegerType::Unsigned { size } => Self::Unsigned { size },
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum ExprKind {
+    Ident(Symbol),
+
+    BuiltinType(BuiltinType),
+    Literal(Literal),
+    Quote(String),
     Boolean(bool),
     Unit,
 
@@ -249,7 +261,7 @@ impl AstBuilder {
     }
 
     pub fn add_literal(&mut self, span: Span, literal: Literal) -> Expr {
-        self.push_expr(span, ExprKind::Literal { literal })
+        self.push_expr(span, ExprKind::Literal(literal))
     }
 
     pub fn add_unary(&mut self, op_span: Span, op: UnaryOp, value: Expr) -> Expr {
@@ -280,19 +292,19 @@ impl AstBuilder {
     }
 
     pub fn add_ident(&mut self, symbol: Spanned<Symbol>) -> Expr {
-        self.push_expr(symbol.span, ExprKind::Ident { symbol: symbol.val })
+        self.push_expr(symbol.span, ExprKind::Ident(symbol.val))
     }
 
     pub fn add_quote(&mut self, span: Span, quote: String) -> Expr {
-        self.push_expr(span, ExprKind::Quote { quote })
+        self.push_expr(span, ExprKind::Quote(quote))
     }
 
     pub fn add_bool(&mut self, span: Span, boolean: bool) -> Expr {
         self.push_expr(span, ExprKind::Boolean(boolean))
     }
 
-    pub fn add_type(&mut self, span: Span, atomic_type: AtomicType) -> Expr {
-        self.push_expr(span, ExprKind::AtomicType { atomic_type })
+    pub fn add_type(&mut self, span: Span, builtin_type: BuiltinType) -> Expr {
+        self.push_expr(span, ExprKind::BuiltinType(builtin_type))
     }
 
     pub fn add_unit(&mut self, span: Span) -> Expr {

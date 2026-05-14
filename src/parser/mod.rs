@@ -6,6 +6,7 @@ use nonempty::NonEmpty;
 use crate::{
     error::{ErrorCode, Errors, Span},
     literal_parsing::Literal,
+    parser::ast::BuiltinType,
     tokenizing::{
         TokenStream,
         token::{Bracket, Token, TokenKind},
@@ -220,11 +221,28 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
 
     fn parse_primary(&mut self) -> Option<Expr> {
         match self.peek().kind {
-            TokenKind::Type => {
+            TokenKind::Unit => {
+                let span = self.advance().span;
+                Some(self.graph.add_type(span, BuiltinType::Unit))
+            }
+            TokenKind::Never => {
+                let span = self.advance().span;
+                Some(self.graph.add_type(span, BuiltinType::Never))
+            }
+            TokenKind::Bool => {
+                let span = self.advance().span;
+                Some(self.graph.add_type(span, BuiltinType::Bool))
+            }
+            TokenKind::IntegerType => {
                 let ty = self.tokens.get_type();
                 let span = self.advance().span;
-                Some(self.graph.add_type(span, ty))
+                Some(self.graph.add_type(span, ty.into()))
             }
+            TokenKind::Float(precision) => {
+                let span = self.advance().span;
+                Some(self.graph.add_type(span, BuiltinType::Float { precision }))
+            }
+
             TokenKind::Literal => {
                 let literal = self.tokens.get_literal();
                 let span = self.advance().span;
