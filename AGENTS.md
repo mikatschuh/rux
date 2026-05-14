@@ -3,17 +3,23 @@
 ## Project Goals
 - This is a work in progress compiler for the not existing Rux programming language. (file ending ".rx")
 - The goal for Rux is to be a statically typed low level imperative programming language with a strong emphasis on metaprogramming and compile time safety
-- The compiler should be a multithreaded "Sea of Nodes" compiler
+- The compiler should be a "Sea of Nodes" compiler
+
+## Project Architecture 
+- The compiler has two stages as of right now: 
+  1. source code gets tokenized on the fly and parsed into an untyped AST collecting all the items in the file scope
+  2. the AST gets traversed and translated into a Sea of Nodes graph with full type information
 
 ## Project Structure & Module Organization
 - `src/` hosts the Rust compiler
 - tokenizing work in `tokenizing/`,
 - to understand the tokenizing api a look at `src/tokenizing/test.rs` and the `TokenStream` trait in 
 `src/tokenizing/mod.rs` can be taken (peek/consume based)
-- `src/grapher` contains the Sea of Nodes framework in graph.rs, the parser in parser.rs and in test.rs the tests 
+- `src/parser` contains a parser for the language which produces an AST (`src/parser/ast.rs`) which gets then fed into the Sea of Nodes module
+- `src/grapher` contains the Sea of Nodes framework in `graph.rs`, the AST translator in `mod.rs` and in `test.rs` the tests 
 - `codegen/`, `vms/` and `interpreter/` are yet to be filled with content in future sessions
 - `test-project/` is the sample Rux workspace (`test.rx`) used by integration tests and quick demos.
-- `docs/` contains design references on Rux but is fully outdated and has to be ignored.
+- `docs/` contains design references on Rux but is completely outdated and has to be ignored.
 
 ## Build, Test, and Development Commands
 - `cargo build --release` compiles the toolchain; `cargo run -- build my_project/inter.rx` compiles the demo program end-to-end.

@@ -100,10 +100,10 @@ pub fn process_data_node(graph: &mut GraphDump, visited: &mut Visited, node: Dat
             idx
         }
 
-        Unary { op, value: input } => {
+        Unary { op, value } => {
             let op = graph.add_node(format!("operator {}", op));
             visited.insert(node_addr, op);
-            let input = process_data_node(graph, visited, input);
+            let input = process_data_node(graph, visited, value);
             graph.add_edge(op, input, "".to_string());
             op
         }
