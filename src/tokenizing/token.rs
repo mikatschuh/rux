@@ -116,11 +116,14 @@ pub enum TokenKind {
     Unreachable,
 
     TypesType,
+    StructType,
+    EnumType,
     Unit,
     Never,
 
     Bool,
     Float(FloatPrecision),
+    Complit,
     // =========
     IntegerType, // u8, i8, i1, u0, u128, i32, u11818
     Literal,     // 1001010101
@@ -161,10 +164,18 @@ pub fn as_keyword(string: &str) -> Option<TokenKind> {
         "return" => Return,
         "unreachable" => Unreachable,
 
-        "type" => TypesType,
-        "bool" => Bool,
         "void" => Unit,
         "never" => Never,
+
+        "type" => TypesType,
+        "structtype" => StructType,
+        "enumtype" => EnumType,
+        "bool" => Bool,
+        "f16" => Float(FloatPrecision::Half),
+        "f32" => Float(FloatPrecision::Full),
+        "f64" => Float(FloatPrecision::Double),
+        "f128" => Float(FloatPrecision::DoubleDouble),
+        "complit" => Complit,
         _ => return None,
     })
 }
