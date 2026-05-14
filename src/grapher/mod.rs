@@ -153,10 +153,13 @@ impl<'errors> GraphBuilder<'errors> {
 
     fn expr(&mut self, expr: Expr) -> DataID {
         match (*expr.val).clone() {
-            ExprKind::AtomicType { atomic_type } => self.builder.graph.add_type(atomic_type),
-            ExprKind::Literal { literal } => self.builder.graph.add_literal(literal),
-            ExprKind::Boolean(boolean) => self.builder.graph.add_bool(boolean),
-            ExprKind::Quote { quote } => self.builder.graph.add_quote(quote),
+            ExprKind::BuiltinType(builtin_type) => {
+                let ty = self.builder.graph.add_builtin_type(builtin_type);
+                self.builder.graph.type_as_data(ty)
+            }
+            ExprKind::Literal(literal) => self.builder.graph.add_literal(literal),
+            ExprKind::Boolean(boolean) => self.builder.graph.add_boolean(boolean),
+            ExprKind::Quote(quote) => todo!(),
             ExprKind::Unit => self.builder.graph.add_unit(),
 
             ExprKind::Unary { op, value: input } => {

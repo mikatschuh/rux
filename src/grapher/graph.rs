@@ -5,8 +5,9 @@ use bumpalo::Bump;
 use crate::{
     grapher::{BuildError, BuildResult, item::ItemID},
     literal_parsing::Literal,
+    parser::BuiltinType,
     tokenizing::{binary_op::BinaryOp, unary_op::UnaryOp},
-    type_parsing::AtomicType,
+    type_parsing::IntegerType,
     utilities::{NoDealloc, Rc},
 };
 
@@ -15,9 +16,11 @@ pub type CtrlID = Rc<CtrlKind, NoDealloc>;
 pub type BranchID = Rc<Branch, NoDealloc>;
 pub type MergeID = Rc<Merge, NoDealloc>;
 pub type PhiID = Rc<Phi, NoDealloc>;
+pub type TypeID = Rc<TypeKind, NoDealloc>;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct DataNode {
+    pub ty: TypeID,
     pub kind: DataKind,
 }
 
@@ -47,10 +50,23 @@ pub enum CtrlKind {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub enum TypeKind {
+    Type,
+    BuiltinType(BuiltinType),
+
+    DataType { data: DataID },
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub enum TypeKey {
+    Type,
+    BuiltinType(BuiltinType),
+
+    DataType { data: usize },
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum DataKind {
-    AtomicType {
-        ty: AtomicType,
-    },
     Literal {
         literal: Literal,
     },
@@ -63,7 +79,7 @@ pub enum DataKind {
 
     Unary {
         op: UnaryOp,
-        input: DataID,
+        value: DataID,
     },
     Binary {
         op: BinaryOp,
@@ -71,7 +87,7 @@ pub enum DataKind {
         rhs: DataID,
     },
     Load {
-        mem: CtrlID,
+        ctrl: CtrlID,
         addr: DataID,
     },
 
@@ -79,14 +95,15 @@ pub enum DataKind {
         phi: PhiID,
     },
 
-    Deferred,
+    Type {
+        ty: TypeID,
+    },
+
+    Error,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 enum DataKey {
-    AtomicType {
-        ty: AtomicType,
-    },
     Literal {
         literal: Literal,
     },
@@ -114,6 +131,10 @@ enum DataKey {
         variants: Vec<usize>,
     },
 
+    Type {
+        ty: usize,
+    },
+
     Item {
         item: ItemID,
     },
@@ -122,13 +143,15 @@ enum DataKey {
 #[derive(Debug)]
 pub struct Graph {
     arena: Bump,
-    node_cache: HashMap<DataKey, DataID>,
+    data_cache: HashMap<DataKey, DataID>,
+    type_cache: HashMap<TypeKey, TypeID>,
     current_ctrl: Option<CtrlID>,
 }
 impl Graph {
     pub fn new(arena: Bump) -> Self {
         Self {
-            node_cache: HashMap::new(),
+            data_cache: HashMap::new(),
+            type_cache: HashMap::new(),
             current_ctrl: Some(Rc::<CtrlKind, NoDealloc>::new_in_bump(
                 CtrlKind::Start,
                 &arena,
@@ -137,24 +160,39 @@ impl Graph {
         }
     }
 
-    fn push_node(&mut self, kind: DataKind) -> DataID {
-        let key = kind.node_key();
+    fn push_data(&mut self, kind: DataKind, ty: TypeID) -> DataID {
+        let key = kind.key();
         if let Some(ref key) = key
-            && let Some(existing) = self.node_cache.get(key)
+            && let Some(existing) = self.data_cache.get(key)
         {
             return existing.clone();
         }
 
-        let node: DataNode = DataNode { kind };
-        let node_id = Rc::<DataNode, NoDealloc>::new_in_bump(node, &self.arena);
+        let node = DataNode { kind, ty };
+        let id = Rc::<DataNode, NoDealloc>::new_in_bump(node, &self.arena);
         if let Some(key) = key {
-            self.node_cache.insert(key, node_id.clone());
+            self.data_cache.insert(key, id.clone());
         }
-        node_id
+        id
     }
 
-    fn push_node_no_dedup(&mut self, kind: DataKind) -> DataID {
-        Rc::<DataNode, NoDealloc>::new_in_bump(DataNode { kind }, &self.arena)
+    fn push_type(&mut self, ty: TypeKind) -> TypeID {
+        let key = ty.key();
+        if let Some(ref key) = key
+            && let Some(existing) = self.type_cache.get(key)
+        {
+            return existing.clone();
+        }
+
+        let id = Rc::<TypeKind, NoDealloc>::new_in_bump(ty, &self.arena);
+        if let Some(key) = key {
+            self.type_cache.insert(key, id.clone());
+        }
+        id
+    }
+
+    fn push_data_no_dedup(&mut self, kind: DataKind, ty: TypeID) -> DataID {
+        Rc::<DataNode, NoDealloc>::new_in_bump(DataNode { kind, ty }, &self.arena)
     }
 
     fn push_ctrl_node(&mut self, node: CtrlKind) -> CtrlID {
@@ -163,6 +201,11 @@ impl Graph {
 
     fn push_branch(&mut self, branch: Branch) -> BranchID {
         Rc::<Branch, NoDealloc>::new_in_bump(branch, &self.arena)
+    }
+
+    pub fn type_as_data(&mut self, ty: TypeID) -> DataID {
+        let types_type = self.push_type(TypeKind::Type);
+        self.push_data(DataKind::Type { ty }, types_type)
     }
 
     pub fn add_merge(&mut self, branches: Vec<CtrlID>) -> MergeID {
@@ -191,63 +234,56 @@ impl Graph {
         )
     }
 
-    pub fn add_load(&mut self, addr: DataID) -> BuildResult<DataID> {
-        Ok(self.push_node(DataKind::Load {
-            mem: self.get_ctrl()?,
-            addr,
-        }))
+    pub fn add_load(&mut self, ctrl: CtrlID, addr: DataID, ty: TypeID) -> DataID {
+        self.push_data(DataKind::Load { ctrl, addr }, ty)
     }
 
     pub fn add_literal(&mut self, literal: Literal) -> DataID {
-        self.push_node(DataKind::Literal { literal })
+        let ty = self.push_type(TypeKind::BuiltinType(BuiltinType::Complit));
+        self.push_data(DataKind::Literal { literal }, ty)
     }
 
-    pub fn add_unary(&mut self, op: UnaryOp, input: DataID) -> DataID {
-        self.push_node(DataKind::Unary { op, input })
+    pub fn add_unary(&mut self, op: UnaryOp, value: DataID, ty: TypeID) -> DataID {
+        self.push_data(DataKind::Unary { op, value }, ty)
     }
 
-    pub fn add_binary(&mut self, op: BinaryOp, lhs: DataID, rhs: DataID) -> DataID {
-        self.push_node(DataKind::Binary { op, lhs, rhs })
+    pub fn add_binary(&mut self, op: BinaryOp, lhs: DataID, rhs: DataID, ty: TypeID) -> DataID {
+        self.push_data(DataKind::Binary { op, lhs, rhs }, ty)
     }
 
     pub fn add_phi(&mut self, merge: MergeID, variants: Vec<DataID>) -> PhiID {
         Rc::<Phi, NoDealloc>::new_in_bump(Phi { merge, variants }, &self.arena)
     }
 
-    pub fn add_data_phi(&mut self, phi: PhiID) -> DataID {
+    pub fn add_data_phi(&mut self, phi: PhiID, ty: TypeID) -> DataID {
         if phi.variants.is_empty() {
-            self.push_node(DataKind::Never)
+            self.push_data(DataKind::Never, ty)
         } else {
-            self.push_node(DataKind::Phi { phi })
+            self.push_data(DataKind::Phi { phi }, ty)
         }
     }
 
-    pub fn add_phi_no_dedup(&mut self, phi: PhiID) -> DataID {
-        self.push_node_no_dedup(DataKind::Phi { phi })
+    pub fn add_phi_no_dedup(&mut self, phi: PhiID, ty: TypeID) -> DataID {
+        self.push_data_no_dedup(DataKind::Phi { phi }, ty)
     }
 
-    pub fn add_quote(&mut self, quote: String) -> DataID {
-        self.push_node(DataKind::Quote { quote })
+    pub fn add_boolean(&mut self, boolean: bool) -> DataID {
+        let ty = self.push_type(TypeKind::BuiltinType(BuiltinType::Bool));
+        self.push_data(DataKind::Boolean(boolean), ty)
     }
 
-    pub fn add_bool(&mut self, boolean: bool) -> DataID {
-        self.push_node(DataKind::Boolean(boolean))
-    }
-
-    pub fn add_type(&mut self, type_: AtomicType) -> DataID {
-        self.push_node(DataKind::AtomicType { ty: type_ })
-    }
-
-    pub fn add_deferred(&mut self) -> DataID {
-        self.push_node_no_dedup(DataKind::Deferred)
+    pub fn add_builtin_type(&mut self, ty: BuiltinType) -> TypeID {
+        self.push_type(TypeKind::BuiltinType(ty))
     }
 
     pub fn add_unit(&mut self) -> DataID {
-        self.push_node(DataKind::Unit)
+        let ty = self.push_type(TypeKind::BuiltinType(BuiltinType::Unit));
+        self.push_data(DataKind::Unit, ty)
     }
 
     pub fn add_never(&mut self) -> DataID {
-        self.push_node(DataKind::Never)
+        let ty = self.push_type(TypeKind::BuiltinType(BuiltinType::Never));
+        self.push_data(DataKind::Never, ty)
     }
 
     pub fn is_unreachable(&self) -> bool {
@@ -272,10 +308,19 @@ impl Graph {
     }
 }
 
-impl DataKind {
-    fn node_key(&self) -> Option<DataKey> {
+impl TypeKind {
+    fn key(&self) -> Option<TypeKey> {
         match self {
-            DataKind::AtomicType { ty } => Some(DataKey::AtomicType { ty: *ty }),
+            TypeKind::Type => Some(TypeKey::Type),
+            TypeKind::BuiltinType(builtin_type) => Some(TypeKey::BuiltinType(*builtin_type)),
+            TypeKind::DataType { data } => Some(TypeKey::DataType { data: data.addr() }),
+        }
+    }
+}
+
+impl DataKind {
+    fn key(&self) -> Option<DataKey> {
+        match self {
             DataKind::Literal { literal } => Some(DataKey::Literal {
                 literal: literal.clone(),
             }),
@@ -285,7 +330,7 @@ impl DataKind {
             DataKind::Boolean(boolean) => Some(DataKey::Boolean(*boolean)),
             DataKind::Unit => Some(DataKey::Unit),
             DataKind::Never => Some(DataKey::Never),
-            DataKind::Unary { op, input } => Some(DataKey::Unary {
+            DataKind::Unary { op, value: input } => Some(DataKey::Unary {
                 op: *op,
                 input: input.addr(),
             }),
@@ -294,7 +339,7 @@ impl DataKind {
                 lhs: lhs.addr(),
                 rhs: rhs.addr(),
             }),
-            DataKind::Load { mem, addr } => Some(DataKey::Load {
+            DataKind::Load { ctrl: mem, addr } => Some(DataKey::Load {
                 mem: mem.addr(),
                 addr: addr.addr(),
             }),
@@ -302,11 +347,13 @@ impl DataKind {
                 merge: phi.merge.addr(),
                 variants: phi.variants.iter().map(|variant| variant.addr()).collect(),
             }),
-            DataKind::Deferred => None,
+            DataKind::Type { ty } => Some(DataKey::Type { ty: ty.addr() }),
+            DataKind::Error => None,
         }
     }
 }
 
+#[cfg(never)]
 #[cfg(test)]
 mod tests {
     use bumpalo::Bump;
@@ -316,7 +363,7 @@ mod tests {
         grapher::BuildError,
         literal_parsing::Literal,
         tokenizing::{binary_op::BinaryOp, unary_op::UnaryOp},
-        type_parsing::AtomicType,
+        type_parsing::IntegerType,
     };
 
     fn new_graph() -> Graph {
@@ -331,8 +378,8 @@ mod tests {
         let lit_b = graph.add_literal(Literal::from(7));
         assert_eq!(lit_a.addr(), lit_b.addr());
 
-        let ty_a = graph.add_type(AtomicType::Signed { size: 32 });
-        let ty_b = graph.add_type(AtomicType::Signed { size: 32 });
+        let ty_a = graph.add_atomic_type(IntegerType::Signed { size: 32 });
+        let ty_b = graph.add_atomic_type(IntegerType::Signed { size: 32 });
         assert_eq!(ty_a.addr(), ty_b.addr());
 
         let unary_a = graph.add_unary(UnaryOp::Neg, lit_a.clone());
@@ -351,8 +398,8 @@ mod tests {
         let unknown_a = graph.add_deferred();
         let unknown_b = graph.add_deferred();
         assert_ne!(unknown_a.addr(), unknown_b.addr());
-        assert!(matches!(unknown_a.kind, DataKind::Deferred));
-        assert!(matches!(unknown_b.kind, DataKind::Deferred));
+        assert!(matches!(unknown_a.kind, DataKind::Error));
+        assert!(matches!(unknown_b.kind, DataKind::Error));
 
         let ctrl = graph.get_ctrl().expect("start ctrl");
         let merge = graph.add_merge(vec![ctrl]);

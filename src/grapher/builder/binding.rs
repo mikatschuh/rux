@@ -207,7 +207,7 @@ mod tests {
         error::Span,
         grapher::{Error, Graph},
         literal_parsing::Literal,
-        type_parsing::AtomicType,
+        type_parsing::IntegerType,
     };
 
     fn symbol(ty: crate::grapher::graph::DataID, value: crate::grapher::graph::DataID) -> Binding {
@@ -218,7 +218,7 @@ mod tests {
     fn reads_nearest_symbol_and_restores_outer_symbol_after_scope_closes() {
         let mut graph = Graph::new();
         let mut table = ScopedSymbolTable::new();
-        let ty = graph.add_type(AtomicType::Signed { size: 32 });
+        let ty = graph.add_type(IntegerType::Signed { size: 32 });
         let outer = graph.add_literal(Literal::from(1));
         let inner = graph.add_literal(Literal::from(2));
 
@@ -249,7 +249,7 @@ mod tests {
     fn writes_to_nearest_mutable_and_rejects_immutables() {
         let mut graph = Graph::new();
         let mut table = ScopedSymbolTable::new();
-        let ty = graph.add_type(AtomicType::Signed { size: 32 });
+        let ty = graph.add_type(IntegerType::Signed { size: 32 });
         let initial = graph.add_literal(Literal::from(1));
         let overwritten = graph.add_literal(Literal::from(2));
         let immutable = graph.add_literal(Literal::from(3));
@@ -301,7 +301,7 @@ mod tests {
     fn snapshots_and_restores_mutable_state_in_scope_order() {
         let mut graph = Graph::new();
         let mut table = ScopedSymbolTable::new();
-        let ty = graph.add_type(AtomicType::Signed { size: 32 });
+        let ty = graph.add_type(IntegerType::Signed { size: 32 });
         let first = graph.add_literal(Literal::from(1));
         let second = graph.add_literal(Literal::from(2));
         let first_new = graph.add_literal(Literal::from(10));
@@ -336,7 +336,7 @@ mod tests {
     fn all_symbols_includes_open_and_closed_scopes() {
         let mut graph = Graph::new();
         let mut table = ScopedSymbolTable::new();
-        let ty = graph.add_type(AtomicType::Signed { size: 32 });
+        let ty = graph.add_type(IntegerType::Signed { size: 32 });
         let global = graph.add_literal(Literal::from(1));
         let local = graph.add_literal(Literal::from(2));
 

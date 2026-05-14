@@ -71,11 +71,6 @@ pub fn process_data_node(graph: &mut GraphDump, visited: &mut Visited, node: Dat
     }
     use DataKind::*;
     match node.kind.clone() {
-        AtomicType { ty } => {
-            let idx = graph.add_node(format!("atomic-type {:?}", ty));
-            visited.insert(node_addr, idx);
-            idx
-        }
         Literal { literal } => {
             let idx = graph.add_node(format!("lit {}", literal));
             visited.insert(node_addr, idx);
@@ -105,7 +100,7 @@ pub fn process_data_node(graph: &mut GraphDump, visited: &mut Visited, node: Dat
             idx
         }
 
-        Unary { op, input } => {
+        Unary { op, value: input } => {
             let op = graph.add_node(format!("operator {}", op));
             visited.insert(node_addr, op);
             let input = process_data_node(graph, visited, input);
@@ -136,7 +131,9 @@ pub fn process_data_node(graph: &mut GraphDump, visited: &mut Visited, node: Dat
             phi_node
         }
 
-        Deferred => {
+        Type { ty } => todo!(),
+
+        Error => {
             let idx = graph.add_node("deferred".to_string());
             visited.insert(node_addr, idx);
             idx

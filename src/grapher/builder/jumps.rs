@@ -136,7 +136,7 @@ mod tests {
         },
         literal_parsing::Literal,
         parser::Interner,
-        type_parsing::AtomicType,
+        type_parsing::IntegerType,
     };
 
     fn scope_id(index: usize) -> ScopeID {
@@ -151,7 +151,7 @@ mod tests {
     fn state_with(graph: &mut Graph, value: DataID) -> MutableState {
         let mut interner = Interner::new();
         let mut table = ScopedSymbolTable::new();
-        let ty = graph.add_type(AtomicType::Signed { size: 32 });
+        let ty = graph.add_type(IntegerType::Signed { size: 32 });
         table.add_symbol(
             Span::beginning(),
             interner.get("state"),
