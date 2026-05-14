@@ -214,7 +214,7 @@ mod tests {
     };
     use bumpalo::Bump;
 
-    fn graph() -> (Interner, Graph) {
+    fn interner_and_graph() -> (Interner, Graph) {
         (Interner::new(), Graph::new(Bump::new()))
     }
 
@@ -224,7 +224,7 @@ mod tests {
 
     #[test]
     fn reads_nearest_symbol_and_restores_outer_symbol_after_scope_closes() {
-        let (mut interner, mut graph) = graph();
+        let (mut interner, mut graph) = interner_and_graph();
         let setting = interner.get("setting");
 
         let mut table = ScopedSymbolTable::new();
@@ -250,7 +250,7 @@ mod tests {
 
     #[test]
     fn writes_to_nearest_mutable_and_rejects_immutables() {
-        let (mut interner, mut graph) = graph();
+        let (mut interner, mut graph) = interner_and_graph();
         let counter = interner.get("counter");
         let limit = interner.get("limit");
 
@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn reports_writes_to_unknown_variables() {
-        let (mut interner, mut graph) = graph();
+        let (mut interner, mut graph) = interner_and_graph();
         let missing = interner.get("missing");
 
         let mut table = ScopedSymbolTable::new();
@@ -312,7 +312,7 @@ mod tests {
 
     #[test]
     fn snapshots_and_restores_mutable_state_in_scope_order() {
-        let (mut interner, mut graph) = graph();
+        let (mut interner, mut graph) = interner_and_graph();
         let first = interner.get("first");
         let second = interner.get("second");
 
@@ -363,7 +363,7 @@ mod tests {
 
     #[test]
     fn all_symbols_includes_open_and_closed_scopes() {
-        let (mut interner, mut graph) = graph();
+        let (mut interner, mut graph) = interner_and_graph();
         let global = interner.get("global");
         let local = interner.get("local");
 

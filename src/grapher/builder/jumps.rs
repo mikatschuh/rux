@@ -53,7 +53,7 @@ impl JumpTableStack {
         Self { loops: vec![] }
     }
 
-    pub fn current_loops_scope(&self) -> Option<ScopeID> {
+    pub fn currents_scope(&self) -> Option<ScopeID> {
         self.loops.last().map(|b| b.scope)
     }
 
@@ -120,9 +120,10 @@ impl JumpTableStack {
     }
 }
 
-#[cfg(never)]
 #[cfg(test)]
 mod tests {
+    use bumpalo::Bump;
+
     use super::JumpTableStack;
     use crate::{
         error::Span,
@@ -135,9 +136,12 @@ mod tests {
             graph::DataID,
         },
         literal_parsing::Literal,
-        parser::Interner,
-        type_parsing::IntegerType,
+        parser::{BuiltinType, Interner},
     };
+
+    fn graph() -> Graph {
+        Graph::new(Bump::new())
+    }
 
     fn scope_id(index: usize) -> ScopeID {
         let mut table = ScopedSymbolTable::new();
@@ -151,12 +155,12 @@ mod tests {
     fn state_with(graph: &mut Graph, value: DataID) -> MutableState {
         let mut interner = Interner::new();
         let mut table = ScopedSymbolTable::new();
-        let ty = graph.add_type(IntegerType::Signed { size: 32 });
+        let ty = graph.add_builtin_type(BuiltinType::Signed { size: 32 });
         table.add_symbol(
+            true,
             Span::beginning(),
             interner.get("state"),
             Binding { ty, value },
-            true,
         );
         table.snapshot_state()
     }
@@ -164,7 +168,7 @@ mod tests {
     #[test]
     fn starts_without_an_active_branch_scope() {
         let jumps = JumpTableStack::new();
-        assert!(jumps.scope().is_none());
+        assert!(jumps.currents_scope().is_none());
     }
 
     #[test]
@@ -172,28 +176,28 @@ mod tests {
         let mut jumps = JumpTableStack::new();
         let outer_scope = scope_id(3);
         let (outer_tok, outer) = jumps.open_block(outer_scope);
-        assert!(jumps.scope().is_some());
+        assert!(jumps.currents_scope().is_some());
 
         let inner_scope = scope_id(7);
         let (inner_tok, inner) = jumps.open_block(inner_scope);
-        assert!(jumps.scope().is_some());
+        assert!(jumps.currents_scope().is_some());
         let _ = jumps.scope_of(outer);
         let _ = jumps.scope_of(inner);
 
         let inner_jumps = jumps.close_block(inner_tok);
         assert!(inner_jumps.continue_points.is_empty());
         assert!(inner_jumps.break_points.is_empty());
-        assert!(jumps.scope().is_some());
+        assert!(jumps.currents_scope().is_some());
 
         let outer_jumps = jumps.close_block(outer_tok);
         assert!(outer_jumps.continue_points.is_empty());
         assert!(outer_jumps.break_points.is_empty());
-        assert!(jumps.scope().is_none());
+        assert!(jumps.currents_scope().is_none());
     }
 
     #[test]
     fn records_continue_and_break_jumps_on_the_current_branch() {
-        let mut graph = Graph::new();
+        let mut graph = graph();
         let mut jumps = JumpTableStack::new();
         let (branch, _) = jumps.open_block(scope_id(0));
 
@@ -249,7 +253,7 @@ mod tests {
 
     #[test]
     fn can_route_labelled_jumps_to_an_outer_branch_while_inner_branch_is_active() {
-        let mut graph = Graph::new();
+        let mut graph = graph();
         let mut jumps = JumpTableStack::new();
         let (outer_tok, outer) = jumps.open_block(scope_id(0));
         let (inner_tok, _) = jumps.open_block(scope_id(1));
@@ -282,7 +286,7 @@ mod tests {
 
     #[test]
     fn preserves_jump_insertion_order_when_closing_a_branch() {
-        let mut graph = Graph::new();
+        let mut graph = graph();
         let mut jumps = JumpTableStack::new();
         let (tok, _) = jumps.open_block(scope_id(0));
 

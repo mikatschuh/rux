@@ -43,7 +43,7 @@ impl Builder {
     }
 
     pub fn add_continue(&mut self, keyword: Span) -> Result<DataID> {
-        if let Some(current_loop) = self.jump_stack.current_loops_scope() {
+        if let Some(current_loop) = self.jump_stack.currents_scope() {
             self.jump_stack.add_continue(
                 self.graph.get_ctrl()?,
                 self.symbol_table.snapshot_state_of_scope(current_loop),
@@ -73,7 +73,7 @@ impl Builder {
     }
 
     pub fn add_break(&mut self, keyword: Span, value: DataID) -> Result<DataID> {
-        if let Some(current_loop) = self.jump_stack.current_loops_scope() {
+        if let Some(current_loop) = self.jump_stack.currents_scope() {
             self.jump_stack.add_break(
                 self.graph.get_ctrl()?,
                 self.symbol_table.snapshot_state_of_scope(current_loop),
