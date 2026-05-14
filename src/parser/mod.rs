@@ -6,7 +6,6 @@ use nonempty::NonEmpty;
 use crate::{
     error::{ErrorCode, Errors, Span},
     literal_parsing::Literal,
-    parser::ast::BuiltinType,
     tokenizing::{
         TokenStream,
         token::{Bracket, Token, TokenKind},
@@ -17,7 +16,9 @@ use crate::{
 mod ast;
 mod intern;
 
-pub use ast::{AstBuilder, Expr, ExprKind, Label, Spanned, Stmt, StmtExpr, StmtExprKind, StmtKind};
+pub use ast::{
+    AstBuilder, BuiltinType, Expr, ExprKind, Label, Spanned, Stmt, StmtExpr, StmtExprKind, StmtKind,
+};
 pub use intern::{Interner, Symbol};
 
 pub struct Item {
@@ -242,6 +243,10 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
                 let span = self.advance().span;
                 Some(self.graph.add_type(span, BuiltinType::Float { precision }))
             }
+            TokenKind::Complit => {
+                let span = self.advance().span;
+                Some(self.graph.add_type(span, BuiltinType::Complit))
+            }
 
             TokenKind::Literal => {
                 let literal = self.tokens.get_literal();
@@ -255,7 +260,7 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
             }
             TokenKind::Boolean(boolean) => {
                 let span = self.advance().span;
-                Some(self.graph.add_bool(span, boolean))
+                Some(self.graph.add_boolean(span, boolean))
             }
             TokenKind::Ident => {
                 let symbol = self.expect_name();

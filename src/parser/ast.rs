@@ -70,7 +70,7 @@ pub enum StmtExprKind {
     },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BuiltinType {
     Unit,
     Never,
@@ -79,6 +79,7 @@ pub enum BuiltinType {
     Unsigned { size: TypeSize },
     Signed { size: TypeSize },
     Float { precision: FloatPrecision },
+    Complit,
 }
 
 impl From<IntegerType> for BuiltinType {
@@ -299,7 +300,7 @@ impl AstBuilder {
         self.push_expr(span, ExprKind::Quote(quote))
     }
 
-    pub fn add_bool(&mut self, span: Span, boolean: bool) -> Expr {
+    pub fn add_boolean(&mut self, span: Span, boolean: bool) -> Expr {
         self.push_expr(span, ExprKind::Boolean(boolean))
     }
 
