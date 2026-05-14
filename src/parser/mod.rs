@@ -300,7 +300,7 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
                     }
                     _ => {
                         self.errors
-                            .push(closer.span, ErrorCode::NoClosedBracket { opened });
+                            .push(closer.span, ErrorCode::ExpectedClosedBracket { opened });
                         expr.span.end = closer.span.end;
                         Some(expr)
                     }
@@ -375,7 +375,7 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
                 let pos = self.pos();
                 self.errors.push(
                     pos,
-                    ErrorCode::NoClosedBracket {
+                    ErrorCode::ExpectedClosedBracket {
                         opened: Bracket::Curly,
                     },
                 );
@@ -490,7 +490,7 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
             }
         } else {
             let span = self.pos();
-            self.errors.push(span, ErrorCode::ExpectedOpenParen);
+            self.errors.push(span, ErrorCode::ExpectedOpenBracket);
         }
 
         let output = self.parse_expr(0);

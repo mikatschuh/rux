@@ -7,7 +7,6 @@ use crate::{
     literal_parsing::Literal,
     parser::BuiltinType,
     tokenizing::{binary_op::BinaryOp, unary_op::UnaryOp},
-    type_parsing::IntegerType,
     utilities::{NoDealloc, Rc},
 };
 
@@ -55,6 +54,8 @@ pub enum TypeKind {
     BuiltinType(BuiltinType),
 
     DataType { data: DataID },
+
+    Error,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -63,6 +64,8 @@ pub enum TypeKey {
     BuiltinType(BuiltinType),
 
     DataType { data: usize },
+
+    Error,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -286,6 +289,15 @@ impl Graph {
         self.push_data(DataKind::Never, ty)
     }
 
+    pub fn add_error(&mut self) -> DataID {
+        let ty = self.push_type(TypeKind::Error);
+        self.push_data(DataKind::Error, ty)
+    }
+
+    pub fn add_type_error(&mut self) -> TypeID {
+        self.push_type(TypeKind::Error)
+    }
+
     pub fn is_unreachable(&self) -> bool {
         self.current_ctrl.is_none()
     }
@@ -314,6 +326,7 @@ impl TypeKind {
             TypeKind::Type => Some(TypeKey::Type),
             TypeKind::BuiltinType(builtin_type) => Some(TypeKey::BuiltinType(*builtin_type)),
             TypeKind::DataType { data } => Some(TypeKey::DataType { data: data.addr() }),
+            TypeKind::Error => Some(TypeKey::Error),
         }
     }
 }
@@ -362,8 +375,8 @@ mod tests {
     use crate::{
         grapher::BuildError,
         literal_parsing::Literal,
+        parser::BuiltinType,
         tokenizing::{binary_op::BinaryOp, unary_op::UnaryOp},
-        type_parsing::IntegerType,
     };
 
     fn new_graph() -> Graph {
@@ -378,8 +391,8 @@ mod tests {
         let lit_b = graph.add_literal(Literal::from(7));
         assert_eq!(lit_a.addr(), lit_b.addr());
 
-        let ty_a = graph.add_atomic_type(IntegerType::Signed { size: 32 });
-        let ty_b = graph.add_atomic_type(IntegerType::Signed { size: 32 });
+        let ty_a = graph.add_builtin_type(BuiltinType::Signed { size: 32 });
+        let ty_b = graph.add_builtin_type(BuiltinType::Signed { size: 32 });
         assert_eq!(ty_a.addr(), ty_b.addr());
 
         let unary_a = graph.add_unary(UnaryOp::Neg, lit_a.clone());
@@ -389,24 +402,6 @@ mod tests {
         let binary_a = graph.add_binary(BinaryOp::Add, lit_a.clone(), ty_a.clone());
         let binary_b = graph.add_binary(BinaryOp::Add, lit_b, ty_b);
         assert_eq!(binary_a.addr(), binary_b.addr());
-    }
-
-    #[test]
-    fn does_not_deduplicate_deferred_or_explicit_no_dedup_phis() {
-        let mut graph = new_graph();
-
-        let unknown_a = graph.add_deferred();
-        let unknown_b = graph.add_deferred();
-        assert_ne!(unknown_a.addr(), unknown_b.addr());
-        assert!(matches!(unknown_a.kind, DataKind::Error));
-        assert!(matches!(unknown_b.kind, DataKind::Error));
-
-        let ctrl = graph.get_ctrl().expect("start ctrl");
-        let merge = graph.add_merge(vec![ctrl]);
-        let phi = graph.add_phi(merge, vec![unknown_a]);
-        let data_a = graph.add_phi_no_dedup(phi.clone());
-        let data_b = graph.add_phi_no_dedup(phi);
-        assert_ne!(data_a.addr(), data_b.addr());
     }
 
     #[test]

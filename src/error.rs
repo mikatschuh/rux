@@ -61,22 +61,21 @@ pub enum ErrorCode {
     // parsing errors:
     ExpectedExpr,
     ExpectedIdent,
-    ExpectedInterface,
     ExpectedTerminator,
-    ExpectedOpenParen,
     ExpectedComma,
     ExpectedAssignment,
     ExpectedItemDeclaration,
 
     // bracket errors
+    ExpectedOpenBracket,
     ExpectedClosedBracket { opened: Bracket },
-    NoClosedBracket { opened: Bracket },
     WrongClosedBracket { expected: Bracket, found: Bracket },
 
     // graph building errors:
     MissingEntryPoint { entry: &'static str },
     BindingOutsideScope,
     UnknownIdentifier { symbol: Symbol },
+    ExpectedType,
 }
 impl Error {
     pub fn new(span: Span, error: ErrorCode) -> Self {
@@ -205,75 +204,10 @@ impl Error {
                     [given]
                 )
             }
-            ExpectedExpr => format_error!(self.span.to_string(path), "expected a value"),
-            ExpectedIdent => format_error!(
-                self.span.to_string(path),
-                "expected an identifier",
-                "you have to always put an identifier behind a tick"
-            ),
-            ExpectedInterface => {
-                format_error!(self.span.to_string(path), "expected a function interface")
-            }
             NoClosingQuotes => format_error!(
                 self.span.to_string(path),
                 "the ending quotes of the quote were missing"
             ),
-            ExpectedTerminator => format_error!(
-                self.span.to_string(path),
-                "expected a comma or any closed bracket"
-            ),
-            ExpectedOpenParen => {
-                format_error!(
-                    self.span.to_string(path),
-                    "expected open parentheses {}",
-                    ["("]
-                )
-            }
-            ExpectedAssignment => {
-                format_error!(self.span.to_string(path), "expected an assignment")
-            }
-            ExpectedItemDeclaration => format_error!(
-                self.span.to_string(path),
-                "expected an item declaration with {}",
-                ["::"]
-            ),
-            ExpectedComma => format_error!(self.span.to_string(path), "expected a comma"),
-            MissingEntryPoint { entry } => {
-                format_error!(self.span.to_string(path), "entry point {} missing", [entry])
-            }
-            BindingOutsideScope => {
-                format_error!(
-                    self.span.to_string(path),
-                    "found a binding outside of any scope"
-                )
-            }
-            UnknownIdentifier { symbol } => format_error!(
-                self.span.to_string(path),
-                "found an unknown identifier {}",
-                [interner.resolve(*symbol)]
-            ),
-            ExpectedClosedBracket { opened } => {
-                format_error!(
-                    self.span.to_string(path),
-                    "expected a closed bracket {}",
-                    [opened.display_closed()]
-                )
-            }
-            NoClosedBracket { opened } => {
-                format_error!(
-                    self.span.to_string(path),
-                    "there was a opened bracket {} but no closed one",
-                    [opened.display_open()]
-                )
-            }
-            WrongClosedBracket { expected, found } => {
-                format_error!(
-                    self.span.to_string(path),
-                    "found a closed bracket {} but actually expected {}",
-                    [found.display_closed(), expected.display_closed()]
-                )
-            }
-
             LiteralParsingError(err) => {
                 format_error!(
                     self.span.to_string(path),
@@ -288,6 +222,64 @@ impl Error {
                     [err.to_string()]
                 )
             }
+
+            ExpectedExpr => format_error!(self.span.to_string(path), "expected a value"),
+            ExpectedIdent => format_error!(
+                self.span.to_string(path),
+                "expected an identifier",
+                "you have to always put an identifier behind a tick"
+            ),
+            ExpectedTerminator => format_error!(
+                self.span.to_string(path),
+                "expected a comma or any closed bracket"
+            ),
+            ExpectedComma => format_error!(self.span.to_string(path), "expected a comma"),
+            ExpectedAssignment => {
+                format_error!(self.span.to_string(path), "expected an assignment")
+            }
+            ExpectedItemDeclaration => format_error!(
+                self.span.to_string(path),
+                "expected an item declaration with {}",
+                ["::"]
+            ),
+
+            ExpectedOpenBracket => {
+                format_error!(
+                    self.span.to_string(path),
+                    "expected open parentheses {}",
+                    ["("]
+                )
+            }
+            ExpectedClosedBracket { opened } => {
+                format_error!(
+                    self.span.to_string(path),
+                    "expected a closed bracket {}",
+                    [opened.display_closed()]
+                )
+            }
+            WrongClosedBracket { expected, found } => {
+                format_error!(
+                    self.span.to_string(path),
+                    "found a closed bracket {} but actually expected {}",
+                    [found.display_closed(), expected.display_closed()]
+                )
+            }
+
+            MissingEntryPoint { entry } => {
+                format_error!(self.span.to_string(path), "entry point {} missing", [entry])
+            }
+            BindingOutsideScope => {
+                format_error!(
+                    self.span.to_string(path),
+                    "found a binding outside of any scope"
+                )
+            }
+            UnknownIdentifier { symbol } => format_error!(
+                self.span.to_string(path),
+                "found an unknown identifier {}",
+                [interner.resolve(*symbol)]
+            ),
+            ExpectedType => format_error!(self.span.to_string(path), "expected a type expression"),
         })
         .to_string()
     }

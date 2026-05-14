@@ -4,8 +4,7 @@ use crate::{
     error::{ErrorCode, Errors, Span},
     grapher::{
         builder::{Binding, Builder, binding::MutableState},
-        graph::{CtrlID, DataID},
-        item::ItemTypes,
+        graph::{CtrlID, DataID, TypeID},
     },
     parser::{Expr, ExprKind, Item, ParserOutput, Stmt, StmtExpr, StmtExprKind, StmtKind, Symbol},
     utilities::Rc,
@@ -89,14 +88,14 @@ impl<'errors> GraphBuilder<'errors> {
                 value,
             } => match ty {
                 Some(ty) => {
-                    let ty = self.expr(ty);
+                    let ty = self.type_expr(ty);
                     let value = self.expr(value);
-                    if let Err(_) = self.builder.symbol_table.add_symbol(
-                        mutable,
-                        keyword,
-                        symbol.val,
-                        Binding { ty, value },
-                    ) {
+                    if self
+                        .builder
+                        .symbol_table
+                        .add_symbol(mutable, keyword, symbol.val, Binding { ty, value })
+                        .is_err()
+                    {
                         self.errors.push(keyword, ErrorCode::BindingOutsideScope);
                     };
                     self.builder.graph.add_unit()
@@ -164,15 +163,17 @@ impl<'errors> GraphBuilder<'errors> {
 
             ExprKind::Unary { op, value: input } => {
                 let value = self.expr(input);
-                self.builder.graph.add_unary(op.val, value)
+                let ty = value.ty.clone();
+                self.builder.graph.add_unary(op.val, value, ty)
             }
             ExprKind::Binary { lhs, op, rhs } => {
                 let lhs = self.expr(lhs);
                 let rhs = self.expr(rhs);
-                self.builder.graph.add_binary(op.val, lhs, rhs)
+                let ty = lhs.ty.clone();
+                self.builder.graph.add_binary(op.val, lhs, rhs, ty)
             }
 
-            ExprKind::Ident { symbol } => match self.builder.symbol_table.read_symbol(symbol) {
+            ExprKind::Ident(symbol) => match self.builder.symbol_table.read_symbol(symbol) {
                 Some(value) => value,
                 None => match self.raw_item_table.get(&symbol) {
                     Some(_) => todo!(),
@@ -249,6 +250,8 @@ impl<'errors> GraphBuilder<'errors> {
                         return when_true;
                     };
 
+                    let ty = when_true.ty.clone();
+
                     let merge = self
                         .builder
                         .graph
@@ -261,7 +264,7 @@ impl<'errors> GraphBuilder<'errors> {
                         .add_phi(merge.clone(), vec![when_false, when_true]);
 
                     self.builder.graph.add_merge_to_ctrl(merge);
-                    self.builder.graph.add_data_phi(phi)
+                    self.builder.graph.add_data_phi(phi, ty)
                 } else {
                     let merge = self
                         .builder
@@ -291,6 +294,18 @@ impl<'errors> GraphBuilder<'errors> {
                 let _ = self.stmt_expr(body); // parse the hole body
 
                 self.builder.close_loop(tok, None, loop_head, loop_phis)
+            }
+        }
+    }
+
+    fn type_expr(&mut self, expr: Expr) -> TypeID {
+        match (*expr.val).clone() {
+            ExprKind::BuiltinType(builtin_type) => {
+                self.builder.graph.add_builtin_type(builtin_type)
+            }
+            _ => {
+                self.errors.push(expr.span, ErrorCode::ExpectedType);
+                self.builder.graph.add_type_error()
             }
         }
     }

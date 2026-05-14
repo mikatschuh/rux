@@ -42,10 +42,10 @@ impl Builder {
         }
     }
 
-    pub fn add_continue(&mut self, keyword: Span) -> Result<DataID> {
+    pub fn add_continue(&mut self, keyword: Span, ctrl: CtrlID) -> Result<DataID> {
         if let Some(current_loop) = self.jump_stack.currents_scope() {
             self.jump_stack.add_continue(
-                self.graph.get_ctrl()?,
+                ctrl,
                 self.symbol_table.snapshot_state_of_scope(current_loop),
             );
             Ok(self.graph.make_unreachable())
@@ -56,8 +56,8 @@ impl Builder {
 
     pub fn add_continue_to(
         &mut self,
-        ctrl: CtrlID,
         keyword: Span,
+        ctrl: CtrlID,
         label: Spanned<Symbol>,
     ) -> Result<DataID> {
         let Some(branch) = self.labels.get(&label.val).cloned() else {
@@ -66,16 +66,16 @@ impl Builder {
         let scope = self.jump_stack.scope_of(branch);
         self.jump_stack.add_continue_to(
             branch,
-            self.graph.get_ctrl()?,
+            ctrl,
             self.symbol_table.snapshot_state_of_scope(scope),
         );
         Ok(self.graph.make_unreachable())
     }
 
-    pub fn add_break(&mut self, keyword: Span, value: DataID) -> Result<DataID> {
+    pub fn add_break(&mut self, keyword: Span, ctrl: CtrlID, value: DataID) -> Result<DataID> {
         if let Some(current_loop) = self.jump_stack.currents_scope() {
             self.jump_stack.add_break(
-                self.graph.get_ctrl()?,
+                ctrl,
                 self.symbol_table.snapshot_state_of_scope(current_loop),
                 value,
             );
@@ -89,6 +89,7 @@ impl Builder {
         &mut self,
         keyword: Span,
         label: Spanned<Symbol>,
+        ctrl: CtrlID,
         value: DataID,
     ) -> Result<DataID> {
         let Some(branch) = self.labels.get(&label.val).cloned() else {
@@ -98,7 +99,7 @@ impl Builder {
         let scope = self.jump_stack.scope_of(branch);
         self.jump_stack.add_break_to(
             branch,
-            self.graph.get_ctrl()?,
+            ctrl,
             self.symbol_table.snapshot_state_of_scope(scope),
             value,
         );
@@ -112,8 +113,8 @@ impl Builder {
         let mut loop_phis = vec![];
         self.symbol_table.for_every_mutable(|_, data| {
             let phi = self.graph.add_phi(loop_head.clone(), vec![data.clone()]);
-            *data = self.graph.add_phi_no_dedup(phi.clone());
-            loop_phis.push(phi);
+            *data = self.graph.add_phi_no_dedup(phi.clone(), data.ty.clone());
+            loop_phis.push(phi)
         }); // replace every variable with a phi and keep track of the phi's
 
         self.graph.add_merge_to_ctrl(loop_head.clone()); // with this the body has it as a control flow dependency
@@ -157,7 +158,11 @@ impl Builder {
             .flat_map(|overwrites| overwrites.into_iter().enumerate())
             .for_each(|(i, backedge)| loop_phis[i].variants.push(backedge)); // add thoses backedges to the phi nodes of mutable variables outside the loop for every jump
 
-        if break_points.len() == 1 {
+        if break_points.is_empty() {
+            self.make_state_never();
+            self.graph.make_unreachable();
+            self.graph.add_never()
+        } else if break_points.len() == 1 {
             self.graph.set_ctrl(break_points.pop().unwrap());
 
             let state = break_states.pop().unwrap();
@@ -166,12 +171,14 @@ impl Builder {
 
             break_values.pop().unwrap()
         } else {
+            let ty = break_values[0].ty.clone();
+
             let exit_merge = self.graph.add_merge(break_points); // merge them
             self.merge_states(exit_merge.clone(), break_states);
             let phi = self.graph.add_phi(exit_merge.clone(), break_values);
 
             self.graph.add_merge_to_ctrl(exit_merge); // make it the control flow of the code after that
-            self.graph.add_data_phi(phi)
+            self.graph.add_data_phi(phi, ty)
         }
     }
 
@@ -179,27 +186,31 @@ impl Builder {
         self.symbol_table.snapshot_state()
     }
 
+    pub fn make_state_never(&mut self) {
+        self.symbol_table
+            .for_every_mutable(|_, value| *value = self.graph.add_never());
+    }
+
     pub fn merge_states(&mut self, merge: MergeID, states: Vec<MutableState>) {
         debug_assert_eq!(merge.branches.len(), states.len());
 
         if states.is_empty() {
-            self.symbol_table
-                .for_every_mutable(|_, value| *value = self.graph.add_never());
+            self.make_state_never();
             return;
         }
 
         self.symbol_table.for_every_mutable(|i, value| {
-            let mut variants = states
-                .iter()
-                .map(|state| state[i].clone())
-                .collect::<Vec<_>>();
-            let mut iter = variants.iter();
-            let first = iter.next();
-            *value = if iter.all(|x| Some(x) == first) {
+            let mut variants = states.iter().map(|s| s[i].clone()).collect::<Vec<_>>();
+            *value = if variants.len() == 1 || {
+                let mut iter = variants.iter();
+                let first = iter.next();
+                iter.all(|x| Some(x) == first)
+            } {
                 variants.pop().unwrap()
             } else {
+                let ty = variants[0].ty.clone();
                 let phi = self.graph.add_phi(merge.clone(), variants);
-                self.graph.add_data_phi(phi)
+                self.graph.add_data_phi(phi, ty)
             };
         });
     }
