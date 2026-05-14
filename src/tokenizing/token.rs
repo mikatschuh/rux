@@ -91,6 +91,13 @@ pub enum TokenKind {
 
     Comma, // ,
 
+    Open(Bracket),   // ( / [ / {
+    Closed(Bracket), // ) / ] / }
+
+    Boolean(bool),
+    Ident,      // x
+    Underscore, // _
+
     // keywords:
     Fn,
     Enum,
@@ -107,21 +114,30 @@ pub enum TokenKind {
     Break,
     Return,
     Unreachable,
-    // =========
-    Type,    // i32
-    Literal, // 1001010101
-    Boolean(bool),
-    Ident,      // x
-    Underscore, // _
 
+    TypesType,
+    Unit,
+    Never,
+
+    Bool,
+    Float(FloatPrecision),
+    // =========
+    IntegerType, // u8, i8, i1, u0, u128, i32, u11818
+    Literal,     // 1001010101
     Quote {
         closing_scope: bool,
         opening_scope: bool,
     }, // "..." / }..." / "...{ / }...{
-    Open(Bracket),   // ( / [ / {
-    Closed(Bracket), // ) / ] / }
 
     Eof,
+}
+
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Hash)]
+pub enum FloatPrecision {
+    Half = 16,
+    Full = 32,
+    Double = 64,
+    DoubleDouble = 128,
 }
 
 use Bracket::*;
@@ -144,6 +160,11 @@ pub fn as_keyword(string: &str) -> Option<TokenKind> {
         "break" => Break,
         "return" => Return,
         "unreachable" => Unreachable,
+
+        "type" => TypesType,
+        "bool" => Bool,
+        "void" => Unit,
+        "never" => Never,
         _ => return None,
     })
 }

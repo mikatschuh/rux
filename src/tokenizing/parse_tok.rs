@@ -112,7 +112,7 @@ pub(super) fn parse_token(
             Token {
                 span,
                 src,
-                kind: Type,
+                kind: IntegerType,
             },
             Some(Data::Type(ty)),
         );

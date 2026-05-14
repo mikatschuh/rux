@@ -31,62 +31,6 @@ pub const ACCESSOR_RIGHT: u8 = 151;
 impl Token {
     pub const fn binding_pow(self) -> u8 {
         match self.kind {
-            Comma
-            | Closed(..)
-            | Eof
-            | HalfCenterDot
-            | RightArrow
-            | Underscore
-            | Ident
-            | Not
-            | Literal
-            | Quote { .. }
-            // keywords:
-            | Fn
-            | Enum
-            | Struct
-            | Let
-            | Var
-            | If
-            | Else
-            | Loop
-            | In
-            | Continue
-            | Break
-            | Return
-            | Unreachable
-            // =========
-            | Type
-            | Open(Bracket::Curly)
-            | Semicolon
-            | Colon
-            | ColonColon
-            | Equal
-            | LeftLeftEqual
-            | Boolean(..)
-            | RightRightEqual
-            | PipeEqual
-            | PipePipeEqual
-            | NotPipeEqual
-            | NotPipePipeEqual
-            | RightPipeEqual
-            | RightPipePipeEqual
-            | NotRightPipeEqual
-            | NotRightPipePipeEqual
-            | AndEqual
-            | AndAndEqual
-            | NotAndEqual
-            | NotAndAndEqual
-            | PlusEqual
-            | DashEqual
-            | StarEqual
-            | SlashEqual
-            | PercentEqual
-            | DotEqual
-            | CrossEqual
-            | PlusPlus
-            | DashDash => 0,
-
             Tick => LABEL,
 
             PipePipe | NotPipePipe | RightPipePipe | NotRightPipePipe | AndAnd | NotAndAnd => {
@@ -112,6 +56,8 @@ impl Token {
             Open(Bracket::Squared | Bracket::Round) | LeftArrow => APPLICATION,
 
             Dot => ACCESSOR,
+
+            _ => 0,
         }
     }
 }

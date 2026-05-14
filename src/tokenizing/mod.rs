@@ -10,7 +10,7 @@ use crate::{
             TokenKind::{self, *},
         },
     },
-    type_parsing::{AtomicType, TypeSize},
+    type_parsing::{IntegerType, TypeSize},
     utilities::Rc,
 };
 use std::mem::{self};
@@ -36,7 +36,7 @@ pub trait TokenStream {
 
     fn get_literal(&mut self) -> Literal;
     fn get_quote(&mut self) -> String;
-    fn get_type(&mut self) -> AtomicType;
+    fn get_type(&mut self) -> IntegerType;
     fn consume(&mut self);
 
     /*
@@ -78,7 +78,7 @@ pub struct Tokenizer<'errors> {
 enum Data {
     Lit(Literal),
     Quote(String),
-    Type(AtomicType),
+    Type(IntegerType),
 }
 
 impl<'src> Tokenizer<'src> {
@@ -127,7 +127,7 @@ impl<'src> TokenStream for Tokenizer<'src> {
         }
     }
 
-    fn get_type(&mut self) -> AtomicType {
+    fn get_type(&mut self) -> IntegerType {
         match mem::take(&mut self.data) {
             Some(Data::Type(ty)) => ty,
             _ => unreachable!(),

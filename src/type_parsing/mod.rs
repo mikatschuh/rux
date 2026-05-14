@@ -12,18 +12,9 @@ pub use error::Error;
 pub type TypeSize = u128;
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Hash)]
-pub enum AtomicType {
+pub enum IntegerType {
     Unsigned { size: TypeSize },
     Signed { size: TypeSize },
-    Float(FloatPrecision),
-}
-
-#[derive(PartialEq, Eq, Clone, Copy, Debug, Hash)]
-pub enum FloatPrecision {
-    Half = 16,
-    Full = 32,
-    Double = 64,
-    DoubleDouble = 128,
 }
 
 pub fn parse_type(
@@ -32,13 +23,13 @@ pub fn parse_type(
     errors: &mut Errors,
 
     target_ptr_size: TypeSize,
-) -> Option<AtomicType> {
+) -> Option<IntegerType> {
     match ident[0] {
         b'u' => {
             ident = &ident[1..];
 
             if ident == b"size" {
-                return Some(AtomicType::Unsigned {
+                return Some(IntegerType::Unsigned {
                     size: target_ptr_size,
                 });
             }
@@ -49,7 +40,7 @@ pub fn parse_type(
             });
 
             if ident.is_empty() {
-                Some(AtomicType::Unsigned { size })
+                Some(IntegerType::Unsigned { size })
             } else {
                 None
             }
@@ -58,7 +49,7 @@ pub fn parse_type(
             ident = &ident[1..];
 
             if ident == b"size" {
-                return Some(AtomicType::Signed {
+                return Some(IntegerType::Signed {
                     size: target_ptr_size,
                 });
             }
@@ -69,16 +60,11 @@ pub fn parse_type(
             });
 
             if ident.is_empty() {
-                Some(AtomicType::Signed { size })
+                Some(IntegerType::Signed { size })
             } else {
                 None
             }
         }
-
-        _ if ident == b"f16" => Some(AtomicType::Float(FloatPrecision::Half)),
-        _ if ident == b"f32" => Some(AtomicType::Float(FloatPrecision::Full)),
-        _ if ident == b"f64" => Some(AtomicType::Float(FloatPrecision::Double)),
-        _ if ident == b"f128" => Some(AtomicType::Float(FloatPrecision::DoubleDouble)),
 
         _ => None,
     }
