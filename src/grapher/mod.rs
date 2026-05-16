@@ -21,11 +21,8 @@ mod item;
 // mod parser;
 
 use bumpalo::Bump;
+pub use graph::Graph;
 use nonempty::NonEmpty;
-pub use {
-    builder::{Error as BuildError, Result as BuildResult},
-    graph::Graph,
-};
 
 pub fn build_graph_debug<'errors>(
     ParserOutput {
@@ -87,14 +84,8 @@ impl<'errors> GraphBuilder<'errors> {
 
     fn decl_stmt_pot_divergent(&mut self, cursor: Cursor, stmt: DeclStmt) -> Option<DataCursor> {
         match (*stmt.val).clone() {
-            DeclStmtKind::Binding {
-                mutable,
-                keyword,
-                symbol,
-                ty,
-                assignment,
-            } => Some(self.binding(keyword, mutable, symbol, ty, assignment, cursor)),
             DeclStmtKind::ExprStmt { expr_stmt } => self.expr_stmt_pot_divergent(cursor, expr_stmt),
+            _ => Some(self.decl_stmt(cursor, stmt)),
         }
     }
 
@@ -106,7 +97,9 @@ impl<'errors> GraphBuilder<'errors> {
                 symbol,
                 ty,
                 assignment,
-            } => self.binding(keyword, mutable, symbol, ty, assignment, cursor),
+            } => self
+                .binding(keyword, mutable, symbol, ty, assignment, cursor)
+                .with_data(self.builder.graph.unit()),
             DeclStmtKind::ExprStmt { expr_stmt } => self.expr_stmt(cursor, expr_stmt),
         }
     }
@@ -117,7 +110,9 @@ impl<'errors> GraphBuilder<'errors> {
                 symbol,
                 equal,
                 value,
-            } => self.assignment(symbol, equal, value, cursor),
+            } => self
+                .assignment(symbol, equal, value, cursor)
+                .with_data(self.builder.graph.unit()),
             ExprStmtKind::Expr { expr } => self.expr(cursor, expr),
             _ => {
                 self.errors
@@ -133,11 +128,6 @@ impl<'errors> GraphBuilder<'errors> {
         expr_stmt: ExprStmt,
     ) -> Option<DataCursor> {
         match (*expr_stmt.val).clone() {
-            ExprStmtKind::Assignment {
-                symbol,
-                equal,
-                value,
-            } => Some(self.assignment(symbol, equal, value, cursor)),
             ExprStmtKind::Continue { keyword, label } => {
                 self.continue_stmt(keyword, label, cursor);
                 None
@@ -234,6 +224,7 @@ impl<'errors> GraphBuilder<'errors> {
                 }
                 _ => Some(self.expr(cursor, expr)),
             },
+            _ => Some(self.expr_stmt(cursor, expr_stmt)),
         }
     }
 
@@ -273,7 +264,11 @@ impl<'errors> GraphBuilder<'errors> {
                             }
                             None => todo!(),
                         },*/
-                        None => todo!(),
+                        None => {
+                            self.errors
+                                .push(expr.span, ErrorCode::UnknownIdent { symbol });
+                            cursor.with_data(self.builder.graph.error())
+                        }
                     },
                 }
             }
@@ -397,7 +392,7 @@ impl<'errors> GraphBuilder<'errors> {
         assignment: Option<(Span, Expr)>,
 
         mut cursor: Cursor,
-    ) -> DataCursor {
+    ) -> Cursor {
         match ty {
             Some(ty) => {
                 let ty = self.type_expr(ty);
@@ -415,17 +410,13 @@ impl<'errors> GraphBuilder<'errors> {
                             } = self.expr(cursor, value);
 
                             state[id] = Some(data);
-                            DataCursor {
-                                state,
-                                ctrl,
-                                data: self.builder.graph.unit(),
-                            }
+                            Cursor { state, ctrl }
                         }
-                        None => cursor.with_data(self.builder.graph.unit()),
+                        None => cursor,
                     }
                 } else {
                     self.errors.push(keyword, ErrorCode::BindingOutsideScope);
-                    cursor.with_data(self.builder.graph.unit())
+                    cursor
                 }
             }
             None => match assignment {
@@ -443,24 +434,16 @@ impl<'errors> GraphBuilder<'errors> {
                         &mut state,
                     ) {
                         state[id] = Some(data);
-                        DataCursor {
-                            state,
-                            ctrl,
-                            data: self.builder.graph.unit(),
-                        }
+                        Cursor { state, ctrl }
                     } else {
                         self.errors.push(keyword, ErrorCode::BindingOutsideScope);
-                        DataCursor {
-                            state,
-                            ctrl,
-                            data: self.builder.graph.unit(),
-                        }
+                        Cursor { state, ctrl }
                     }
                 }
                 None => {
                     self.errors
                         .push(keyword, ErrorCode::BindingWithNeitherTypeNorValue);
-                    cursor.with_data(self.builder.graph.error())
+                    cursor
                 }
             },
         }
@@ -472,20 +455,28 @@ impl<'errors> GraphBuilder<'errors> {
         equal: Span,
         value: Expr,
         cursor: Cursor,
-    ) -> DataCursor {
+    ) -> Cursor {
         let DataCursor {
             mut state,
             ctrl,
             data,
         } = self.expr(cursor, value);
-        self.builder
-            .symbol_table
-            .write_symbol(equal, symbol.val, data, &mut state);
-        DataCursor {
-            state,
-            ctrl,
-            data: self.builder.graph.unit(),
+        if let Some(binding) = self.builder.symbol_table.get_binding(symbol.val) {
+            if binding.mutable || state[binding.id].is_none() {
+                state[binding.id] = Some(data);
+            } else {
+                self.errors.push(
+                    equal,
+                    ErrorCode::AssignmentToImmutableIdent { symbol: symbol.val },
+                )
+            }
+        } else {
+            self.errors.push(
+                symbol.span,
+                ErrorCode::AssignmentToUnknownIdent { symbol: symbol.val },
+            );
         }
+        Cursor { state, ctrl }
     }
 
     fn continue_stmt(&mut self, keyword: Span, label: Option<Label>, cursor: Cursor) {

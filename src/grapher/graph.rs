@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use bumpalo::Bump;
 
 use crate::{
-    grapher::{BuildError, BuildResult, item::ItemID},
+    grapher::item::ItemID,
     literal_parsing::Literal,
     parser::BuiltinType,
     tokenizing::{binary_op::BinaryOp, unary_op::UnaryOp},

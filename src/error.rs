@@ -51,14 +51,14 @@ pub struct Error {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ErrorCode {
-    // tokenizing errors:
+    // tokenizing
     InvalidUTF8,
     UnknownEscapeSequence { given: String },
     NoClosingQuotes,
     LiteralParsingError(LiteralError),
     TypeParsingError(PrimitiveTypeParsingError),
 
-    // parsing errors:
+    // parsing
     ExpectedExpr,
     ExpectedIdent,
     ExpectedTerminator,
@@ -66,26 +66,31 @@ pub enum ErrorCode {
     ExpectedAssignment,
     ExpectedItemDeclaration,
 
-    // bracket errors
+    // bracket
     ExpectedOpenBracket,
     ExpectedClosedBracket { opened: Bracket },
     WrongClosedBracket { expected: Bracket, found: Bracket },
 
-    // graph building errors:
+    // semantic
     MissingEntryPoint { entry: &'static str },
+
+    // variable
     BindingOutsideScope,
-    UnknownIdentifier { symbol: Symbol },
+    UnknownIdent { symbol: Symbol },
     ExpectedType,
+    AssignmentToUnknownIdent { symbol: Symbol },
+    AssignmentToImmutableIdent { symbol: Symbol },
+
+    // control flow
     ContinueOutsideLoop,
     ContinueWithUnknownLabel { label: Symbol },
     BreakOutsideLoop,
     BreakWithUnknownLabel { label: Symbol },
-
     DivergentControlFlow,
 
     BindingWithNeitherTypeNorValue,
 
-    // initialization / ownership errors
+    // initialization / ownership
     MovedInLoop,
 }
 impl Error {
@@ -285,25 +290,31 @@ impl Error {
                     "found a binding outside of any scope"
                 )
             }
-            UnknownIdentifier { symbol } => format_error!(
+            UnknownIdent { symbol } => format_error!(
                 self.span.to_string(path),
                 "found an unknown identifier {}",
                 [interner.resolve(*symbol)]
             ),
             ExpectedType => format_error!(self.span.to_string(path), "expected a type expression"),
-            ContinueOutsideLoop => {
-                format_error!(
-                    self.span.to_string(path),
-                    "found continue outside of a loop/block"
-                )
-            }
-            ContinueWithUnknownLabel { label } => {
-                format_error!(
-                    self.span.to_string(path),
-                    "found continue with {}, an unknown label",
-                    [interner.resolve(*label)]
-                )
-            }
+            AssignmentToUnknownIdent { symbol } => format_error!(
+                self.span.to_string(path),
+                "assignment to unknown variable {}",
+                [interner.resolve(*symbol)]
+            ),
+            AssignmentToImmutableIdent { symbol } => format_error!(
+                self.span.to_string(path),
+                "assignment to immutable, initialized variable {}",
+                [interner.resolve(*symbol)]
+            ),
+            ContinueOutsideLoop => format_error!(
+                self.span.to_string(path),
+                "found continue outside of a loop/block"
+            ),
+            ContinueWithUnknownLabel { label } => format_error!(
+                self.span.to_string(path),
+                "found continue with {}, an unknown label",
+                [interner.resolve(*label)]
+            ),
             BreakOutsideLoop => format_error!(
                 self.span.to_string(path),
                 "found break outside of a loop/block"

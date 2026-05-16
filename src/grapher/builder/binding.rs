@@ -1,11 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    error::Span,
-    grapher::{
-        builder::{Error, Result},
-        graph::{DataID, TypeID},
-    },
+    grapher::graph::{DataID, TypeID},
     parser::Symbol,
 };
 
@@ -13,10 +9,10 @@ use crate::{
 pub struct OpenScope(());
 
 #[derive(Debug, Clone)]
-struct Binding {
-    mutable: bool,
-    ty: TypeID,
-    id: StateID,
+pub struct Binding {
+    pub mutable: bool,
+    pub ty: TypeID,
+    pub id: StateID,
 }
 
 pub struct ScopedSymbolTable {
@@ -63,24 +59,13 @@ impl ScopedSymbolTable {
         }
     }
 
-    pub fn write_symbol(
-        &mut self,
-        equal: Span,
-        symbol: Symbol,
-        value: DataID,
-        state: &mut MutableState,
-    ) -> Result<()> {
+    pub fn get_binding(&mut self, symbol: Symbol) -> Option<&Binding> {
         for scope in self.scopes.iter_mut().rev() {
-            if let Some(binding) = scope.get_mut(&symbol) {
-                return if binding.mutable || state[binding.id].is_none() {
-                    state[binding.id] = Some(value);
-                    Ok(())
-                } else {
-                    Err(Error::AssignmentToImmutableIdent { symbol, equal })
-                };
+            if let Some(binding) = scope.get(&symbol) {
+                return Some(binding);
             }
         }
-        Err(Error::AssignmentToUnknownVar { symbol, equal })
+        None
     }
 
     pub fn read_symbol(&mut self, symbol: Symbol, state: &MutableState) -> Option<DataID> {

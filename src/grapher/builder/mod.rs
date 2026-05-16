@@ -1,10 +1,8 @@
 pub mod binding;
-mod error;
 mod jumps;
 
 pub use binding::ScopedSymbolTable;
 use bumpalo::Bump;
-pub use error::{Error, Result};
 use nonempty::NonEmpty;
 
 use crate::{

@@ -25,7 +25,7 @@ type GraphDump = petgraph::Graph<String, String>;
 
 type Visited = HashMap<usize, NodeIndex>;
 
-pub fn dump_text(_: &Graph, cursor: Option<DataCursor>, interner: &Interner) -> String {
+pub fn dump_text(graph: &Graph, cursor: Option<DataCursor>, interner: &Interner) -> String {
     let mut visited = Visited::new();
 
     let mut graph_dump: GraphDump = petgraph::Graph::new();
