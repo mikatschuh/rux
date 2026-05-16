@@ -85,13 +85,13 @@ impl Error {
                 "used unknown label {} at {} in a continue at {}",
                 interner.resolve(label.val),
                 label.span.to_string(path),
-                (*keyword - label.span).to_string(path)
+                keyword.to_string(path)
             ),
             BreakWithUnknownLabel { keyword, label } => format!(
                 "used unknown label {} at {} in a break at {}",
                 interner.resolve(label.val),
                 label.span.to_string(path),
-                (*keyword - label.span).to_string(path)
+                keyword.to_string(path)
             ),
             ContinueOutsideLoop { keyword } => format!(
                 "continue used outside of a loop at {}",

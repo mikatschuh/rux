@@ -141,6 +141,8 @@ enum DataKey {
     Item {
         item: ItemID,
     },
+
+    Error,
 }
 
 #[derive(Debug)]
@@ -148,18 +150,44 @@ pub struct Graph {
     arena: Bump,
     data_cache: HashMap<DataKey, DataID>,
     type_cache: HashMap<TypeKey, TypeID>,
-    current_ctrl: Option<CtrlID>,
+    // these are certain always needed things that are therefore not stored in the HashMap
+    start: CtrlID,      // == CtrlKind::Start
+    unit_type: TypeID,  // == TypeKind::Unit
+    unit: DataID,       // .kind == DataKind::Unit
+    error_type: TypeID, // == TypeKind::Error
+    error: DataID,      // .kind == DataKind::Error
 }
 impl Graph {
     pub fn new(arena: Bump) -> Self {
+        let start = Rc::<CtrlKind, NoDealloc>::new_in_bump(CtrlKind::Start, &arena);
+        let unit_type = Rc::<TypeKind, NoDealloc>::new_in_bump(
+            TypeKind::BuiltinType(BuiltinType::Unit),
+            &arena,
+        );
+        let unit = Rc::<DataNode, NoDealloc>::new_in_bump(
+            DataNode {
+                ty: unit_type.clone(),
+                kind: DataKind::Unit,
+            },
+            &arena,
+        );
+        let error_type = Rc::<TypeKind, NoDealloc>::new_in_bump(TypeKind::Error, &arena);
+        let error = Rc::<DataNode, NoDealloc>::new_in_bump(
+            DataNode {
+                ty: error_type.clone(),
+                kind: DataKind::Error,
+            },
+            &arena,
+        );
         Self {
             data_cache: HashMap::new(),
             type_cache: HashMap::new(),
-            current_ctrl: Some(Rc::<CtrlKind, NoDealloc>::new_in_bump(
-                CtrlKind::Start,
-                &arena,
-            )),
             arena,
+            start,
+            unit,
+            unit_type,
+            error_type,
+            error,
         }
     }
 
@@ -219,14 +247,6 @@ impl Graph {
         self.push_ctrl_node(CtrlKind::Merge { merge })
     }
 
-    pub fn add_merge_to_ctrl(&mut self, merge: MergeID) {
-        if merge.branches.is_empty() {
-            self.current_ctrl = None;
-        } else {
-            self.current_ctrl = Some(self.push_ctrl_node(CtrlKind::Merge { merge }))
-        }
-    }
-
     pub fn add_branch(&mut self, ctrl: CtrlID, condition: DataID) -> (CtrlID, CtrlID) {
         let branch = self.push_branch(Branch { ctrl, condition });
         (
@@ -279,44 +299,25 @@ impl Graph {
         self.push_type(TypeKind::BuiltinType(ty))
     }
 
-    pub fn add_unit(&mut self) -> DataID {
-        let ty = self.push_type(TypeKind::BuiltinType(BuiltinType::Unit));
-        self.push_data(DataKind::Unit, ty)
+    pub fn start(&self) -> CtrlID {
+        self.start.clone()
+    }
+    pub fn unit_type(&self) -> TypeID {
+        self.unit_type.clone()
+    }
+    pub fn unit(&self) -> DataID {
+        self.unit.clone()
+    }
+    pub fn error(&self) -> DataID {
+        self.error.clone()
+    }
+    pub fn error_type(&self) -> TypeID {
+        self.error_type.clone()
     }
 
     pub fn add_never(&mut self) -> DataID {
         let ty = self.push_type(TypeKind::BuiltinType(BuiltinType::Never));
         self.push_data(DataKind::Never, ty)
-    }
-
-    pub fn add_error(&mut self) -> DataID {
-        let ty = self.push_type(TypeKind::Error);
-        self.push_data(DataKind::Error, ty)
-    }
-
-    pub fn add_type_error(&mut self) -> TypeID {
-        self.push_type(TypeKind::Error)
-    }
-
-    pub fn is_unreachable(&self) -> bool {
-        self.current_ctrl.is_none()
-    }
-
-    pub fn make_unreachable(&mut self) -> DataID {
-        self.current_ctrl = None;
-        self.add_never()
-    }
-
-    pub fn get_ctrl(&self) -> BuildResult<CtrlID> {
-        if let Some(ctrl) = &self.current_ctrl {
-            Ok(ctrl.clone())
-        } else {
-            Err(BuildError::UnreachableCtrl)
-        }
-    }
-
-    pub fn set_ctrl(&mut self, ctrl: CtrlID) {
-        self.current_ctrl = Some(ctrl)
     }
 }
 
@@ -361,7 +362,7 @@ impl DataKind {
                 variants: phi.variants.iter().map(|variant| variant.addr()).collect(),
             }),
             DataKind::Type { ty } => Some(DataKey::Type { ty: ty.addr() }),
-            DataKind::Error => None,
+            DataKind::Error => Some(DataKey::Error),
         }
     }
 }

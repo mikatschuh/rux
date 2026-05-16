@@ -17,7 +17,8 @@ mod ast;
 mod intern;
 
 pub use ast::{
-    AstBuilder, BuiltinType, Expr, ExprKind, Label, Spanned, Stmt, StmtExpr, StmtExprKind, StmtKind,
+    AstBuilder, BuiltinType, DeclStmt, DeclStmtKind, Expr, ExprKind, ExprStmt, ExprStmtKind, Label,
+    Spanned,
 };
 pub use intern::{Interner, Symbol};
 
@@ -53,7 +54,7 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
 
     pub fn to_symbol_table(self) -> ParserOutput {
         ParserOutput {
-            arena: self.graph.to_arena(),
+            arena: self.graph.arena(),
             interner: self.interner,
             item_table: self.symbols,
         }
@@ -135,7 +136,7 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
         }
     }
 
-    fn parse_stmt(&mut self) -> Option<Stmt> {
+    fn parse_decl_stmt(&mut self) -> Option<DeclStmt> {
         match self.peek().kind {
             TokenKind::Semicolon => {
                 self.advance();
@@ -156,13 +157,13 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
             }
 
             _ => {
-                let expr = self.parse_stmt_expr();
-                Some(self.graph.stmt_expr_as_stmt(expr))
+                let expr = self.parse_expr_stmt();
+                Some(self.graph.expr_stmt_as_decl_stmt(expr))
             }
         }
     }
 
-    fn parse_stmt_expr(&mut self) -> StmtExpr {
+    fn parse_expr_stmt(&mut self) -> ExprStmt {
         match self.peek().kind {
             TokenKind::Ident => {
                 let symbol = self.get_name();
@@ -202,7 +203,7 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
             }
             _ => {
                 let expr = self.parse_expr(0);
-                self.graph.expr_as_stmt_expr(expr)
+                self.graph.expr_as_expr_stmt(expr)
             }
         }
     }
@@ -309,10 +310,10 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
             TokenKind::If => {
                 let keyword = self.advance().span;
                 let condition = self.parse_expr(0);
-                let when_body = self.parse_stmt_expr();
+                let when_body = self.parse_expr_stmt();
                 let else_clause = if self.peek().kind == TokenKind::Else {
                     let else_keyword = self.advance().span;
-                    let else_body = self.parse_stmt_expr();
+                    let else_body = self.parse_expr_stmt();
                     Some((else_keyword, else_body))
                 } else {
                     None
@@ -324,7 +325,7 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
             }
             TokenKind::Loop => {
                 let keyword = self.advance().span;
-                let body = self.parse_stmt_expr();
+                let body = self.parse_expr_stmt();
                 Some(self.graph.add_loop(keyword, body))
             }
 
@@ -386,7 +387,7 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
                         .add_block(opener.span - pos, NonEmpty::from_vec(statements).unwrap())
                 };
             }
-            if let Some(statement) = self.parse_stmt() {
+            if let Some(statement) = self.parse_decl_stmt() {
                 statements.push(statement);
             }
             if self.peek().kind == TokenKind::Closed(Bracket::Curly) {
@@ -401,25 +402,25 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
         }
     }
 
-    fn parse_binding(&mut self, keyword: Token, mutable: bool) -> Stmt {
+    fn parse_binding(&mut self, keyword: Token, mutable: bool) -> DeclStmt {
         let keyword = keyword.span;
         let symbol = self.expect_name();
 
         let ty = self.parse_optional_expr(0);
         if self.peek().kind == TokenKind::Equal {
             // type inference
-            let equal = self.advance();
+            let equal = self.advance().span;
             let value = self.parse_expr(0);
 
             self.graph
-                .add_binding(mutable, keyword, symbol, ty, equal.span, value)
+                .add_binding(mutable, keyword, symbol, ty, Some((equal, value)))
         } else {
             // unitialized
-            todo!()
+            self.graph.add_binding(mutable, keyword, symbol, ty, None)
         }
     }
 
-    fn parse_name_pattern(&mut self, symbol: Spanned<Symbol>) -> StmtExpr {
+    fn parse_name_pattern(&mut self, symbol: Spanned<Symbol>) -> ExprStmt {
         // assignments:
         if self.peek().kind == TokenKind::Equal {
             let equal = self.advance();
@@ -445,7 +446,7 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
         // labels: `name: blk`
         if self.peek().kind == TokenKind::Colon {
             let colon = self.advance().span;
-            let body = self.parse_stmt_expr();
+            let body = self.parse_expr_stmt();
             let label = self.graph.add_label(
                 Label {
                     colon,
@@ -453,12 +454,12 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
                 },
                 body,
             );
-            return self.graph.expr_as_stmt_expr(label);
+            return self.graph.expr_as_expr_stmt(label);
         }
 
         let lhs = self.graph.add_ident(symbol);
         let value = self.parse_expr_tail(lhs, 0);
-        self.graph.expr_as_stmt_expr(value)
+        self.graph.expr_as_expr_stmt(value)
     }
 
     fn parse_function(&mut self, keyword: Token) -> Expr {
@@ -494,7 +495,7 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
         }
 
         let output = self.parse_expr(0);
-        let body = self.parse_stmt_expr();
+        let body = self.parse_expr_stmt();
 
         self.graph.add_function(keyword, parameters, output, body)
     }

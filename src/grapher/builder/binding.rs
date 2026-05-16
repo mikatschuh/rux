@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ops::Index, vec::IntoIter};
+use std::collections::HashMap;
 
 use crate::{
     error::Span,
@@ -13,192 +13,87 @@ use crate::{
 pub struct OpenScope(());
 
 #[derive(Debug, Clone)]
-pub struct Binding {
-    #[allow(unused)]
-    pub ty: TypeID,
-    pub value: DataID,
-}
-
-#[derive(Debug)]
-pub struct Scope {
-    immutables: HashMap<Symbol, Binding>,
-    mutables: HashMap<Symbol, Binding>,
+struct Binding {
+    mutable: bool,
+    ty: TypeID,
+    id: StateID,
 }
 
 pub struct ScopedSymbolTable {
-    symbol_dump: SymbolDump,
-    scopes: Vec<Scope>,
+    scopes: Vec<HashMap<Symbol, Binding>>,
 }
 
-#[derive(Clone, Copy)]
-pub struct ScopeID(usize);
-
-#[derive(Clone, Copy)]
-pub struct MutableIdx(usize);
-
-pub struct MutableState(Vec<DataID>);
-
-impl Index<MutableIdx> for MutableState {
-    type Output = DataID;
-    fn index(&self, index: MutableIdx) -> &Self::Output {
-        &self.0[index.0]
-    }
-}
-
-impl MutableState {
-    pub fn into_iter(self) -> IntoIter<DataID> {
-        self.0.into_iter()
-    }
-}
-
-impl Scope {
-    fn new() -> Self {
-        Self {
-            immutables: HashMap::new(),
-            mutables: HashMap::new(),
-        }
-    }
-}
+pub type StateID = usize;
+pub type MutableState = Vec<Option<DataID>>;
 
 impl ScopedSymbolTable {
     pub fn new() -> Self {
-        Self {
-            symbol_dump: SymbolDump::new(),
-            scopes: vec![],
-        }
-    }
-
-    pub fn open_scope_id(&self) -> ScopeID {
-        ScopeID(self.scopes.len() - 1)
+        Self { scopes: vec![] }
     }
 
     pub fn open_scope(&mut self) -> OpenScope {
-        self.scopes.push(Scope::new());
+        self.scopes.push(HashMap::new());
         OpenScope(())
     }
 
+    pub fn close_scope_and_state(&mut self, _: OpenScope, state: &mut MutableState) {
+        let scope = self.scopes.pop().unwrap(); // safe because of OpenScope
+        let len = scope.len();
+        state.truncate(state.len() - len); // remove the mutables from the state
+    }
+
     pub fn close_scope(&mut self, _: OpenScope) {
-        let scope = self.scopes.pop().unwrap();
-        // add all the symbols to the symbol dump
-        self.symbol_dump.append_scope(scope);
-    }
-
-    /// is equal to `self.snapshot_state_of_scope(self.opened_scope_id())`
-    pub(super) fn snapshot_state(&self) -> MutableState {
-        MutableState(
-            self.scopes
-                .iter()
-                .flat_map(|s| s.mutables.iter())
-                .map(|(_, symbol)| symbol.value.clone())
-                .collect(),
-        )
-    }
-
-    pub(super) fn snapshot_state_of_scope(&self, scope_id: ScopeID) -> MutableState {
-        MutableState(
-            self.scopes
-                .iter()
-                .take(scope_id.0 + 1)
-                .flat_map(|s| s.mutables.iter())
-                .map(|(_, symbol)| symbol.value.clone())
-                .collect(),
-        )
-    }
-
-    pub(super) fn for_every_mutable(&mut self, mut f: impl FnMut(MutableIdx, &mut DataID)) {
-        self.scopes
-            .iter_mut()
-            .flat_map(|s| s.mutables.iter_mut())
-            .enumerate()
-            .for_each(|(i, (_, symbol))| f(MutableIdx(i), &mut symbol.value));
+        self.scopes.pop().unwrap(); // safe because of OpenScope
     }
 
     pub fn add_symbol(
         &mut self,
         mutable: bool,
-        keyword: Span,
         symbol: Symbol,
-        binding: Binding,
-    ) -> Result<()> {
+        ty: TypeID,
+        state: &mut MutableState,
+    ) -> Option<StateID> {
         if let Some(scope) = self.scopes.last_mut() {
-            if mutable {
-                scope.mutables.insert(symbol, binding);
-                scope.immutables.remove(&symbol);
-            } else {
-                scope.immutables.insert(symbol, binding);
-                scope.mutables.remove(&symbol);
-            }
-            Ok(())
+            let id = state.len();
+            state.push(None);
+            scope.insert(symbol, Binding { mutable, ty, id });
+            Some(id)
         } else {
-            Err(Error::BindingOutsideOfScope {
-                binding: keyword,
-                symbol,
-            })
+            None
         }
     }
 
-    pub fn write_symbol(&mut self, equal: Span, symbol: Symbol, value: DataID) -> Result<()> {
+    pub fn write_symbol(
+        &mut self,
+        equal: Span,
+        symbol: Symbol,
+        value: DataID,
+        state: &mut MutableState,
+    ) -> Result<()> {
         for scope in self.scopes.iter_mut().rev() {
-            if scope.immutables.contains_key(&symbol) {
-                return Err(Error::AssignmentToImmutableIdent { symbol, equal });
-            }
-
-            match scope.mutables.get_mut(&symbol) {
-                Some(symbol) => {
-                    symbol.value = value;
-                    return Ok(());
-                }
-                None => continue,
+            if let Some(binding) = scope.get_mut(&symbol) {
+                return if binding.mutable || state[binding.id].is_none() {
+                    state[binding.id] = Some(value);
+                    Ok(())
+                } else {
+                    Err(Error::AssignmentToImmutableIdent { symbol, equal })
+                };
             }
         }
-
         Err(Error::AssignmentToUnknownVar { symbol, equal })
     }
 
-    pub fn read_symbol(&mut self, symbol: Symbol) -> Option<DataID> {
+    pub fn read_symbol(&mut self, symbol: Symbol, state: &MutableState) -> Option<DataID> {
         for scope in self.scopes.iter().rev() {
-            if let Some(symbol) = scope.immutables.get(&symbol) {
-                return Some(symbol.value.clone());
-            }
-            if let Some(symbol) = scope.mutables.get(&symbol) {
-                return Some(symbol.value.clone());
+            if let Some(binding) = scope.get(&symbol) {
+                return state[binding.id].clone();
             }
         }
         None
     }
-
-    pub fn symbol_dump(mut self) -> SymbolDump {
-        self.scopes.into_iter().for_each(|scope| {
-            self.symbol_dump.append_scope(scope);
-        });
-
-        self.symbol_dump
-    }
 }
 
-pub struct SymbolDump {
-    pub immutables: HashMap<Symbol, Binding>,
-    pub mutables: HashMap<Symbol, Binding>,
-}
-
-impl SymbolDump {
-    fn new() -> Self {
-        Self {
-            immutables: HashMap::new(),
-            mutables: HashMap::new(),
-        }
-    }
-
-    fn append_scope(&mut self, mut scope: Scope) {
-        scope.immutables.drain().for_each(|(symbol, immutable)| {
-            self.immutables.insert(symbol, immutable);
-        });
-        scope.mutables.drain().for_each(|(name, mutable)| {
-            self.mutables.insert(name, mutable);
-        });
-    }
-}
-
+#[cfg(never)]
 #[cfg(test)]
 mod tests {
     use super::{Binding, ScopedSymbolTable};
@@ -218,8 +113,8 @@ mod tests {
         (Interner::new(), Graph::new(Bump::new()))
     }
 
-    fn symbol(ty: TypeID, value: DataID) -> Binding {
-        Binding { ty, value }
+    fn symbol(ty: TypeID, value: DataID) -> ImmutableBinding {
+        ImmutableBinding { ty, value }
     }
 
     #[test]

@@ -5,7 +5,7 @@ use petgraph::{graph::NodeIndex, visit::EdgeRef};
 use crate::{
     grapher::{
         Graph,
-        builder::SymbolDump,
+        builder::DataCursor,
         graph::{BranchID, CtrlID, CtrlKind, DataID, DataKind, MergeID},
     },
     parser::Interner,
@@ -25,41 +25,36 @@ type GraphDump = petgraph::Graph<String, String>;
 
 type Visited = HashMap<usize, NodeIndex>;
 
-pub fn dump_text(
-    graph: &Graph,
-    relevant_nodes: Vec<DataID>,
-    SymbolDump {
-        immutables,
-        mutables,
-    }: SymbolDump,
-    interner: &Interner,
-) -> String {
+pub fn dump_text(_: &Graph, cursor: Option<DataCursor>, interner: &Interner) -> String {
     let mut visited = Visited::new();
 
     let mut graph_dump: GraphDump = petgraph::Graph::new();
 
-    for (name, symbol) in immutables {
-        let name = graph_dump.add_node(interner.resolve(name).to_string());
-        let value = process_data_node(&mut graph_dump, &mut visited, symbol.value);
-        graph_dump.add_edge(name, value, "immutable".to_string());
-    }
-    for (name, symbol) in mutables {
-        let name = graph_dump.add_node(interner.resolve(name).to_string());
-        let value = process_data_node(&mut graph_dump, &mut visited, symbol.value);
-        graph_dump.add_edge(name, value, "mutable".to_string());
-    }
-    for node in relevant_nodes {
-        process_data_node(&mut graph_dump, &mut visited, node);
-    }
+    /*for (symbol, mutable, ty, value) in bindings {
+        let name = graph_dump.add_node(interner.resolve(symbol).to_string());
+        let value = match value {
+            Some(value) => process_data_node(&mut graph_dump, &mut visited, value),
+            None => graph_dump.add_node("uninitialized".to_string()),
+        };
+        graph_dump.add_edge(
+            name,
+            value,
+            if mutable {
+                "mutable".to_string()
+            } else {
+                "immutable".to_string()
+            },
+        );
+    }*/
 
-    let current = if let Ok(latest) = graph.get_ctrl() {
-        process_ctrl_node(&mut graph_dump, &mut visited, latest)
-    } else {
-        graph_dump.add_node(mem!("never"))
-    };
+    if let Some(DataCursor { ctrl, data, .. }) = cursor {
+        process_data_node(&mut graph_dump, &mut visited, data);
 
-    let current_node = graph_dump.add_node(mem!("current"));
-    graph_dump.add_edge(current_node, current, "".to_string());
+        let current = process_ctrl_node(&mut graph_dump, &mut visited, ctrl);
+
+        let current_node = graph_dump.add_node(mem!("current"));
+        graph_dump.add_edge(current_node, current, "".to_string());
+    }
 
     dump_cytoscape(&graph_dump)
 }
@@ -133,8 +128,8 @@ pub fn process_data_node(graph: &mut GraphDump, visited: &mut Visited, node: Dat
 
         Type { ty } => todo!(),
 
-        Error => {
-            let idx = graph.add_node("deferred".to_string());
+        _ => {
+            let idx = graph.add_node("error".to_string());
             visited.insert(node_addr, idx);
             idx
         }

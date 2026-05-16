@@ -76,6 +76,17 @@ pub enum ErrorCode {
     BindingOutsideScope,
     UnknownIdentifier { symbol: Symbol },
     ExpectedType,
+    ContinueOutsideLoop,
+    ContinueWithUnknownLabel { label: Symbol },
+    BreakOutsideLoop,
+    BreakWithUnknownLabel { label: Symbol },
+
+    DivergentControlFlow,
+
+    BindingWithNeitherTypeNorValue,
+
+    // initialization / ownership errors
+    MovedInLoop,
 }
 impl Error {
     pub fn new(span: Span, error: ErrorCode) -> Self {
@@ -280,6 +291,42 @@ impl Error {
                 [interner.resolve(*symbol)]
             ),
             ExpectedType => format_error!(self.span.to_string(path), "expected a type expression"),
+            ContinueOutsideLoop => {
+                format_error!(
+                    self.span.to_string(path),
+                    "found continue outside of a loop/block"
+                )
+            }
+            ContinueWithUnknownLabel { label } => {
+                format_error!(
+                    self.span.to_string(path),
+                    "found continue with {}, an unknown label",
+                    [interner.resolve(*label)]
+                )
+            }
+            BreakOutsideLoop => format_error!(
+                self.span.to_string(path),
+                "found break outside of a loop/block"
+            ),
+            BreakWithUnknownLabel { label } => format_error!(
+                self.span.to_string(path),
+                "found break with {}, an unknown label",
+                [interner.resolve(*label)]
+            ),
+            DivergentControlFlow => format_error!(
+                self.span.to_string(path),
+                "the control flow inside a larger block converges at this point"
+            ),
+
+            BindingWithNeitherTypeNorValue => format_error!(
+                self.span.to_string(path),
+                "a binding contained neither a type nor a value"
+            ),
+
+            MovedInLoop => format_error!(
+                self.span.to_string(path),
+                "value moved in loop and then still used"
+            ),
         })
         .to_string()
     }
