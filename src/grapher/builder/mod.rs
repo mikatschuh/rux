@@ -73,6 +73,8 @@ pub struct Builder {
     pub jump_stack: JumpTableStack,
 }
 
+pub type IncompleteNodes = (MergeID, Vec<(StateID, PhiID)>);
+
 impl Builder {
     pub fn new(arena: Bump) -> Self {
         Self {
@@ -85,10 +87,7 @@ impl Builder {
         }
     }
 
-    pub fn open_loop(
-        &mut self,
-        cursor: Cursor,
-    ) -> (Cursor, (MergeID, Vec<(StateID, PhiID)>), OpenLoop, LoopID) {
+    pub fn open_loop(&mut self, cursor: Cursor) -> (Cursor, IncompleteNodes, OpenLoop, LoopID) {
         let Cursor { mut state, ctrl } = cursor;
         // ctrl node structure setup
         let loop_head = self.graph.add_merge(vec![ctrl]);
@@ -122,7 +121,7 @@ impl Builder {
         body: Option<DataCursor>,
         tok: OpenLoop,
         loop_backedge: bool,
-        (mut loop_head, mut loop_phis): (MergeID, Vec<(StateID, PhiID)>),
+        (mut loop_head, mut loop_phis): IncompleteNodes,
         errors: &mut Errors,
     ) -> Option<DataCursor> {
         let Jumps {
@@ -184,9 +183,7 @@ impl Builder {
 
     pub fn merge(&mut self, cursors: NonEmpty<DataCursor>) -> DataCursor {
         if cursors.len() == 1 {
-            let mut cursors = cursors;
-            let cursor = cursors.pop().unwrap();
-            return cursor;
+            return cursors.head;
         }
 
         let merge = self

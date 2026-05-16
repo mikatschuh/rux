@@ -4,9 +4,10 @@ use petgraph::{graph::NodeIndex, visit::EdgeRef};
 
 use crate::{
     grapher::{
-        Graph,
         builder::DataCursor,
-        graph::{BranchID, CtrlID, CtrlKind, DataID, DataKind, MergeID},
+        graph::{
+            BranchID, CtrlID, CtrlKind, DataID, DataKind, MergeID, TypeID, TypeKind, UniqueNodes,
+        },
     },
     parser::Interner,
     tokenizing,
@@ -21,11 +22,24 @@ macro_rules! mem {
     }
 }
 
+macro_rules! ty {
+    ($($arg:tt)*) => {
+        format!("type {}", format!($($arg)*))
+    };
+    () => {
+
+    }
+}
+
 type GraphDump = petgraph::Graph<String, String>;
 
 type Visited = HashMap<usize, NodeIndex>;
 
-pub fn dump_text(graph: &Graph, cursor: Option<DataCursor>, interner: &Interner) -> String {
+pub fn dump_text(
+    UniqueNodes { data, types }: UniqueNodes,
+    cursor: Option<DataCursor>,
+    interner: &Interner,
+) -> String {
     let mut visited = Visited::new();
 
     let mut graph_dump: GraphDump = petgraph::Graph::new();
@@ -47,6 +61,14 @@ pub fn dump_text(graph: &Graph, cursor: Option<DataCursor>, interner: &Interner)
         );
     }*/
 
+    for node in data {
+        process_data_node(&mut graph_dump, &mut visited, node);
+    }
+
+    for node in types {
+        process_type_node(&mut graph_dump, &mut visited, node);
+    }
+
     if let Some(DataCursor { ctrl, data, .. }) = cursor {
         process_data_node(&mut graph_dump, &mut visited, data);
 
@@ -65,7 +87,8 @@ pub fn process_data_node(graph: &mut GraphDump, visited: &mut Visited, node: Dat
         return *idx;
     }
     use DataKind::*;
-    match node.kind.clone() {
+    let ty = process_type_node(graph, visited, node.ty.clone());
+    let data = match node.kind.clone() {
         Literal { literal } => {
             let idx = graph.add_node(format!("lit {}", literal));
             visited.insert(node_addr, idx);
@@ -126,10 +149,43 @@ pub fn process_data_node(graph: &mut GraphDump, visited: &mut Visited, node: Dat
             phi_node
         }
 
-        Type { ty } => todo!(),
+        Type { ty } => {
+            let idx = process_type_node(graph, visited, ty);
+            visited.insert(node_addr, idx);
+            idx
+        }
 
-        _ => {
+        Error => {
             let idx = graph.add_node("error".to_string());
+            visited.insert(node_addr, idx);
+            idx
+        }
+    };
+    graph.add_edge(data, ty, ty!("type"));
+    data
+}
+
+pub fn process_type_node(graph: &mut GraphDump, visited: &mut Visited, node: TypeID) -> NodeIndex {
+    let node_addr = node.addr();
+    if let Some(idx) = visited.get(&node_addr) {
+        return *idx;
+    }
+    use TypeKind::*;
+    match &*node {
+        Type => {
+            let idx = graph.add_node(ty!("type"));
+            visited.insert(node_addr, idx);
+            idx
+        }
+        BuiltinType(builtin_type) => {
+            let idx = graph.add_node(ty!("builtin_type[{:?}]", builtin_type));
+            visited.insert(node_addr, idx);
+            idx
+        }
+
+        DataType { data } => process_data_node(graph, visited, data.clone()),
+        Error => {
+            let idx = graph.add_node(ty!("error"));
             visited.insert(node_addr, idx);
             idx
         }
@@ -235,6 +291,8 @@ fn build_elements(g: &GraphDump) -> String {
             ("literal", label.trim())
         } else if let Some(label) = label.strip_prefix("mem") {
             ("memory", label.trim())
+        } else if let Some(label) = label.strip_prefix("type") {
+            ("type", label.trim())
         } else {
             ("variable", label.as_ref())
         };
@@ -257,6 +315,8 @@ fn build_elements(g: &GraphDump) -> String {
             .replace('\\', "\\\\");
         let (group, label) = if let Some(label) = label.strip_prefix("mem") {
             ("memory", label.trim().to_string())
+        } else if let Some(label) = label.strip_prefix("type") {
+            ("type", label.trim().to_string())
         } else {
             ("value", label)
         };

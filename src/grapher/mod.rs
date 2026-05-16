@@ -52,7 +52,7 @@ pub fn build_graph_debug<'errors>(
     let cursor = builder.expr(cursor, expr);
 
     Some(graph_dump::dump_text(
-        &builder.builder.graph,
+        builder.builder.graph.destruct(),
         Some(cursor),
         &interner,
     ))
@@ -256,14 +256,6 @@ impl<'errors> GraphBuilder<'errors> {
                     Some(value) => cursor.with_data(value),
                     None => match self.raw_item_table.get(&symbol) {
                         Some(_) => todo!(),
-                        /*Some(Item { ty, expr }) => match ty {
-                            Some(ty) => {
-                                let ty = self.expr(*ty);
-                                let item_ty = self.item_types.add(ty);
-                                self.builder.graph.add_item(item_ty)
-                            }
-                            None => todo!(),
-                        },*/
                         None => {
                             self.errors
                                 .push(expr.span, ErrorCode::UnknownIdent { symbol });

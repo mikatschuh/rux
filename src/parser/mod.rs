@@ -52,7 +52,7 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
         }
     }
 
-    pub fn to_symbol_table(self) -> ParserOutput {
+    pub fn symbol_table(self) -> ParserOutput {
         ParserOutput {
             arena: self.graph.arena(),
             interner: self.interner,
@@ -513,7 +513,7 @@ mod tests {
         let mut tokenizer = Tokenizer::new(source.as_bytes(), errors.clone(), 64);
         let mut parser = Parser::new(&mut tokenizer, errors.clone());
         parser.parse_file();
-        (parser.to_symbol_table(), errors)
+        (parser.symbol_table(), errors)
     }
 
     #[test]

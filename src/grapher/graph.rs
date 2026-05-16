@@ -10,6 +10,11 @@ use crate::{
     utilities::{NoDealloc, Rc},
 };
 
+pub struct UniqueNodes {
+    pub data: Vec<DataID>,
+    pub types: Vec<TypeID>,
+}
+
 pub type DataID = Rc<DataNode, NoDealloc>;
 pub type CtrlID = Rc<CtrlKind, NoDealloc>;
 pub type BranchID = Rc<Branch, NoDealloc>;
@@ -188,6 +193,13 @@ impl Graph {
             unit_type,
             error_type,
             error,
+        }
+    }
+
+    pub fn destruct(mut self) -> UniqueNodes {
+        UniqueNodes {
+            data: self.data_cache.drain().map(|(_, v)| v).collect(),
+            types: self.type_cache.drain().map(|(_, v)| v).collect(),
         }
     }
 

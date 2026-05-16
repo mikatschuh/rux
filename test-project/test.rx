@@ -4,7 +4,7 @@ let main i32 = {
     10
 }
 
-let dummy i32 = main + 10 + {
+let dummy i32 =  10 + {
     var last_last = 1
     var last = 1
 
