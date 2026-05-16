@@ -5,7 +5,7 @@ use crate::{
     grapher::{
         Graph,
         binding::{MutableState, StateID},
-        blocks::Jumps,
+        block::Jumps,
         graph::{CtrlID, DataID, MergeID, PhiID},
     },
 };

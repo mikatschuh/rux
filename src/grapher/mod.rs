@@ -4,7 +4,7 @@ use crate::{
     error::{ErrorCode, Errors, Span},
     grapher::{
         binding::{Binding, SymbolTableStack},
-        blocks::JumpTableStack,
+        block::JumpTableStack,
         builder::{Cursor, DataCursor},
         graph::TypeID,
     },
@@ -16,7 +16,7 @@ use crate::{
 };
 
 mod binding;
-mod blocks;
+mod block;
 mod builder;
 mod graph;
 pub mod graph_dump;
