@@ -536,3 +536,199 @@ impl<'errors> GraphBuilder<'errors> {
         cursor.with_data(self.graph.error())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashMap, path::Path};
+
+    use crate::{
+        error::{Errors, Span},
+        grapher::graph::{DataID, DataKind},
+        literal_parsing::Literal,
+        parser::{AstBuilder, BuiltinType, Expr, Interner, Label, Spanned, Symbol},
+        utilities::Rc,
+    };
+
+    use super::GraphBuilder;
+
+    fn span() -> Span {
+        Span::beginning()
+    }
+
+    fn spanned(symbol: Symbol) -> Spanned<Symbol> {
+        Spanned {
+            span: span(),
+            val: symbol,
+        }
+    }
+
+    fn with_built_expr<R>(expr: Expr, arena: bumpalo::Bump, f: impl FnOnce(&DataID) -> R) -> R {
+        let errors = Rc::new(Errors::empty(Path::new("grapher-test.rx")));
+        let (mut builder, cursor) = GraphBuilder::new(errors, arena, HashMap::new());
+        let data = builder.expr(cursor, expr).data;
+
+        f(&data)
+    }
+
+    fn literal_value(node: &DataID) -> Option<Literal> {
+        match &node.kind {
+            DataKind::Literal { literal } => Some(literal.clone()),
+            _ => None,
+        }
+    }
+
+    fn kind_name(node: &DataID) -> &'static str {
+        match &node.kind {
+            DataKind::Literal { .. } => "literal",
+            DataKind::Quote { .. } => "quote",
+            DataKind::Boolean(_) => "boolean",
+            DataKind::Unit => "unit",
+            DataKind::Unary { .. } => "unary",
+            DataKind::Binary { .. } => "binary",
+            DataKind::Load { .. } => "load",
+            DataKind::Phi { .. } => "phi",
+            DataKind::Type { .. } => "type",
+            DataKind::Error => "error",
+        }
+    }
+
+    #[test]
+    fn if_without_else_merges_false_unit_path_and_true_value_path() {
+        let mut ast = AstBuilder::new();
+        let condition = ast.add_boolean(span(), true);
+        let one = ast.add_literal(span(), Literal::from(1));
+        let when_body = ast.expr_as_expr_stmt(one);
+        let expr = ast.add_if(span(), condition, when_body, None);
+        let arena = ast.arena();
+        with_built_expr(expr, arena, |value| {
+            let DataKind::Phi { phi } = &value.kind else {
+                panic!("if expression should produce a phi");
+            };
+
+            assert_eq!(phi.merge.branches.len(), 2);
+            assert!(
+                phi.variants
+                    .iter()
+                    .any(|variant| matches!(&variant.kind, DataKind::Unit))
+            );
+            assert!(
+                phi.variants
+                    .iter()
+                    .any(|variant| literal_value(variant).as_ref() == Some(&Literal::from(1)))
+            );
+        });
+    }
+
+    #[test]
+    fn uninitialized_binding_read_recovers_with_error_node() {
+        let mut interner = Interner::new();
+        let x = interner.get("x");
+        let mut ast = AstBuilder::new();
+        let ty = ast.add_type(span(), BuiltinType::Signed { size: 32 });
+        let binding = ast.add_binding(false, span(), spanned(x), Some(ty), None);
+        let read = ast.add_ident(spanned(x));
+        let read = ast.expr_as_stmt(read);
+        let expr = ast.add_block(
+            span(),
+            nonempty::NonEmpty {
+                head: binding,
+                tail: vec![read],
+            },
+        );
+        let arena = ast.arena();
+        with_built_expr(expr, arena, |value| {
+            assert!(
+                matches!(&value.kind, DataKind::Error),
+                "got {}",
+                kind_name(value)
+            );
+        });
+    }
+
+    #[test]
+    fn unknown_identifier_recovers_with_error_node() {
+        let mut interner = Interner::new();
+        let mut ast = AstBuilder::new();
+        let expr = ast.add_ident(spanned(interner.get("missing")));
+        let arena = ast.arena();
+        with_built_expr(expr, arena, |value| {
+            assert!(
+                matches!(&value.kind, DataKind::Error),
+                "got {}",
+                kind_name(value)
+            );
+        });
+    }
+
+    #[test]
+    fn divergent_loop_in_expression_position_recovers_with_error_node() {
+        let mut ast = AstBuilder::new();
+        let unit = ast.add_unit(span());
+        let body = ast.expr_as_expr_stmt(unit);
+        let expr = ast.add_loop(span(), body);
+        let arena = ast.arena();
+        with_built_expr(expr, arena, |value| {
+            assert!(
+                matches!(&value.kind, DataKind::Error),
+                "got {}",
+                kind_name(value)
+            );
+        });
+    }
+
+    #[test]
+    fn labelled_block_can_break_to_outer_block_from_nested_loop() {
+        let mut interner = Interner::new();
+        let outer = interner.get("outer");
+        let mut ast = AstBuilder::new();
+        let value = ast.add_literal(span(), Literal::from(42));
+        let break_stmt = ast.add_break(
+            span(),
+            Some(Label {
+                colon: span(),
+                label: spanned(outer),
+            }),
+            Some(value),
+        );
+        let loop_expr = ast.add_loop(span(), break_stmt);
+        let loop_stmt = ast.expr_as_expr_stmt(loop_expr);
+        let expr = ast.add_label(
+            Label {
+                colon: span(),
+                label: spanned(outer),
+            },
+            loop_stmt,
+        );
+        let arena = ast.arena();
+        with_built_expr(expr, arena, |value| {
+            assert_eq!(literal_value(value), Some(Literal::from(42)));
+        });
+    }
+
+    #[test]
+    fn if_assignment_merges_mutable_state() {
+        let mut interner = Interner::new();
+        let x = interner.get("x");
+        let mut ast = AstBuilder::new();
+        let zero = ast.add_literal(span(), Literal::from(0));
+        let binding = ast.add_binding(true, span(), spanned(x), None, Some((span(), zero)));
+        let condition = ast.add_boolean(span(), true);
+        let one = ast.add_literal(span(), Literal::from(1));
+        let assignment = ast.add_assignment(spanned(x), span(), one);
+        let if_expr = ast.add_if(span(), condition, assignment, None);
+        let if_stmt = ast.expr_as_stmt(if_expr);
+        let read = ast.add_ident(spanned(x));
+        let read = ast.expr_as_stmt(read);
+        let expr = ast.add_block(
+            span(),
+            nonempty::NonEmpty {
+                head: binding,
+                tail: vec![if_stmt, read],
+            },
+        );
+        let arena = ast.arena();
+        with_built_expr(expr, arena, |value| {
+            assert!(matches!(&value.kind, DataKind::Phi { .. }));
+        });
+    }
+}

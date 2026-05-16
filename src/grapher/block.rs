@@ -75,183 +75,96 @@ impl JumpTableStack {
     }
 }
 
-#[cfg(never)]
 #[cfg(test)]
 mod tests {
     use bumpalo::Bump;
 
     use super::JumpTableStack;
     use crate::{
-        error::Span,
-        grapher::{
-            Graph,
-            builder::{ScopedSymbolTable, binding::MutableState},
-            graph::DataID,
-        },
+        grapher::{Graph, builder::Cursor},
         literal_parsing::Literal,
-        parser::{BuiltinType, Interner},
+        parser::Interner,
     };
 
     fn graph() -> Graph {
         Graph::new(Bump::new())
     }
 
-    fn state_size(index: usize) -> usize {
-        let mut table = ScopedSymbolTable::new();
-        let mut scopes = Vec::new();
-        for _ in 0..index {
-            scopes.push(table.open_scope());
-        }
-        table.state_size()
-    }
-
-    fn state_with(graph: &mut Graph, value: DataID) -> MutableState {
+    #[test]
+    fn empty_stack_has_no_current_or_labelled_block() {
+        let mut blocks = JumpTableStack::new();
         let mut interner = Interner::new();
-        let mut table = ScopedSymbolTable::new();
-        let ty = graph.add_builtin_type(BuiltinType::Signed { size: 32 });
-        table.add_symbol(true, Span::beginning(), interner.get("state"), ty, value);
-        table.snapshot_state()
+
+        assert!(blocks.get(None).is_none());
+        assert!(blocks.get(Some(interner.get("missing"))).is_none());
     }
 
     #[test]
-    fn starts_without_an_active_branch_scope() {
-        let jumps = JumpTableStack::new();
-        assert!(jumps.currents_state_size().is_none());
-    }
+    fn unlabelled_lookup_returns_innermost_block() {
+        let mut blocks = JumpTableStack::new();
+        let outer = blocks.open_block(None, 1);
+        let inner = blocks.open_block(None, 3);
 
-    #[test]
-    fn tracks_nested_branch_scopes_and_restores_parent_on_close() {
-        let mut jumps = JumpTableStack::new();
-        let outer_scope = state_size(3);
-        let (outer_tok, outer) = jumps.open_block(outer_scope);
-        assert!(jumps.currents_state_size().is_some());
+        assert_eq!(blocks.get(None).expect("inner").state_size, 3);
 
-        let inner_scope = state_size(7);
-        let (inner_tok, inner) = jumps.open_block(inner_scope);
-        assert!(jumps.currents_state_size().is_some());
-        let _ = jumps.state_size_of(outer);
-        let _ = jumps.state_size_of(inner);
-
-        let inner_jumps = jumps.close_block(inner_tok);
+        let inner_jumps = blocks.close_block(inner);
         assert!(inner_jumps.continue_points.is_empty());
-        assert!(inner_jumps.breaks.is_empty());
-        assert!(jumps.currents_state_size().is_some());
+        assert_eq!(blocks.get(None).expect("outer").state_size, 1);
 
-        let outer_jumps = jumps.close_block(outer_tok);
-        assert!(outer_jumps.continue_points.is_empty());
+        let outer_jumps = blocks.close_block(outer);
         assert!(outer_jumps.breaks.is_empty());
-        assert!(jumps.currents_state_size().is_none());
+        assert!(blocks.get(None).is_none());
     }
 
     #[test]
-    fn records_continue_and_break_jumps_on_the_current_branch() {
+    fn labelled_lookup_uses_nearest_matching_label() {
+        let mut blocks = JumpTableStack::new();
+        let mut interner = Interner::new();
+        let label = interner.get("target");
+        let outer = blocks.open_block(Some(label), 1);
+        let _middle = blocks.open_block(None, 2);
+        let inner = blocks.open_block(Some(label), 4);
+
+        assert_eq!(blocks.get(Some(label)).expect("inner label").state_size, 4);
+
+        let _ = blocks.close_block(inner);
+        assert_eq!(blocks.get(Some(label)).expect("outer label").state_size, 1);
+
+        let _ = blocks.close_block(_middle);
+        let _ = blocks.close_block(outer);
+        assert!(blocks.get(Some(label)).is_none());
+    }
+
+    #[test]
+    fn close_block_exports_recorded_continue_and_break_cursors() {
         let mut graph = graph();
+        let mut blocks = JumpTableStack::new();
+        let tok = blocks.open_block(None, 1);
+        let state_value = graph.add_literal(Literal::from(1));
+        let break_value = graph.add_literal(Literal::from(2));
+        let ctrl = graph.start();
 
-        let mut jumps = JumpTableStack::new();
-        let (branch, _) = jumps.open_block(state_size(0));
-
-        let continue_ctrl = graph.add_start();
-        let break_merge = graph.add_merge(vec![continue_ctrl.clone()]);
-        let break_ctrl = graph.add_ctrl_merge(break_merge);
-        let state_value = graph.add_literal(Literal::from(5));
-        let break_value = graph.add_literal(Literal::from(99));
-
-        jumps.add_continue(
-            continue_ctrl.clone(),
-            state_with(&mut graph, state_value.clone()),
+        let block = blocks.get(None).expect("block");
+        block.continue_jumps.push(Cursor {
+            state: vec![Some(state_value.clone())],
+            ctrl: ctrl.clone(),
+        });
+        block.break_jumps.push(
+            Cursor {
+                state: vec![Some(state_value.clone())],
+                ctrl: ctrl.clone(),
+            }
+            .with_data(break_value.clone()),
         );
-        jumps.add_break(
-            break_ctrl.clone(),
-            state_with(&mut graph, break_value.clone()),
-            break_value.clone(),
-        );
 
-        let closed = jumps.close_block(branch);
-        assert_eq!(closed.continue_points.len(), 1);
-        assert_eq!(closed.continue_points[0].addr(), continue_ctrl.addr());
-        assert_eq!(closed.continue_states.len(), 1);
+        let jumps = blocks.close_block(tok);
+
+        assert_eq!(jumps.continue_points.len(), 1);
+        assert_eq!(jumps.continue_points[0].addr(), ctrl.addr());
         assert_eq!(
-            closed
-                .continue_states
-                .into_iter()
-                .next()
-                .unwrap()
-                .into_iter()
-                .next()
-                .unwrap()
-                .addr(),
+            jumps.continue_states[0][0].as_ref().expect("state").addr(),
             state_value.addr()
         );
-
-        assert_eq!(closed.breaks.len(), 1);
-        assert_eq!(closed.breaks[0].addr(), break_ctrl.addr());
-        assert_eq!(closed.break_values[0].addr(), break_value.addr());
-        assert_eq!(
-            closed
-                .break_states
-                .into_iter()
-                .next()
-                .unwrap()
-                .into_iter()
-                .next()
-                .unwrap()
-                .addr(),
-            break_value.addr()
-        );
-    }
-
-    #[test]
-    fn can_route_labelled_jumps_to_an_outer_branch_while_inner_branch_is_active() {
-        let mut graph = graph();
-        let mut jumps = JumpTableStack::new();
-        let (outer_tok, outer) = jumps.open_block(state_size(0));
-        let (inner_tok, _) = jumps.open_block(state_size(1));
-
-        let ctrl = graph.add_start();
-        let continue_value = graph.add_literal(Literal::from(1));
-        let break_value = graph.add_literal(Literal::from(2));
-
-        jumps.add_continue_to(
-            outer,
-            ctrl.clone(),
-            state_with(&mut graph, continue_value.clone()),
-        );
-        jumps.add_break_to(
-            outer,
-            ctrl.clone(),
-            state_with(&mut graph, break_value.clone()),
-            break_value.clone(),
-        );
-
-        let inner_jumps = jumps.close_block(inner_tok);
-        assert!(inner_jumps.continue_points.is_empty());
-        assert!(inner_jumps.breaks.is_empty());
-
-        let outer_jumps = jumps.close_block(outer_tok);
-        assert_eq!(outer_jumps.continue_points[0].addr(), ctrl.addr());
-        assert_eq!(outer_jumps.breaks[0].addr(), ctrl.addr());
-        assert_eq!(outer_jumps.break_values[0].addr(), break_value.addr());
-    }
-
-    #[test]
-    fn preserves_jump_insertion_order_when_closing_a_branch() {
-        let mut graph = graph();
-        let mut jumps = JumpTableStack::new();
-        let (tok, _) = jumps.open_block(state_size(0));
-
-        let ctrl = graph.add_start();
-        let first = graph.add_literal(Literal::from(1));
-        let second = graph.add_literal(Literal::from(2));
-
-        jumps.add_continue(ctrl.clone(), state_with(&mut graph, first.clone()));
-        jumps.add_continue(ctrl, state_with(&mut graph, second.clone()));
-
-        let closed = jumps.close_block(tok);
-        let states = closed
-            .continue_states
-            .into_iter()
-            .map(|state| state.into_iter().next().unwrap().addr())
-            .collect::<Vec<_>>();
-        assert_eq!(states, vec![first.addr(), second.addr()]);
+        assert_eq!(jumps.breaks[0].data.addr(), break_value.addr());
     }
 }

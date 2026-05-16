@@ -34,7 +34,10 @@ type GraphDump = petgraph::Graph<String, String>;
 
 type Visited = HashMap<usize, NodeIndex>;
 
-pub fn dump_text(UniqueNodes { data, types }: UniqueNodes, cursor: Option<DataCursor>) -> String {
+pub fn dump_text(
+    UniqueNodes { data, types, .. }: UniqueNodes,
+    cursor: Option<DataCursor>,
+) -> String {
     let mut visited = Visited::new();
 
     let mut graph_dump: GraphDump = petgraph::Graph::new();

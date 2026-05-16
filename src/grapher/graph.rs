@@ -13,6 +13,7 @@ use crate::{
 pub struct UniqueNodes {
     pub data: Vec<DataID>,
     pub types: Vec<TypeID>,
+    _arena: Bump,
 }
 
 pub type DataID = Rc<DataNode, NoDealloc>;
@@ -189,7 +190,7 @@ impl Graph {
         );
         Self {
             data_cache: HashMap::new(),
-            type_cache: HashMap::new(),
+            type_cache,
             arena,
             start,
             unit,
@@ -202,6 +203,7 @@ impl Graph {
         UniqueNodes {
             data: self.data_cache.drain().map(|(_, v)| v).collect(),
             types: self.type_cache.drain().map(|(_, v)| v).collect(),
+            _arena: self.arena,
         }
     }
 
@@ -368,97 +370,93 @@ impl DataKind {
     }
 }
 
-#[cfg(never)]
 #[cfg(test)]
 mod tests {
     use bumpalo::Bump;
 
-    use super::{CtrlKind, DataKind, Graph};
-    use crate::{
-        grapher::BuildError,
-        literal_parsing::Literal,
-        parser::BuiltinType,
-        tokenizing::{binary_op::BinaryOp, unary_op::UnaryOp},
-    };
+    use super::{CtrlKind, DataKind, Graph, TypeKind};
+    use crate::{literal_parsing::Literal, parser::BuiltinType};
 
-    fn new_graph() -> Graph {
+    fn graph() -> Graph {
         Graph::new(Bump::new())
     }
 
     #[test]
-    fn deduplicates_stable_data_nodes_by_default() {
-        let mut graph = new_graph();
+    fn unit_uses_the_canonical_builtin_unit_type() {
+        let mut graph = graph();
+
+        let unit = graph.unit();
+        let unit_type = graph.add_builtin_type(BuiltinType::Unit);
+
+        assert_eq!(unit.ty.addr(), unit_type.addr());
+    }
+
+    #[test]
+    fn deduplicates_stable_data_and_type_nodes() {
+        let mut graph = graph();
 
         let lit_a = graph.add_literal(Literal::from(7));
         let lit_b = graph.add_literal(Literal::from(7));
-        assert_eq!(lit_a.addr(), lit_b.addr());
-
+        let bool_a = graph.add_boolean(true);
+        let bool_b = graph.add_boolean(true);
         let ty_a = graph.add_builtin_type(BuiltinType::Signed { size: 32 });
         let ty_b = graph.add_builtin_type(BuiltinType::Signed { size: 32 });
+
+        assert_eq!(lit_a.addr(), lit_b.addr());
+        assert_eq!(bool_a.addr(), bool_b.addr());
         assert_eq!(ty_a.addr(), ty_b.addr());
-
-        let unary_a = graph.add_unary(UnaryOp::Neg, lit_a.clone());
-        let unary_b = graph.add_unary(UnaryOp::Neg, lit_b.clone());
-        assert_eq!(unary_a.addr(), unary_b.addr());
-
-        let binary_a = graph.add_binary(BinaryOp::Add, lit_a.clone(), ty_a.clone());
-        let binary_b = graph.add_binary(BinaryOp::Add, lit_b, ty_b);
-        assert_eq!(binary_a.addr(), binary_b.addr());
     }
 
     #[test]
-    fn deduplicates_phi_data_when_requested_through_regular_path() {
-        let mut graph = new_graph();
-        let value = graph.add_literal(Literal::from(1));
-        let ctrl = graph.get_ctrl().expect("start ctrl");
-        let merge = graph.add_merge(vec![ctrl]);
-        let phi = graph.add_phi(merge, vec![value]);
-
-        let data_a = graph.add_data_phi(phi.clone());
-        let data_b = graph.add_data_phi(phi);
-
-        assert_eq!(data_a.addr(), data_b.addr());
-    }
-
-    #[test]
-    fn empty_phi_and_empty_merge_represent_unreachable_flow() {
-        let mut graph = new_graph();
-
-        let start = graph.get_ctrl().expect("start ctrl");
-        assert!(matches!(*start, CtrlKind::Start));
-
-        let empty_merge = graph.add_merge(vec![]);
-        graph.add_merge_to_ctrl(empty_merge.clone());
-        assert!(graph.is_unreachable());
-        assert!(matches!(graph.get_ctrl(), Err(BuildError::UnreachableCtrl)));
-
-        let empty_phi = graph.add_phi(empty_merge, vec![]);
-        let data = graph.add_data_phi(empty_phi);
-        assert!(matches!(data.kind, DataKind::Never));
-    }
-
-    #[test]
-    fn branches_remember_their_input_control_and_condition() {
-        let mut graph = new_graph();
-        let ctrl = graph.get_ctrl().expect("start ctrl");
-        let condition = graph.add_bool(true);
+    fn branches_remember_input_control_and_condition() {
+        let mut graph = graph();
+        let ctrl = graph.start();
+        let condition = graph.add_boolean(true);
 
         let (false_ctrl, true_ctrl) = graph.add_branch(ctrl.clone(), condition.clone());
+
         let CtrlKind::FalseBranch {
             branch: false_branch,
         } = &*false_ctrl
         else {
-            panic!("expected false branch control");
+            panic!("expected false branch");
         };
         let CtrlKind::TrueBranch {
             branch: true_branch,
         } = &*true_ctrl
         else {
-            panic!("expected true branch control");
+            panic!("expected true branch");
         };
 
         assert_eq!(false_branch.addr(), true_branch.addr());
         assert_eq!(false_branch.ctrl.addr(), ctrl.addr());
         assert_eq!(false_branch.condition.addr(), condition.addr());
+    }
+
+    #[test]
+    fn destruct_returns_interned_nodes() {
+        let mut graph = graph();
+        let lit = graph.add_literal(Literal::from(3));
+        let ty = graph.add_builtin_type(BuiltinType::Bool);
+
+        let nodes = graph.destruct();
+
+        assert!(nodes.data.iter().any(|node| node.addr() == lit.addr()));
+        assert!(nodes.types.iter().any(|node| node.addr() == ty.addr()));
+        assert!(
+            nodes
+                .types
+                .iter()
+                .any(|node| matches!(**node, TypeKind::BuiltinType(BuiltinType::Unit)))
+        );
+    }
+
+    #[test]
+    fn error_node_is_not_accidentally_deduped_through_the_cache() {
+        let graph = graph();
+        let error = graph.error();
+
+        assert!(matches!(&error.kind, DataKind::Error));
+        assert!(matches!(*error.ty, TypeKind::Error));
     }
 }
