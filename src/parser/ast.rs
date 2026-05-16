@@ -37,10 +37,16 @@ pub enum DeclStmtKind {
     },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Label {
     pub colon: Span,
     pub label: Spanned<Symbol>,
+}
+
+impl Label {
+    pub fn span(&self) -> Span {
+        self.label.span - self.colon
+    }
 }
 
 #[derive(Clone, Debug)]

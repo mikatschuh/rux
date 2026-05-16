@@ -1,5 +1,6 @@
 use crate::grapher::{
-    builder::{Cursor, DataCursor, binding::MutableState},
+    binding::MutableState,
+    builder::{Cursor, DataCursor},
     graph::CtrlID,
 };
 
