@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use crate::{
     error::{ErrorCode, Errors, Span},
     grapher::{
-        binding::ScopedSymbolTable,
+        binding::{Binding, SymbolTableStack},
+        blocks::JumpTableStack,
         builder::{Cursor, DataCursor},
         graph::TypeID,
-        jumps::{JumpTableStack, LoopID},
     },
     parser::{
         DeclStmt, DeclStmtKind, Expr, ExprKind, ExprStmt, ExprStmtKind, Item, Label, ParserOutput,
@@ -16,12 +16,11 @@ use crate::{
 };
 
 mod binding;
+mod blocks;
 mod builder;
-#[allow(unused)]
 mod graph;
 pub mod graph_dump;
 mod item;
-mod jumps;
 // mod parser;
 
 use bumpalo::Bump;
@@ -64,10 +63,9 @@ pub fn build_graph_debug<'errors>(
 pub struct GraphBuilder<'errors> {
     errors: Rc<Errors<'errors>>,
     graph: Graph,
-    symbol_table: ScopedSymbolTable,
 
-    pub labels: HashMap<Symbol, LoopID>,
-    pub jump_stack: JumpTableStack,
+    symbol_table: SymbolTableStack,
+    blocks: JumpTableStack,
 
     raw_item_table: HashMap<Symbol, Item>,
 }
@@ -84,9 +82,8 @@ impl<'errors> GraphBuilder<'errors> {
             Self {
                 errors,
                 graph,
-                symbol_table: ScopedSymbolTable::new(),
-                labels: HashMap::new(),
-                jump_stack: JumpTableStack::new(),
+                symbol_table: SymbolTableStack::new(),
+                blocks: JumpTableStack::new(),
                 raw_item_table,
             },
             cursor,
@@ -211,15 +208,14 @@ impl<'errors> GraphBuilder<'errors> {
                 cursor.with_data(self.graph.add_binary(op.val, lhs, rhs, ty))
             }
 
-            ExprKind::Ident(symbol) => match self.symbol_table.read_symbol(symbol, &cursor.state) {
-                Some(value) => cursor.with_data(value),
+            ExprKind::Ident(symbol) => match self.symbol_table.get_binding(symbol) {
+                Some(Binding { id, .. }) => match cursor.state[*id].clone() {
+                    Some(value) => cursor.with_data(value),
+                    None => self.uninitialized_moved_variable(expr.span, symbol, cursor),
+                },
                 None => match self.raw_item_table.get(&symbol) {
                     Some(_) => todo!(),
-                    None => {
-                        self.errors
-                            .push(expr.span, ErrorCode::UnknownIdent { symbol });
-                        cursor.with_data(self.graph.error())
-                    }
+                    None => self.unknown_identifier(expr.span, symbol, cursor),
                 },
             },
 
@@ -377,39 +373,20 @@ impl<'errors> GraphBuilder<'errors> {
 
     fn continue_stmt(&mut self, keyword: Span, label: Option<Label>, cursor: Cursor) {
         let Cursor { state, ctrl } = cursor;
-        match label {
-            Some(label) => {
-                let Some(branch) = self.labels.get(&label.label.val).cloned() else {
-                    self.errors.push(
-                        keyword,
-                        ErrorCode::ContinueWithUnknownLabel {
-                            label: label.label.val,
-                        },
-                    );
-                    return;
-                };
+        let Some(block) = self.blocks.get(label.map(|l| l.label.val)) else {
+            self.errors.push(
+                keyword,
+                label.map_or(ErrorCode::ContinueOutsideLoop, |l| {
+                    ErrorCode::ContinueWithUnknownLabel { label: l.label.val }
+                }),
+            );
+            return;
+        };
 
-                let state_size = self.jump_stack.state_size_of(branch);
-                self.jump_stack.add_continue_to(
-                    branch,
-                    Cursor {
-                        state: state[..state_size].to_vec(),
-                        ctrl,
-                    },
-                );
-            }
-            None => {
-                let Some(state_size) = self.jump_stack.currents_state_size() else {
-                    self.errors.push(keyword, ErrorCode::ContinueOutsideLoop);
-                    return;
-                };
-
-                self.jump_stack.add_continue(Cursor {
-                    state: state[..state_size].to_vec(),
-                    ctrl,
-                });
-            }
-        }
+        block.continue_jumps.push(Cursor {
+            state: state[..block.state_size].to_vec(),
+            ctrl,
+        });
     }
 
     fn break_stmt(
@@ -423,75 +400,21 @@ impl<'errors> GraphBuilder<'errors> {
             Some(value) => self.expr(cursor, value),
             None => cursor.with_data(self.graph.unit()),
         };
-        match label {
-            Some(label) => {
-                let Some(branch) = self.labels.get(&label.label.val).cloned() else {
-                    self.errors.push(
-                        keyword,
-                        ErrorCode::BreakWithUnknownLabel {
-                            label: label.label.val,
-                        },
-                    );
-                    return;
-                };
-
-                let state_size = self.jump_stack.state_size_of(branch);
-                self.jump_stack.add_break_to(
-                    branch,
-                    DataCursor {
-                        state: state[..state_size].to_vec(),
-                        ctrl,
-                        data,
-                    },
-                );
-            }
-            None => {
-                let Some(state_size) = self.jump_stack.currents_state_size() else {
-                    self.errors.push(keyword, ErrorCode::BreakOutsideLoop);
-                    return;
-                };
-
-                self.jump_stack.add_break(DataCursor {
-                    state: state[..state_size].to_vec(),
-                    ctrl,
-                    data,
-                });
-            }
-        }
-    }
-
-    fn if_stmt_pot_divergent(
-        &mut self,
-        _keyword: Span,
-        condition: Expr,
-        when_body: ExprStmt,
-        else_body: Option<(Span, ExprStmt)>,
-        cursor: Cursor,
-    ) -> Option<DataCursor> {
-        let condition_cursor = self.expr(cursor, condition);
-
-        let (false_branch, true_branch) = self.graph.branch(condition_cursor.clone());
-
-        let Some(cursor_when_true) = self.expr_stmt_pot_divergent(true_branch, when_body) else {
-            return if let Some((_, else_body)) = else_body {
-                self.expr_stmt_pot_divergent(false_branch, else_body)
-            } else {
-                Some(false_branch.with_data(self.graph.unit()))
-            };
+        let Some(block) = self.blocks.get(label.map(|l| l.label.val)) else {
+            self.errors.push(
+                keyword,
+                label.map_or(ErrorCode::BreakOutsideLoop, |l| {
+                    ErrorCode::BreakWithUnknownLabel { label: l.label.val }
+                }),
+            );
+            return;
         };
 
-        if let Some((_, else_body)) = else_body {
-            let Some(cursor_when_false) = self.expr_stmt_pot_divergent(false_branch, else_body)
-            else {
-                return Some(cursor_when_true);
-            };
-
-            self.graph
-                .merge_pot_diverge(vec![cursor_when_false, cursor_when_true])
-        } else {
-            self.graph
-                .merge_pot_diverge(vec![condition_cursor, cursor_when_true])
-        }
+        block.break_jumps.push(DataCursor {
+            state: state[..block.state_size].to_vec(),
+            ctrl,
+            data,
+        });
     }
 
     fn if_stmt(
@@ -504,7 +427,7 @@ impl<'errors> GraphBuilder<'errors> {
     ) -> DataCursor {
         let condition_cursor = self.expr(cursor, condition);
 
-        let (false_branch, true_branch) = self.graph.branch(condition_cursor.clone());
+        let (false_branch, true_branch) = self.graph.branch(condition_cursor);
 
         let Some(cursor_when_true) = self.expr_stmt_pot_divergent(true_branch, when_body) else {
             return if let Some((_, else_body)) = else_body {
@@ -526,38 +449,90 @@ impl<'errors> GraphBuilder<'errors> {
             })
         } else {
             self.graph.merge(NonEmpty {
-                head: condition_cursor,
+                head: false_branch.with_data(self.graph.unit()),
                 tail: vec![cursor_when_true],
             })
         }
     }
 
+    fn if_stmt_pot_divergent(
+        &mut self,
+        _keyword: Span,
+        condition: Expr,
+        when_body: ExprStmt,
+        else_body: Option<(Span, ExprStmt)>,
+        cursor: Cursor,
+    ) -> Option<DataCursor> {
+        let condition_cursor = self.expr(cursor, condition);
+
+        let (false_branch, true_branch) = self.graph.branch(condition_cursor);
+
+        let Some(cursor_when_true) = self.expr_stmt_pot_divergent(true_branch, when_body) else {
+            return if let Some((_, else_body)) = else_body {
+                self.expr_stmt_pot_divergent(false_branch, else_body)
+            } else {
+                Some(false_branch.with_data(self.graph.unit()))
+            };
+        };
+
+        if let Some((_, else_body)) = else_body {
+            let Some(cursor_when_false) = self.expr_stmt_pot_divergent(false_branch, else_body)
+            else {
+                return Some(cursor_when_true);
+            };
+
+            self.graph
+                .merge_pot_diverge(vec![cursor_when_false, cursor_when_true])
+        } else {
+            self.graph.merge_pot_diverge(vec![
+                false_branch.with_data(self.graph.unit()),
+                cursor_when_true,
+            ])
+        }
+    }
+
     fn label(&mut self, label: Label, body: ExprStmt, cursor: Cursor) -> Option<DataCursor> {
         let (body_cursor, incomplete) = self.graph.open_loop(cursor);
-        let (tok, loop_id) = self.jump_stack.open_block(body_cursor.state.len()); // store how many variables belonged to the previous state
+        let tok = self
+            .blocks
+            .open_block(Some(label.label.val), body_cursor.state.len()); // store how many variables belonged to the previous state
 
-        self.labels.insert(label.label.val, loop_id);
         let body = self.expr_stmt_pot_divergent(body_cursor, body); // parse the hole body
-        self.labels.remove(&label.label.val);
 
-        let jumps = self.jump_stack.close_block(tok);
+        let jumps = self.blocks.close_block(tok);
         self.graph
             .close_loop(jumps, body, false, incomplete, &mut self.errors)
     }
 
     fn loop_stmt(&mut self, _keyword: Span, body: ExprStmt, cursor: Cursor) -> Option<DataCursor> {
         let (body_cursor, incomplete) = self.graph.open_loop(cursor);
-        let (tok, _) = self.jump_stack.open_block(body_cursor.state.len()); // store how many variables belonged to the previous state
+        let tok = self.blocks.open_block(None, body_cursor.state.len()); // store how many variables belonged to the previous state
 
         let body = self.expr_stmt_pot_divergent(body_cursor, body); // parse the hole body
 
-        let jumps = self.jump_stack.close_block(tok);
+        let jumps = self.blocks.close_block(tok);
         self.graph
             .close_loop(jumps, body, true, incomplete, &mut self.errors)
     }
 
     fn divergent_control_flow(&mut self, span: Span, cursor: Cursor) -> DataCursor {
         self.errors.push(span, ErrorCode::DivergentControlFlow);
+        cursor.with_data(self.graph.error())
+    }
+
+    fn uninitialized_moved_variable(
+        &mut self,
+        span: Span,
+        symbol: Symbol,
+        cursor: Cursor,
+    ) -> DataCursor {
+        self.errors
+            .push(span, ErrorCode::ReadUnitializedOrMoved { symbol });
+        cursor.with_data(self.graph.error())
+    }
+
+    fn unknown_identifier(&mut self, span: Span, symbol: Symbol, cursor: Cursor) -> DataCursor {
+        self.errors.push(span, ErrorCode::UnknownIdent { symbol });
         cursor.with_data(self.graph.error())
     }
 }

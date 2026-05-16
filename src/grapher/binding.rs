@@ -5,9 +5,6 @@ use crate::{
     parser::Symbol,
 };
 
-#[must_use]
-pub struct OpenScope(());
-
 #[derive(Debug, Clone)]
 pub struct Binding {
     pub mutable: bool,
@@ -15,27 +12,37 @@ pub struct Binding {
     pub id: StateID,
 }
 
-pub struct ScopedSymbolTable {
-    scopes: Vec<HashMap<Symbol, Binding>>,
+pub struct Scope {
+    size: usize,
+    bindings: HashMap<Symbol, Binding>,
+}
+
+pub struct SymbolTableStack {
+    scopes: Vec<Scope>,
 }
 
 pub type StateID = usize;
 pub type MutableState = Vec<Option<DataID>>;
 
-impl ScopedSymbolTable {
+#[must_use]
+pub struct OpenScope(());
+
+impl SymbolTableStack {
     pub fn new() -> Self {
         Self { scopes: vec![] }
     }
 
     pub fn open_scope(&mut self) -> OpenScope {
-        self.scopes.push(HashMap::new());
+        self.scopes.push(Scope {
+            size: 0,
+            bindings: HashMap::new(),
+        });
         OpenScope(())
     }
 
     pub fn close_scope_and_state(&mut self, _: OpenScope, state: &mut MutableState) {
         let scope = self.scopes.pop().unwrap(); // safe because of OpenScope
-        let len = scope.len();
-        state.truncate(state.len() - len); // remove the mutables from the state
+        state.truncate(state.len() - scope.size); // remove the mutables from the state
     }
 
     pub fn close_scope(&mut self, _: OpenScope) {
@@ -52,7 +59,8 @@ impl ScopedSymbolTable {
         if let Some(scope) = self.scopes.last_mut() {
             let id = state.len();
             state.push(None);
-            scope.insert(symbol, Binding { mutable, ty, id });
+            scope.bindings.insert(symbol, Binding { mutable, ty, id });
+            scope.size += 1;
             Some(id)
         } else {
             None
@@ -61,17 +69,8 @@ impl ScopedSymbolTable {
 
     pub fn get_binding(&mut self, symbol: Symbol) -> Option<&Binding> {
         for scope in self.scopes.iter_mut().rev() {
-            if let Some(binding) = scope.get(&symbol) {
+            if let Some(binding) = scope.bindings.get(&symbol) {
                 return Some(binding);
-            }
-        }
-        None
-    }
-
-    pub fn read_symbol(&mut self, symbol: Symbol, state: &MutableState) -> Option<DataID> {
-        for scope in self.scopes.iter().rev() {
-            if let Some(binding) = scope.get(&symbol) {
-                return state[binding.id].clone();
             }
         }
         None
@@ -81,7 +80,7 @@ impl ScopedSymbolTable {
 #[cfg(never)]
 #[cfg(test)]
 mod tests {
-    use super::{Binding, ScopedSymbolTable};
+    use super::{Binding, SymbolTableStack};
     use crate::{
         error::Span,
         grapher::{
@@ -107,7 +106,7 @@ mod tests {
         let (mut interner, mut graph) = interner_and_graph();
         let setting = interner.get("setting");
 
-        let mut table = ScopedSymbolTable::new();
+        let mut table = SymbolTableStack::new();
         let ty = graph.add_builtin_type(BuiltinType::Signed { size: 32 });
         let outer = graph.add_literal(Literal::from(1));
         let inner = graph.add_literal(Literal::from(2));
@@ -134,7 +133,7 @@ mod tests {
         let counter = interner.get("counter");
         let limit = interner.get("limit");
 
-        let mut table = ScopedSymbolTable::new();
+        let mut table = SymbolTableStack::new();
         let ty = graph.add_builtin_type(BuiltinType::Signed { size: 32 });
         let initial = graph.add_literal(Literal::from(1));
         let overwritten = graph.add_literal(Literal::from(2));
@@ -174,7 +173,7 @@ mod tests {
         let (mut interner, mut graph) = interner_and_graph();
         let missing = interner.get("missing");
 
-        let mut table = ScopedSymbolTable::new();
+        let mut table = SymbolTableStack::new();
         let value = graph.add_literal(Literal::from(1));
 
         let err = table
@@ -196,7 +195,7 @@ mod tests {
         let first = interner.get("first");
         let second = interner.get("second");
 
-        let mut table = ScopedSymbolTable::new();
+        let mut table = SymbolTableStack::new();
         let ty = graph.add_builtin_type(BuiltinType::Signed { size: 32 });
         let first_value = graph.add_literal(Literal::from(1));
         let second_value = graph.add_literal(Literal::from(2));
@@ -247,7 +246,7 @@ mod tests {
         let global = interner.get("global");
         let local = interner.get("local");
 
-        let mut table = ScopedSymbolTable::new();
+        let mut table = SymbolTableStack::new();
         let ty = graph.add_builtin_type(BuiltinType::Signed { size: 32 });
         let global_value = graph.add_literal(Literal::from(1));
         let local_value = graph.add_literal(Literal::from(2));

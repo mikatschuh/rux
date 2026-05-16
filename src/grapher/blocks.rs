@@ -1,25 +1,31 @@
-use crate::grapher::{
-    binding::MutableState,
-    builder::{Cursor, DataCursor},
-    graph::CtrlID,
+use crate::{
+    grapher::{
+        binding::MutableState,
+        builder::{Cursor, DataCursor},
+        graph::CtrlID,
+    },
+    parser::Symbol,
 };
 
+#[must_use]
 pub struct Jumps {
     pub continue_points: Vec<CtrlID>,
     pub continue_states: Vec<MutableState>,
     pub breaks: Vec<DataCursor>,
 }
 
-pub struct LoopBlock {
-    state: usize, // the size of the state the loop owns
-    continue_jumps: Vec<Cursor>,
-    break_jumps: Vec<DataCursor>,
+pub struct Block {
+    label: Option<Symbol>,
+    pub state_size: usize, // the size of the state the loop owns
+    pub continue_jumps: Vec<Cursor>,
+    pub break_jumps: Vec<DataCursor>,
 }
 
-impl LoopBlock {
-    fn new(state: usize) -> Self {
+impl Block {
+    fn new(label: Option<Symbol>, state_size: usize) -> Self {
         Self {
-            state,
+            label,
+            state_size,
             continue_jumps: vec![],
             break_jumps: vec![],
         }
@@ -27,42 +33,28 @@ impl LoopBlock {
 }
 
 pub struct JumpTableStack {
-    loops: Vec<LoopBlock>,
+    blocks: Vec<Block>,
 }
-
-#[derive(Clone, Copy)]
-pub struct LoopID(usize);
 
 #[must_use]
 pub struct OpenLoop(());
 
 impl JumpTableStack {
     pub fn new() -> Self {
-        Self { loops: vec![] }
+        Self { blocks: vec![] }
     }
 
-    pub fn currents_state_size(&self) -> Option<usize> {
-        self.loops.last().map(|b| b.state)
+    pub fn open_block(&mut self, label: Option<Symbol>, state: usize) -> OpenLoop {
+        self.blocks.push(Block::new(label, state));
+        OpenLoop(())
     }
 
-    pub fn state_size_of(&self, loop_id: LoopID) -> usize {
-        self.loops[loop_id.0].state
-    }
-
-    pub fn open_block(&mut self, state: usize) -> (OpenLoop, LoopID) {
-        let branch = self.loops.len();
-        self.loops.push(LoopBlock::new(state));
-        (OpenLoop(()), LoopID(branch))
-    }
-
-    #[must_use]
     pub fn close_block(&mut self, _: OpenLoop) -> Jumps {
-        debug_assert!(!self.loops.is_empty());
-        let LoopBlock {
+        let Block {
             continue_jumps,
             break_jumps,
             ..
-        } = self.loops.pop().unwrap();
+        } = self.blocks.pop().unwrap(); // This is safe because of the OpenLoop token
 
         Jumps {
             continue_points: continue_jumps.iter().map(|c| c.ctrl.clone()).collect(),
@@ -71,20 +63,15 @@ impl JumpTableStack {
         }
     }
 
-    pub fn add_continue(&mut self, cursor: Cursor) {
-        self.loops.last_mut().unwrap().continue_jumps.push(cursor);
-    }
-
-    pub fn add_continue_to(&mut self, branch: LoopID, cursor: Cursor) {
-        self.loops[branch.0].continue_jumps.push(cursor);
-    }
-
-    pub fn add_break(&mut self, cursor: DataCursor) {
-        self.loops.last_mut().unwrap().break_jumps.push(cursor);
-    }
-
-    pub fn add_break_to(&mut self, branch: LoopID, cursor: DataCursor) {
-        self.loops[branch.0].break_jumps.push(cursor);
+    pub fn get(&mut self, label: Option<Symbol>) -> Option<&mut Block> {
+        match label {
+            Some(label) => self
+                .blocks
+                .iter_mut()
+                .rev()
+                .find(|b| b.label.is_some_and(|l| l == label)),
+            None => self.blocks.last_mut(),
+        }
     }
 }
 

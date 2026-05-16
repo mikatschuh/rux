@@ -9,7 +9,6 @@ use crate::{
             BranchID, CtrlID, CtrlKind, DataID, DataKind, MergeID, TypeID, TypeKind, UniqueNodes,
         },
     },
-    parser::Interner,
     tokenizing,
 };
 
@@ -105,11 +104,6 @@ pub fn process_data_node(graph: &mut GraphDump, visited: &mut Visited, node: Dat
         }
         Unit => {
             let idx = graph.add_node("lit unit".to_string());
-            visited.insert(node_addr, idx);
-            idx
-        }
-        Never => {
-            let idx = graph.add_node("lit never".to_string());
             visited.insert(node_addr, idx);
             idx
         }

@@ -83,7 +83,6 @@ pub enum DataKind {
     },
     Boolean(bool),
     Unit,
-    Never,
 
     Unary {
         op: UnaryOp,
@@ -120,7 +119,6 @@ enum DataKey {
     },
     Boolean(bool),
     Unit,
-    Never,
     Unary {
         op: UnaryOp,
         input: usize,
@@ -157,18 +155,23 @@ pub struct Graph {
     type_cache: HashMap<TypeKey, TypeID>,
     // these are certain always needed things that are therefore not stored in the HashMap
     start: CtrlID,      // == CtrlKind::Start
-    unit_type: TypeID,  // == TypeKind::Unit
     unit: DataID,       // .kind == DataKind::Unit
     error_type: TypeID, // == TypeKind::Error
     error: DataID,      // .kind == DataKind::Error
 }
 impl Graph {
     pub fn new(arena: Bump) -> Self {
+        let mut type_cache = HashMap::new();
+
         let start = Rc::<CtrlKind, NoDealloc>::new_in_bump(CtrlKind::Start, &arena);
         let unit_type = Rc::<TypeKind, NoDealloc>::new_in_bump(
             TypeKind::BuiltinType(BuiltinType::Unit),
             &arena,
         );
+        let key = unit_type.key();
+        if let Some(key) = key {
+            type_cache.insert(key, unit_type.clone());
+        }
         let unit = Rc::<DataNode, NoDealloc>::new_in_bump(
             DataNode {
                 ty: unit_type.clone(),
@@ -190,7 +193,6 @@ impl Graph {
             arena,
             start,
             unit,
-            unit_type,
             error_type,
             error,
         }
@@ -291,11 +293,7 @@ impl Graph {
     }
 
     pub fn add_data_phi(&mut self, phi: PhiID, ty: TypeID) -> DataID {
-        if phi.variants.is_empty() {
-            self.push_data(DataKind::Never, ty)
-        } else {
-            self.push_data(DataKind::Phi { phi }, ty)
-        }
+        self.push_data(DataKind::Phi { phi }, ty)
     }
 
     pub fn add_phi_no_dedup(&mut self, phi: PhiID, ty: TypeID) -> DataID {
@@ -314,9 +312,6 @@ impl Graph {
     pub fn start(&self) -> CtrlID {
         self.start.clone()
     }
-    pub fn unit_type(&self) -> TypeID {
-        self.unit_type.clone()
-    }
     pub fn unit(&self) -> DataID {
         self.unit.clone()
     }
@@ -325,11 +320,6 @@ impl Graph {
     }
     pub fn error_type(&self) -> TypeID {
         self.error_type.clone()
-    }
-
-    pub fn add_never(&mut self) -> DataID {
-        let ty = self.push_type(TypeKind::BuiltinType(BuiltinType::Never));
-        self.push_data(DataKind::Never, ty)
     }
 }
 
@@ -355,7 +345,6 @@ impl DataKind {
             }),
             DataKind::Boolean(boolean) => Some(DataKey::Boolean(*boolean)),
             DataKind::Unit => Some(DataKey::Unit),
-            DataKind::Never => Some(DataKey::Never),
             DataKind::Unary { op, value: input } => Some(DataKey::Unary {
                 op: *op,
                 input: input.addr(),

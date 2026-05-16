@@ -80,6 +80,7 @@ pub enum ErrorCode {
     ExpectedType,
     AssignmentToUnknownIdent { symbol: Symbol },
     AssignmentToImmutableIdent { symbol: Symbol },
+    ReadUnitializedOrMoved { symbol: Symbol },
 
     // control flow
     ContinueOutsideLoop,
@@ -306,6 +307,11 @@ impl Error {
                 "assignment to immutable, initialized variable {}",
                 [interner.resolve(*symbol)]
             ),
+            ReadUnitializedOrMoved { symbol } => format_error!(
+                self.span.to_string(path),
+                "tried to read uninitialized/moved variable {}",
+                interner.resolve(*symbol)
+            ),
             ContinueOutsideLoop => format_error!(
                 self.span.to_string(path),
                 "found continue outside of a loop/block"
@@ -324,6 +330,7 @@ impl Error {
                 "found break with {}, an unknown label",
                 [interner.resolve(*label)]
             ),
+
             DivergentControlFlow => format_error!(
                 self.span.to_string(path),
                 "the control flow inside a larger block converges at this point"
