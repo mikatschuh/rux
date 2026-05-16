@@ -169,40 +169,11 @@ impl<'errors> GraphBuilder<'errors> {
                     }
                 }
                 ExprKind::If {
+                    keyword,
                     condition,
                     when_body,
                     else_body,
-                    ..
-                } => {
-                    let condition_cursor = self.expr(cursor, condition);
-
-                    let (false_branch, true_branch) = self.builder.branch(condition_cursor.clone());
-
-                    let Some(cursor_when_true) =
-                        self.expr_stmt_pot_divergent(true_branch, when_body)
-                    else {
-                        return if let Some((_, else_body)) = else_body {
-                            self.expr_stmt_pot_divergent(false_branch, else_body)
-                        } else {
-                            Some(false_branch.with_data(self.builder.graph.unit()))
-                        };
-                    };
-
-                    if let Some((_, else_body)) = else_body {
-                        let Some(cursor_when_false) =
-                            self.expr_stmt_pot_divergent(false_branch, else_body)
-                        else {
-                            return Some(cursor_when_true);
-                        };
-
-                        self.builder
-                            .merge_pot_diverge(vec![cursor_when_false, cursor_when_true])
-                    } else {
-                        self.builder
-                            .merge_pot_diverge(vec![condition_cursor, cursor_when_true])
-                    }
-                }
-
+                } => self.if_stmt_pot_divergent(keyword, condition, when_body, else_body, cursor),
                 ExprKind::Label { label, body } => {
                     let (body_cursor, incomplete, tok, loop_id) =
                         self.builder.open_loop(cursor.clone());
@@ -264,6 +235,7 @@ impl<'errors> GraphBuilder<'errors> {
                     },
                 }
             }
+
             ExprKind::Function {
                 keyword,
                 parameters,
@@ -295,42 +267,11 @@ impl<'errors> GraphBuilder<'errors> {
                 }
             }
             ExprKind::If {
+                keyword,
                 condition,
                 when_body,
                 else_body,
-                ..
-            } => {
-                let condition_cursor = self.expr(cursor, condition);
-
-                let (false_branch, true_branch) = self.builder.branch(condition_cursor.clone());
-
-                let Some(cursor_when_true) = self.expr_stmt_pot_divergent(true_branch, when_body)
-                else {
-                    return if let Some((_, else_body)) = else_body {
-                        self.expr_stmt(false_branch, else_body)
-                    } else {
-                        false_branch.with_data(self.builder.graph.unit())
-                    };
-                };
-
-                if let Some((_, else_body)) = else_body {
-                    let Some(cursor_when_false) =
-                        self.expr_stmt_pot_divergent(false_branch, else_body)
-                    else {
-                        return cursor_when_true;
-                    };
-
-                    self.builder.merge(NonEmpty {
-                        head: cursor_when_false,
-                        tail: vec![cursor_when_true],
-                    })
-                } else {
-                    self.builder.merge(NonEmpty {
-                        head: condition_cursor,
-                        tail: vec![cursor_when_true],
-                    })
-                }
-            }
+            } => self.if_stmt(keyword, condition, when_body, else_body, cursor),
             ExprKind::Label { label, body } => {
                 let (body_cursor, incomplete, tok, loop_id) =
                     self.builder.open_loop(cursor.clone());
@@ -553,6 +494,78 @@ impl<'errors> GraphBuilder<'errors> {
                     data,
                 });
             }
+        }
+    }
+
+    fn if_stmt_pot_divergent(
+        &mut self,
+        _keyword: Span,
+        condition: Expr,
+        when_body: ExprStmt,
+        else_body: Option<(Span, ExprStmt)>,
+        cursor: Cursor,
+    ) -> Option<DataCursor> {
+        let condition_cursor = self.expr(cursor, condition);
+
+        let (false_branch, true_branch) = self.builder.branch(condition_cursor.clone());
+
+        let Some(cursor_when_true) = self.expr_stmt_pot_divergent(true_branch, when_body) else {
+            return if let Some((_, else_body)) = else_body {
+                self.expr_stmt_pot_divergent(false_branch, else_body)
+            } else {
+                Some(false_branch.with_data(self.builder.graph.unit()))
+            };
+        };
+
+        if let Some((_, else_body)) = else_body {
+            let Some(cursor_when_false) = self.expr_stmt_pot_divergent(false_branch, else_body)
+            else {
+                return Some(cursor_when_true);
+            };
+
+            self.builder
+                .merge_pot_diverge(vec![cursor_when_false, cursor_when_true])
+        } else {
+            self.builder
+                .merge_pot_diverge(vec![condition_cursor, cursor_when_true])
+        }
+    }
+
+    fn if_stmt(
+        &mut self,
+        _keyword: Span,
+        condition: Expr,
+        when_body: ExprStmt,
+        else_body: Option<(Span, ExprStmt)>,
+        cursor: Cursor,
+    ) -> DataCursor {
+        let condition_cursor = self.expr(cursor, condition);
+
+        let (false_branch, true_branch) = self.builder.branch(condition_cursor.clone());
+
+        let Some(cursor_when_true) = self.expr_stmt_pot_divergent(true_branch, when_body) else {
+            return if let Some((_, else_body)) = else_body {
+                self.expr_stmt(false_branch, else_body)
+            } else {
+                false_branch.with_data(self.builder.graph.unit())
+            };
+        };
+
+        if let Some((_, else_body)) = else_body {
+            let Some(cursor_when_false) = self.expr_stmt_pot_divergent(false_branch, else_body)
+            else {
+                return cursor_when_true;
+            };
+
+            self.builder.merge(NonEmpty {
+                head: cursor_when_false,
+                tail: vec![cursor_when_true],
+            })
+        } else {
+            self.builder.merge(NonEmpty {
+                head: condition_cursor,
+                tail: vec![cursor_when_true],
+            })
         }
     }
 }
