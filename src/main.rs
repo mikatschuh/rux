@@ -12,7 +12,7 @@ mod threader;
 mod tokenizing;
 mod type_parsing;
 #[macro_use]
-mod utilities;
+mod ref_count;
 mod codegen;
 mod grapher;
 mod literal_parsing;

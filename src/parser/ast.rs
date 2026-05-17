@@ -7,9 +7,9 @@ use crate::{
     error::Span,
     literal_parsing::Literal,
     parser::intern::Symbol,
+    ref_count::{NoDealloc, Rc},
     tokenizing::{binary_op::BinaryOp, token::FloatPrecision, unary_op::UnaryOp},
     type_parsing::{IntegerType, TypeSize},
-    utilities::{NoDealloc, Rc},
 };
 
 pub type DeclStmt = Spanned<Rc<DeclStmtKind, NoDealloc>>;

@@ -2,6 +2,7 @@ use crate::{
     byte_parsing::whitespace_at_start_or_empty,
     error::{Errors, Position},
     literal_parsing::Literal,
+    ref_count::Rc,
     tokenizing::{
         parse_tok::parse_token,
         quote::EmbeddingSyntax,
@@ -11,7 +12,6 @@ use crate::{
         },
     },
     type_parsing::{IntegerType, TypeSize},
-    utilities::Rc,
 };
 use std::mem::{self};
 
@@ -38,28 +38,6 @@ pub trait TokenStream {
     fn get_quote(&mut self) -> String;
     fn get_type(&mut self) -> IntegerType;
     fn consume(&mut self);
-
-    /*
-    fn buffer_if(&mut self, mut predicate: impl FnMut(Token) -> bool) -> TokenBuffer<'src> {
-        let mut buffer = TokenBuffer::new(self.peek().span.start);
-        loop {
-            let tok = self.peek();
-            if !predicate(tok) {
-                break;
-            }
-
-            match tok.kind {
-                Literal => buffer.literals.push_back(self.get_literal()),
-                Quote { .. } => buffer.quotes.push_back(self.get_quote()),
-                Type => buffer.types.push_back(self.get_type()),
-                _ => {}
-            }
-
-            buffer.tokens.push_back(tok);
-            self.consume();
-        }
-        buffer
-    }*/
 }
 
 pub struct Tokenizer<'errors> {

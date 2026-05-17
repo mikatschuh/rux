@@ -13,7 +13,7 @@ use crate::{
         DeclStmt, DeclStmtKind, Expr, ExprKind, ExprStmt, ExprStmtKind, Item, Label, ParserOutput,
         Spanned, Symbol,
     },
-    utilities::Rc,
+    ref_count::Rc,
 };
 
 mod binding;
@@ -560,7 +560,7 @@ mod tests {
         grapher::graph::{DataID, DataKind},
         literal_parsing::Literal,
         parser::{AstBuilder, BuiltinType, Expr, Interner, Label, Spanned, Symbol},
-        utilities::Rc,
+        ref_count::Rc,
     };
 
     use super::GraphBuilder;

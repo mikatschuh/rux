@@ -6,8 +6,8 @@ use crate::{
     grapher::item::ItemID,
     literal_parsing::Literal,
     parser::BuiltinType,
+    ref_count::{NoDealloc, Rc},
     tokenizing::{binary_op::BinaryOp, unary_op::UnaryOp},
-    utilities::{NoDealloc, Rc},
 };
 
 pub struct UniqueNodes {

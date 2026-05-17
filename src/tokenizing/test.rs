@@ -9,7 +9,7 @@ use crate::{
         TokenStream, Tokenizer,
         token::{Token, TokenKind::*},
     },
-    utilities::Rc,
+    ref_count::Rc,
 };
 
 fn collect_tokens_and_quotes(

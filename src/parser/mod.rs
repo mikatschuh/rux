@@ -6,11 +6,11 @@ use nonempty::NonEmpty;
 use crate::{
     error::{ErrorCode, Errors, Span},
     literal_parsing::Literal,
+    ref_count::Rc,
     tokenizing::{
         TokenStream,
         token::{Bracket, Token, TokenKind},
     },
-    utilities::Rc,
 };
 
 mod ast;
@@ -506,7 +506,7 @@ mod tests {
     use std::path::Path;
 
     use super::*;
-    use crate::{tokenizing::Tokenizer, utilities::Rc};
+    use crate::{ref_count::Rc, tokenizing::Tokenizer};
 
     fn parse(source: &'static str) -> (ParserOutput, Rc<Errors<'static>>) {
         let errors = Rc::new(Errors::empty(Path::new("example.rx")));

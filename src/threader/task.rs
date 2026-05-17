@@ -1,8 +1,9 @@
 use super::files::*;
 use crate::{
     error::{CliError, Errors},
-    grapher, parser, tokenizing,
-    utilities::Rc,
+    grapher, parser,
+    ref_count::Rc,
+    tokenizing,
 };
 use std::{
     ffi::OsString,
