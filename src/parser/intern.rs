@@ -40,6 +40,7 @@ impl Interner {
         }
     }
 
+    #[allow(unused)]
     pub fn resolve(&self, symbol: Symbol) -> &'static str {
         self.names[symbol.0]
     }

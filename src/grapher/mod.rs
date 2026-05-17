@@ -7,6 +7,7 @@ use crate::{
         block::JumpTableStack,
         builder::{Cursor, DataCursor},
         graph::TypeID,
+        type_check::require_type,
     },
     parser::{
         DeclStmt, DeclStmtKind, Expr, ExprKind, ExprStmt, ExprStmtKind, Item, Label, ParserOutput,
@@ -21,6 +22,7 @@ mod builder;
 mod graph;
 pub mod graph_dump;
 mod item;
+mod type_check;
 // mod parser;
 
 use bumpalo::Bump;
@@ -291,7 +293,7 @@ impl<'errors> GraphBuilder<'errors> {
                 let ty = self.type_expr(ty);
                 if let Some(id) =
                     self.symbol_table
-                        .add_symbol(mutable, symbol.val, ty, &mut cursor.state)
+                        .add_symbol(mutable, symbol.val, ty.clone(), &mut cursor.state)
                 {
                     match assignment {
                         Some((_, value)) => {
@@ -299,9 +301,14 @@ impl<'errors> GraphBuilder<'errors> {
                                 mut state,
                                 ctrl,
                                 data,
-                            } = self.expr(cursor, value);
-
-                            state[id] = Some(data);
+                            } = self.expr(cursor, value.clone());
+                            state[id] = Some(require_type(
+                                &self.graph,
+                                value.span,
+                                ty,
+                                data,
+                                &mut self.errors,
+                            ));
                             Cursor { state, ctrl }
                         }
                         None => cursor,
@@ -352,10 +359,17 @@ impl<'errors> GraphBuilder<'errors> {
             mut state,
             ctrl,
             data,
-        } = self.expr(cursor, value);
+        } = self.expr(cursor, value.clone());
         if let Some(binding) = self.symbol_table.get_binding(symbol.val) {
             if binding.mutable || state[binding.id].is_none() {
-                state[binding.id] = Some(data);
+                let ty = binding.ty.clone();
+                state[binding.id] = Some(require_type(
+                    &self.graph,
+                    value.span,
+                    ty,
+                    data,
+                    &mut self.errors,
+                ));
             } else {
                 self.errors.push(
                     equal,

@@ -12,7 +12,6 @@ mod threader;
 mod tokenizing;
 mod type_parsing;
 #[macro_use]
-#[allow(dead_code)]
 mod utilities;
 mod codegen;
 mod grapher;

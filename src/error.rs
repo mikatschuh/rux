@@ -63,7 +63,6 @@ pub enum ErrorCode {
     ExpectedIdent,
     ExpectedTerminator,
     ExpectedComma,
-    ExpectedAssignment,
     ExpectedItemDeclaration,
 
     // bracket
@@ -77,7 +76,6 @@ pub enum ErrorCode {
     // variable
     BindingOutsideScope,
     UnknownIdent { symbol: Symbol },
-    ExpectedType,
     AssignmentToUnknownIdent { symbol: Symbol },
     AssignmentToImmutableIdent { symbol: Symbol },
     ReadUnitializedOrMoved { symbol: Symbol },
@@ -93,6 +91,10 @@ pub enum ErrorCode {
 
     // initialization / ownership
     MovedInLoop,
+
+    // type checking
+    ExpectedType,
+    WrongType,
 }
 impl Error {
     pub fn new(span: Span, error: ErrorCode) -> Self {
@@ -251,9 +253,6 @@ impl Error {
                 "expected a comma or any closed bracket"
             ),
             ExpectedComma => format_error!(self.span.to_string(path), "expected a comma"),
-            ExpectedAssignment => {
-                format_error!(self.span.to_string(path), "expected an assignment")
-            }
             ExpectedItemDeclaration => format_error!(
                 self.span.to_string(path),
                 "expected an item declaration with {}",
@@ -296,7 +295,6 @@ impl Error {
                 "found an unknown identifier {}",
                 [interner.resolve(*symbol)]
             ),
-            ExpectedType => format_error!(self.span.to_string(path), "expected a type expression"),
             AssignmentToUnknownIdent { symbol } => format_error!(
                 self.span.to_string(path),
                 "assignment to unknown variable {}",
@@ -344,6 +342,12 @@ impl Error {
             MovedInLoop => format_error!(
                 self.span.to_string(path),
                 "value moved in loop and then still used"
+            ),
+
+            ExpectedType => format_error!(self.span.to_string(path), "expected a type expression"),
+            WrongType => format_error!(
+                self.span.to_string(path),
+                "expected a certain type got the wrong one"
             ),
         })
         .to_string()

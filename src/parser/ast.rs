@@ -182,6 +182,7 @@ impl AstBuilder {
         self.push_stmt(expr_stmt.span, DeclStmtKind::ExprStmt { expr_stmt })
     }
 
+    #[allow(unused)]
     pub fn expr_as_stmt(&mut self, expr: Expr) -> DeclStmt {
         let expr_stmt = self.expr_as_expr_stmt(expr);
         self.expr_stmt_as_decl_stmt(expr_stmt)
@@ -236,7 +237,7 @@ impl AstBuilder {
 
     pub fn add_continue(&mut self, keyword: Span, label: Option<Label>) -> ExprStmt {
         self.push_expr_stmt(
-            label.clone().map_or(keyword, |l| keyword - l.label.span),
+            label.map_or(keyword, |l| keyword - l.label.span),
             ExprStmtKind::Continue { keyword, label },
         )
     }
@@ -248,10 +249,11 @@ impl AstBuilder {
         value: Option<Expr>,
     ) -> ExprStmt {
         self.push_expr_stmt(
-            value.clone().map_or(
-                label.clone().map_or(keyword, |l| keyword - l.label.span),
-                |v| keyword - v.span,
-            ),
+            value
+                .clone()
+                .map_or(label.map_or(keyword, |l| keyword - l.label.span), |v| {
+                    keyword - v.span
+                }),
             ExprStmtKind::Break {
                 keyword,
                 label,
