@@ -19,7 +19,6 @@
 - `src/grapher` contains the Sea of Nodes framework in `graph.rs`, the AST translator in `mod.rs` and in `test.rs` the tests 
 - `codegen/`, `vms/` and `interpreter/` are yet to be filled with content in future sessions
 - `test-project/` is the sample Rux workspace (`test.rx`) used by integration tests and quick demos.
-- `docs/` contains design references on Rux but is completely outdated and has to be ignored.
 
 ## Build, Test, and Development Commands
 - `cargo build --release` compiles the toolchain; `cargo run -- build my_project/inter.rx` compiles the demo program end-to-end.

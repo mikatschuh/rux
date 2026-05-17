@@ -386,7 +386,6 @@ impl<'errors> GraphBuilder<'errors> {
     }
 
     fn continue_stmt(&mut self, keyword: Span, label: Option<Label>, cursor: Cursor) {
-        let Cursor { state, ctrl } = cursor;
         let Some(block) = self.blocks.get(label.map(|l| l.label.val)) else {
             self.errors.push(
                 keyword,
@@ -397,6 +396,7 @@ impl<'errors> GraphBuilder<'errors> {
             return;
         };
 
+        let Cursor { state, ctrl } = cursor;
         block.continue_jumps.push(Cursor {
             state: state[..block.state_size].to_vec(),
             ctrl,

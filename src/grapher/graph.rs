@@ -170,9 +170,8 @@ impl Graph {
             &arena,
         );
         let key = unit_type.key();
-        if let Some(key) = key {
-            type_cache.insert(key, unit_type.clone());
-        }
+        type_cache.insert(key, unit_type.clone());
+
         let unit = Rc::<DataNode, NoDealloc>::new_in_bump(
             DataNode {
                 ty: unit_type.clone(),
@@ -209,32 +208,24 @@ impl Graph {
 
     fn push_data(&mut self, kind: DataKind, ty: TypeID) -> DataID {
         let key = kind.key();
-        if let Some(ref key) = key
-            && let Some(existing) = self.data_cache.get(key)
-        {
+        if let Some(existing) = self.data_cache.get(&key) {
             return existing.clone();
         }
 
         let node = DataNode { kind, ty };
         let id = Rc::<DataNode, NoDealloc>::new_in_bump(node, &self.arena);
-        if let Some(key) = key {
-            self.data_cache.insert(key, id.clone());
-        }
+        self.data_cache.insert(key, id.clone());
         id
     }
 
     fn push_type(&mut self, ty: TypeKind) -> TypeID {
         let key = ty.key();
-        if let Some(ref key) = key
-            && let Some(existing) = self.type_cache.get(key)
-        {
+        if let Some(existing) = self.type_cache.get(&key) {
             return existing.clone();
         }
 
         let id = Rc::<TypeKind, NoDealloc>::new_in_bump(ty, &self.arena);
-        if let Some(key) = key {
-            self.type_cache.insert(key, id.clone());
-        }
+        self.type_cache.insert(key, id.clone());
         id
     }
 
@@ -326,46 +317,46 @@ impl Graph {
 }
 
 impl TypeKind {
-    fn key(&self) -> Option<TypeKey> {
+    fn key(&self) -> TypeKey {
         match self {
-            TypeKind::Type => Some(TypeKey::Type),
-            TypeKind::BuiltinType(builtin_type) => Some(TypeKey::BuiltinType(*builtin_type)),
-            TypeKind::DataType { data } => Some(TypeKey::DataType { data: data.addr() }),
-            TypeKind::Error => Some(TypeKey::Error),
+            TypeKind::Type => TypeKey::Type,
+            TypeKind::BuiltinType(builtin_type) => TypeKey::BuiltinType(*builtin_type),
+            TypeKind::DataType { data } => TypeKey::DataType { data: data.addr() },
+            TypeKind::Error => TypeKey::Error,
         }
     }
 }
 
 impl DataKind {
-    fn key(&self) -> Option<DataKey> {
+    fn key(&self) -> DataKey {
         match self {
-            DataKind::Literal { literal } => Some(DataKey::Literal {
+            DataKind::Literal { literal } => DataKey::Literal {
                 literal: literal.clone(),
-            }),
-            DataKind::Quote { quote } => Some(DataKey::Quote {
+            },
+            DataKind::Quote { quote } => DataKey::Quote {
                 quote: quote.clone(),
-            }),
-            DataKind::Boolean(boolean) => Some(DataKey::Boolean(*boolean)),
-            DataKind::Unit => Some(DataKey::Unit),
-            DataKind::Unary { op, value: input } => Some(DataKey::Unary {
+            },
+            DataKind::Boolean(boolean) => DataKey::Boolean(*boolean),
+            DataKind::Unit => DataKey::Unit,
+            DataKind::Unary { op, value: input } => DataKey::Unary {
                 op: *op,
                 input: input.addr(),
-            }),
-            DataKind::Binary { op, lhs, rhs } => Some(DataKey::Binary {
+            },
+            DataKind::Binary { op, lhs, rhs } => DataKey::Binary {
                 op: *op,
                 lhs: lhs.addr(),
                 rhs: rhs.addr(),
-            }),
-            DataKind::Load { ctrl: mem, addr } => Some(DataKey::Load {
+            },
+            DataKind::Load { ctrl: mem, addr } => DataKey::Load {
                 mem: mem.addr(),
                 addr: addr.addr(),
-            }),
-            DataKind::Phi { phi } => Some(DataKey::Phi {
+            },
+            DataKind::Phi { phi } => DataKey::Phi {
                 merge: phi.merge.addr(),
                 variants: phi.variants.iter().map(|variant| variant.addr()).collect(),
-            }),
-            DataKind::Type { ty } => Some(DataKey::Type { ty: ty.addr() }),
-            DataKind::Error => Some(DataKey::Error),
+            },
+            DataKind::Type { ty } => DataKey::Type { ty: ty.addr() },
+            DataKind::Error => DataKey::Error,
         }
     }
 }
