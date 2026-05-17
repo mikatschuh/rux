@@ -1,5 +1,0 @@
-STD
-
-
-"std" is the standart library of Flou. Its a collection of structures like smartpointers,
-allocators and all kinds of datastructures.

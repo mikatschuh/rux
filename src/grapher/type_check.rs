@@ -13,7 +13,7 @@ pub fn require_type(
     value: DataID,
     errors: &mut Errors,
 ) -> DataID {
-    if value.ty == ty {
+    if value.ty.ptr_cmp(&ty) {
         value
     } else {
         errors.push(span, ErrorCode::WrongType);

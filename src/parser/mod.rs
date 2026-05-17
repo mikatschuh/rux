@@ -510,7 +510,7 @@ mod tests {
 
     fn parse(source: &'static str) -> (ParserOutput, Rc<Errors<'static>>) {
         let errors = Rc::new(Errors::empty(Path::new("example.rx")));
-        let mut tokenizer = Tokenizer::new(source.as_bytes(), errors.clone(), 64);
+        let mut tokenizer = Tokenizer::new(source, errors.clone(), 64);
         let mut parser = Parser::new(&mut tokenizer, errors.clone());
         parser.parse_file();
         (parser.symbol_table(), errors)

@@ -5,18 +5,18 @@ use num::BigUint;
 use crate::{
     error::{ErrorCode, Errors, Span},
     literal_parsing::{self, Base},
+    ref_count::Rc,
     tokenizing::{
         TokenStream, Tokenizer,
         token::{Token, TokenKind::*},
     },
-    ref_count::Rc,
 };
 
 fn collect_tokens_and_quotes(
     input: &'static str,
 ) -> (Vec<Token>, Vec<String>, Rc<Errors<'static>>) {
     let errors = Rc::new(Errors::empty(Path::new("example.rx")));
-    let mut tokenizer = Tokenizer::new(input.as_bytes(), errors.clone(), 64);
+    let mut tokenizer = Tokenizer::new(input, errors.clone(), 64);
 
     let mut tokens = vec![];
     let mut quotes = vec![];
@@ -170,7 +170,7 @@ fn tokenizes_literal_sequences() {
     // testing literal behavior:
 
     let errors = Rc::new(Errors::empty(Path::new("example.rx")));
-    let mut tokenizer = Tokenizer::new("-1.3 + 0x345".as_bytes(), errors.clone(), 64);
+    let mut tokenizer = Tokenizer::new("-1.3 + 0x345", errors.clone(), 64);
 
     assert_eq!(
         tokenizer.peek(),

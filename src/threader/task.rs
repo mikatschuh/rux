@@ -94,8 +94,8 @@ impl Task {
                     return Ok(());
                 }
                 let mut file = OpenOptions::new().read(true).open(path)?;
-                let mut content = vec![];
-                file.read_to_end(&mut content)?;
+                let mut content = String::new();
+                file.read_to_string(&mut content)?;
                 let content = content.leak();
 
                 // let now = Instant::now();

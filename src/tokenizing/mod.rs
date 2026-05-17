@@ -60,12 +60,9 @@ enum Data {
 }
 
 impl<'src> Tokenizer<'src> {
-    pub fn new(
-        mut text: &'static [u8],
-        mut errors: Rc<Errors<'src>>,
-        target_ptr_size: u128,
-    ) -> Self {
+    pub fn new(text: &'static str, mut errors: Rc<Errors<'src>>, target_ptr_size: u128) -> Self {
         let mut state = EmbeddingSyntax::default();
+        let mut text = text.as_bytes();
 
         let (tok, data) = parse_token(
             &mut text,
