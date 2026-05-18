@@ -54,7 +54,11 @@ impl DataCursor {
     }
 }
 
-pub type IncompleteNodes = (MergeID, Vec<(StateID, PhiID)>);
+#[derive(Debug)]
+pub struct IncompleteNodes {
+    head: MergeID,
+    phis: Vec<(StateID, PhiID)>,
+}
 
 impl Graph {
     pub fn open_loop(&mut self, cursor: Cursor) -> (Cursor, IncompleteNodes) {
@@ -79,7 +83,10 @@ impl Graph {
                 state,
                 ctrl: self.add_ctrl_merge(loop_head.clone()),
             }, // with this the body has it as a control flow dependency
-            (loop_head, loop_phis),
+            IncompleteNodes {
+                head: loop_head,
+                phis: loop_phis,
+            },
         )
     }
 
@@ -88,7 +95,7 @@ impl Graph {
         jumps: Jumps,
         body: Option<DataCursor>,
         loop_backedge: bool,
-        (mut loop_head, mut loop_phis): IncompleteNodes,
+        mut incomplete: IncompleteNodes,
         errors: &mut Errors,
     ) -> Option<DataCursor> {
         let Jumps {
@@ -97,26 +104,25 @@ impl Graph {
             mut breaks,
         } = jumps;
 
-        if let Some(cursor) = &body {
+        if let Some(cursor) = body {
             if loop_backedge {
-                continue_points.push(cursor.ctrl.clone()); // add the regular backedge
-                continue_states.push(cursor.state.clone()); // add the regular backedge state
+                continue_points.push(cursor.ctrl); // add the regular backedge
+                continue_states.push(cursor.state); // add the regular backedge state
             } else {
-                breaks.push(cursor.clone());
+                breaks.push(cursor);
             }
         }
 
-        loop_head.branches.append(&mut continue_points); // add the continuation points as backedges
-        loop_phis.iter_mut().for_each(|(i, phi)| {
-            if continue_states.iter().any(|s| s[*i].is_none()) {
+        incomplete.head.branches.append(&mut continue_points); // add the continuation points as backedges
+        incomplete.phis.iter_mut().for_each(|(i, phi)| {
+            let variants = continue_states.iter().map(|s| s[*i].clone());
+
+            if variants.clone().any(|v| v.is_none()) {
                 if phi.strong_count() > 1 {
                     errors.push(Span::beginning(), ErrorCode::MovedInLoop);
                 }
             } else {
-                let mut values = continue_states
-                    .iter()
-                    .map(|s| s[*i].clone().unwrap())
-                    .collect();
+                let mut values = variants.map(|v| v.unwrap()).collect();
 
                 phi.variants.append(&mut values);
             }
@@ -315,12 +321,12 @@ mod tests {
             ctrl: graph.start(),
         };
 
-        let (loop_cursor, (loop_head, loop_phis)) = graph.open_loop(cursor);
+        let (loop_cursor, incomplete) = graph.open_loop(cursor);
 
-        assert_eq!(loop_head.branches.len(), 1);
-        assert_eq!(loop_phis.len(), 1);
-        assert_eq!(loop_phis[0].0, 0);
-        assert_eq!(loop_phis[0].1.variants[0].addr(), initial.addr());
+        assert_eq!(incomplete.head.branches.len(), 1);
+        assert_eq!(incomplete.phis.len(), 1);
+        assert_eq!(incomplete.phis[0].0, 0);
+        assert_eq!(incomplete.phis[0].1.variants[0].addr(), initial.addr());
         assert!(matches!(
             loop_cursor.state[0].as_ref().expect("loop phi").kind,
             DataKind::Phi { .. }

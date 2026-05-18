@@ -63,6 +63,7 @@ pub enum ErrorCode {
     ExpectedIdent,
     ExpectedTerminator,
     ExpectedComma,
+    ExpectedAssignment,
     ExpectedItemDeclaration,
 
     // bracket
@@ -253,6 +254,9 @@ impl Error {
                 "expected a comma or any closed bracket"
             ),
             ExpectedComma => format_error!(self.span.to_string(path), "expected a comma"),
+            ExpectedAssignment => {
+                format_error!(self.span.to_string(path), "expected an assignment")
+            }
             ExpectedItemDeclaration => format_error!(
                 self.span.to_string(path),
                 "expected an item declaration with {}",

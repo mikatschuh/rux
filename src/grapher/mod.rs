@@ -23,7 +23,6 @@ mod graph;
 pub mod graph_dump;
 mod item;
 mod type_check;
-// mod parser;
 
 use bumpalo::Bump;
 pub use graph::Graph;
