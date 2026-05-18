@@ -107,13 +107,18 @@ impl Task {
                 let mut parser = parser::Parser::new(&mut tokenizer, errors.clone());
                 parser.parse_file();
                 let parser_output = parser.symbol_table();
-                let graph_dump = grapher::build_graph_debug(parser_output, "dummy", errors.clone())
-                    .expect("graph");
+                let (graph_dump, interner) =
+                    grapher::build_graph_debug(parser_output, "main", errors.clone())
+                        .expect("graph");
 
                 // Debug Print
                 // let time = now.elapsed().as_nanos();
 
-                println!("{}", graph_dump);
+                if errors.is_empty() {
+                    println!("{}", graph_dump);
+                } else {
+                    println!("{}", errors.display(&interner));
+                }
             }
         }
         Ok(())

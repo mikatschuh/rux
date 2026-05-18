@@ -26,21 +26,30 @@ impl<'src> Errors<'src> {
             errors: vec![Error::new(pos, error)],
         }
     }
+
     pub fn empty(path: &'src Path) -> Self {
         Self {
             file: path,
             errors: Vec::new(),
         }
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.errors.is_empty()
+    }
+
     pub fn push(&mut self, pos: Span, error: ErrorCode) {
         self.errors.push(Error::new(pos, error))
     }
 
-    pub fn push_err(&mut self, err: Error) {
-        self.errors.push(err)
-    }
-    pub fn concat(&mut self, other: Errors) {
-        self.errors.extend(other.errors.iter().cloned());
+    pub fn display(&self, interner: &Interner) -> String {
+        let mut string = String::new();
+        for err in &self.errors {
+            string += &err.display(self.file, interner);
+            string += "\n"
+        }
+
+        string
     }
 }
 
@@ -210,6 +219,7 @@ macro_rules! format_error_arg {
         format!(" {} ", concat_display!{ $($es),+ })
     }};
 }
+
 impl Error {
     fn display(&self, path: &Path, interner: &Interner) -> String {
         use ErrorCode::*;

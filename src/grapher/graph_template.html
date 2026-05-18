@@ -23,6 +23,7 @@
     <body>
         <div id="cy"></div>
         <script>
+            /* IMPORTANT: Keep comments as block comments */
             cytoscape.use(cytoscapeCola);
             const MAX_DIM_LEVEL = 4;
 
@@ -40,7 +41,7 @@
                 handleDisconnected: true,
                 nodeDimensionsIncludeLabels: true,
                 convergenceThreshold: 0.01,
-                randomize: false, // <-- keep ELK positions as starting point
+                randomize: false /* keep ELK positions as starting point */,
                 refresh: 3,
             });
 

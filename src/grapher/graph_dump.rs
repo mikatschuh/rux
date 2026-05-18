@@ -268,7 +268,10 @@ pub fn process_ctrl_node(graph: &mut GraphDump, visited: &mut Visited, node: Ctr
 fn dump_cytoscape(g: &GraphDump) -> String {
     let elements = build_elements(g);
     let template = include_str!("graph_template.html");
-    template.replace("__ELEMENTS__", &elements)
+    template
+        .replace("__ELEMENTS__", &elements)
+        .replace("  ", "")
+        .replace("\n", "")
 }
 
 fn build_elements(g: &GraphDump) -> String {

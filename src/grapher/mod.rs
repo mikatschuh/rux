@@ -10,8 +10,8 @@ use crate::{
         type_check::require_type,
     },
     parser::{
-        DeclStmt, DeclStmtKind, Expr, ExprKind, ExprStmt, ExprStmtKind, Item, Label, ParserOutput,
-        Spanned, Symbol,
+        DeclStmt, DeclStmtKind, Expr, ExprKind, ExprStmt, ExprStmtKind, Interner, Item, Label,
+        ParserOutput, Spanned, Symbol,
     },
     ref_count::Rc,
 };
@@ -36,7 +36,7 @@ pub fn build_graph_debug<'errors>(
     }: ParserOutput,
     starting_point: &'static str,
     mut errors: Rc<Errors<'errors>>,
-) -> Option<String> {
+) -> Option<(String, Interner)> {
     let starting_point_symbol = interner.get(starting_point);
 
     let Item { ty, expr } = match item_table.remove(&starting_point_symbol) {
@@ -55,9 +55,9 @@ pub fn build_graph_debug<'errors>(
     let (mut builder, cursor) = GraphBuilder::new(errors, arena, item_table);
     let cursor = builder.expr(cursor, expr);
 
-    Some(graph_dump::dump_text(
-        builder.graph.destruct(),
-        Some(cursor),
+    Some((
+        graph_dump::dump_text(builder.graph.destruct(), Some(cursor)),
+        interner,
     ))
 }
 

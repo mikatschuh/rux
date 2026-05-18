@@ -1,7 +1,14 @@
-let main usize = {
+let main = { // place holder for a function (not yet implemented)
+    var last_last = 0
+    var last = 1
+
     var i = 0
     loop {
-        i;
-        _ = i
+        let current = last + last_last
+        last_last = last
+        last = current
+        i++
+
+        if i > 255 break
     }
 }
