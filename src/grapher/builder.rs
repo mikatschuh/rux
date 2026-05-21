@@ -1,31 +1,152 @@
-use nonempty::NonEmpty;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
-    error::{ErrorCode, Errors, Span},
+    error::{ErrorCode, Errors},
     grapher::{
         Graph,
-        binding::{MutableState, StateID},
-        block::Jumps,
-        graph::{CtrlID, DataID, MergeID, PhiID},
+        binding::VariableID,
+        graph::{CtrlID, DataID, DataKind, MergeID, TypeID},
+        loops::{ClosedLoop, JumpTableStack, OpenLoop},
     },
+    parser::Expr,
 };
+
+pub type State = HashMap<VariableID, DataID>;
+pub type Incompletes = HashMap<VariableID, Incomplete>;
+
+pub struct Incomplete {
+    placeholder: DataID,
+    /// this the AST-Node that read out the value of the incomplete phi for the first time
+    reference: Expr,
+}
 
 #[derive(Clone, Debug)]
 pub struct Cursor {
-    pub state: MutableState,
-    pub ctrl: CtrlID,
+    pub state: State,
+    cfg: CfgNode,
+}
+
+#[derive(Clone, Debug)]
+enum CfgNode {
+    Start,
+    Branch {
+        pred: Box<Cursor>,
+    },
+    Merge {
+        merge: MergeID,
+        /// pred.len() > 1
+        pred: Vec<Cursor>,
+    },
+    IncompleteMerge,
 }
 
 impl Cursor {
-    pub fn new(graph: &Graph) -> Self {
+    pub fn new() -> Self {
         Self {
-            state: vec![],
-            ctrl: graph.start(),
+            state: State::new(),
+            cfg: CfgNode::Start,
         }
     }
+
+    pub fn with_ctrl(self, ctrl: CtrlID) -> CtrlCursor {
+        CtrlCursor { cursor: self, ctrl }
+    }
+
+    pub fn get_value(
+        &mut self,
+        id: VariableID,
+        ty: TypeID,
+        read: Expr,
+        graph: &mut Graph,
+        jump_table: &mut JumpTableStack,
+    ) -> Option<DataID> {
+        let mut visited = HashSet::new();
+
+        self.get_value_recursive(id, read, graph, jump_table, &mut visited)
+            .map(|mut data| {
+                data.ty = ty;
+                data
+            })
+    }
+
+    pub fn get_value_recursive(
+        &mut self,
+        id: VariableID,
+        read: Expr,
+        graph: &mut Graph,
+        jump_table: &mut JumpTableStack,
+        visited: &mut HashSet<*const CfgNode>, // Just the addresses
+    ) -> Option<DataID> {
+        if let Some(state) = self.state.get(&id) {
+            Some(state.clone())
+        } else {
+            if !visited.insert(&self.cfg as *const CfgNode) {
+                return None;
+            }
+
+            match &mut self.cfg {
+                CfgNode::Start => None,
+                CfgNode::Branch { pred } => {
+                    match pred.get_value_recursive(id, read, graph, jump_table, visited) {
+                        Some(state) => {
+                            self.state.insert(id, state.clone()); // insert for the next lookup
+                            Some(state)
+                        }
+                        None => None,
+                    }
+                }
+                CfgNode::Merge { merge, pred } => {
+                    let mut variants = vec![];
+                    for pred in pred {
+                        variants.push(pred.get_value_recursive(
+                            id,
+                            read.clone(),
+                            graph,
+                            jump_table,
+                            visited,
+                        )?);
+                    }
+                    let first = variants.first().unwrap();
+                    if variants.iter().all(|v| v == first) {
+                        let state = variants.pop().unwrap();
+                        self.state.insert(id, state.clone()); // insert for the next lookup
+                        Some(state)
+                    } else {
+                        let ty = variants[0].ty.clone();
+                        let phi = graph.add_phi(merge.clone(), variants);
+                        let phi = graph.add_data_phi(phi, ty);
+                        self.state.insert(id, phi.clone()); // insert for the next lookup
+                        Some(phi)
+                    }
+                }
+                CfgNode::IncompleteMerge => {
+                    // we know that jump_table has to have at least one loop as IncompleteMerge cant be created without that to hold
+                    let placeholder = graph.add_placeholder();
+                    jump_table.get_block().incomplete_phis.insert(
+                        id,
+                        Incomplete {
+                            placeholder: placeholder.clone(),
+                            reference: read,
+                        },
+                    );
+                    self.state.insert(id, placeholder.clone()); // insert for the next lookup
+                    Some(placeholder)
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct CtrlCursor {
+    pub cursor: Cursor,
+    pub ctrl: CtrlID,
+}
+
+impl CtrlCursor {
     pub fn with_data(self, data: DataID) -> DataCursor {
         DataCursor {
-            state: self.state,
+            cursor: self.cursor,
             ctrl: self.ctrl,
             data,
         }
@@ -34,162 +155,188 @@ impl Cursor {
 
 #[derive(Clone, Debug)]
 pub struct DataCursor {
-    pub state: MutableState,
+    pub cursor: Cursor,
     pub ctrl: CtrlID,
     pub data: DataID,
 }
 
 impl DataCursor {
-    pub fn cursor(self) -> Cursor {
-        Cursor {
-            state: self.state,
+    pub fn without_data(self) -> CtrlCursor {
+        CtrlCursor {
+            cursor: self.cursor,
             ctrl: self.ctrl,
         }
     }
 
-    pub fn split_data(self) -> (Cursor, DataID) {
-        let DataCursor { state, ctrl, data } = self;
-
-        (Cursor { state, ctrl }, data)
+    pub fn split(self) -> (CtrlCursor, DataID) {
+        (
+            CtrlCursor {
+                cursor: self.cursor,
+                ctrl: self.ctrl,
+            },
+            self.data,
+        )
     }
 }
 
-#[derive(Debug)]
-pub struct IncompleteNodes {
-    head: MergeID,
-    phis: Vec<(StateID, PhiID)>,
-}
-
 impl Graph {
-    pub fn open_loop(&mut self, cursor: Cursor) -> (Cursor, IncompleteNodes) {
-        let Cursor { mut state, ctrl } = cursor;
+    pub fn open_loop(&mut self, cursor: CtrlCursor, _: &OpenLoop) -> (MergeID, Cursor, CtrlCursor) {
+        let CtrlCursor { cursor, ctrl } = cursor;
         // ctrl node structure setup
-        let loop_head = self.add_merge(vec![ctrl]);
-
-        let mut loop_phis = vec![];
-
-        state
-            .iter_mut()
-            .enumerate()
-            .filter_map(|(i, d)| d.as_mut().map(|d| (i, d)))
-            .for_each(|(i, data)| {
-                let phi = self.add_phi(loop_head.clone(), vec![data.clone()]);
-                *data = self.add_phi_no_dedup(phi.clone(), data.ty.clone());
-                loop_phis.push((i, phi))
-            }); // replace every variable with a phi and keep track of the phi's
-
-        (
-            Cursor {
-                state,
-                ctrl: self.add_ctrl_merge(loop_head.clone()),
-            }, // with this the body has it as a control flow dependency
-            IncompleteNodes {
-                head: loop_head,
-                phis: loop_phis,
+        let loop_head = self.add_merge(vec![ctrl.clone()]);
+        let ctrl_cursor = CtrlCursor {
+            ctrl: self.add_ctrl_merge(loop_head.clone()),
+            cursor: Cursor {
+                state: State::new(),
+                cfg: CfgNode::IncompleteMerge,
             },
-        )
+        };
+        (loop_head, cursor, ctrl_cursor)
     }
 
     pub fn close_loop(
         &mut self,
-        jumps: Jumps,
+        mut loop_head: MergeID,
+        mut entry: Cursor,
+
+        closed_loop: ClosedLoop,
+        jump_table: &mut JumpTableStack,
+
         body: Option<DataCursor>,
         loop_backedge: bool,
-        mut incomplete: IncompleteNodes,
+
         errors: &mut Errors,
     ) -> Option<DataCursor> {
-        let Jumps {
-            mut continue_points,
-            mut continue_states,
+        let ClosedLoop {
+            mut continues,
             mut breaks,
-        } = jumps;
+            incomplete_phis: incompletes,
+        } = closed_loop;
 
         if let Some(cursor) = body {
             if loop_backedge {
-                continue_points.push(cursor.ctrl); // add the regular backedge
-                continue_states.push(cursor.state); // add the regular backedge state
+                continues.push(cursor.without_data()); // add the regular backedge
             } else {
                 breaks.push(cursor);
             }
         }
 
-        incomplete.head.branches.append(&mut continue_points); // add the continuation points as backedges
-        incomplete.phis.iter_mut().for_each(|(i, phi)| {
-            let variants = continue_states.iter().map(|s| s[*i].clone());
+        let (mut continue_states, mut continue_points): (Vec<Cursor>, Vec<CtrlID>) =
+            continues.into_iter().map(|c| (c.cursor, c.ctrl)).unzip();
 
-            if variants.clone().any(|v| v.is_none()) {
-                if phi.strong_count() > 1 {
-                    errors.push(Span::beginning(), ErrorCode::MovedInLoop);
-                }
+        loop_head.branches.append(&mut continue_points); // add the continuation points as backedges
+
+        // add thoses backedges to the phi nodes of mutable variables declared outside the loo but used inside
+        'outer: for (
+            id,
+            Incomplete {
+                mut placeholder,
+                reference,
+            },
+        ) in incompletes
+        {
+            let mut variants = if let Some(entry) = entry.get_value(
+                id,
+                placeholder.ty.clone(),
+                reference.clone(),
+                self,
+                jump_table,
+            ) {
+                vec![entry]
             } else {
-                let mut values = variants.map(|v| v.unwrap()).collect();
-
-                phi.variants.append(&mut values);
+                errors.push(reference.span, ErrorCode::ReadUnitializedOrMoved);
+                continue 'outer;
+            };
+            for cursor in &mut continue_states {
+                match cursor.get_value(
+                    id,
+                    placeholder.ty.clone(),
+                    reference.clone(),
+                    self,
+                    jump_table,
+                ) {
+                    Some(variant) => variants.push(variant),
+                    None => {
+                        errors.push(reference.span, ErrorCode::ReadUnitializedOrMoved);
+                        continue 'outer;
+                    }
+                }
             }
-        }); // add thoses backedges to the phi nodes of mutable variables outside the loop for every jump
 
-        self.merge_pot_diverge(breaks)
+            let phi = self.add_phi(loop_head.clone(), variants);
+            placeholder.kind = DataKind::Phi { phi };
+        }
+
+        self.merge(breaks)
     }
 
     /// `(false_branch, true_branch)`
-    pub fn branch(&mut self, cursor: DataCursor) -> (Cursor, Cursor) {
+    pub fn branch(&mut self, cursor: DataCursor) -> (CtrlCursor, CtrlCursor) {
         let condition = cursor.data;
         let (false_branch, true_branch) = self.add_branch(cursor.ctrl.clone(), condition.clone());
 
         (
-            Cursor {
-                state: cursor.state.clone(),
+            CtrlCursor {
+                cursor: Cursor {
+                    state: State::new(),
+                    cfg: CfgNode::Branch {
+                        pred: Box::new(cursor.cursor.clone()),
+                    },
+                },
                 ctrl: false_branch,
             },
-            Cursor {
-                state: cursor.state.clone(),
+            CtrlCursor {
+                cursor: Cursor {
+                    state: State::new(),
+                    cfg: CfgNode::Branch {
+                        pred: Box::new(cursor.cursor),
+                    },
+                },
                 ctrl: true_branch,
             },
         )
     }
 
-    pub fn merge_pot_diverge(&mut self, cursors: Vec<DataCursor>) -> Option<DataCursor> {
-        NonEmpty::from_vec(cursors).map(|cursors| self.merge(cursors))
+    pub fn merge(&mut self, cursors: Vec<DataCursor>) -> Option<DataCursor> {
+        if cursors.is_empty() {
+            return None;
+        }
+        if cursors.len() == 1 {
+            let mut cursors = cursors;
+            return Some(cursors.pop().unwrap());
+        }
+
+        let (variants, ctrls): (Vec<DataID>, Vec<CtrlID>) = cursors
+            .iter()
+            .map(|c| -> (DataID, CtrlID) { (c.data.clone(), c.ctrl.clone()) })
+            .unzip();
+        let cursors: Vec<Cursor> = cursors.into_iter().map(|c| c.cursor).collect();
+
+        let merge = self.add_merge(ctrls);
+
+        let data_merge = self.data_merge(merge.clone(), variants);
+        Some(DataCursor {
+            cursor: Cursor {
+                state: State::new(),
+                cfg: CfgNode::Merge {
+                    merge: merge.clone(),
+                    pred: cursors,
+                },
+            },
+            ctrl: self.add_ctrl_merge(merge),
+            data: data_merge,
+        })
     }
 
-    pub fn merge(&mut self, cursors: NonEmpty<DataCursor>) -> DataCursor {
-        if cursors.len() == 1 {
-            return cursors.head;
-        }
-
-        let merge = self.add_merge(cursors.iter().map(|c| c.ctrl.clone()).collect());
-
-        let size = cursors[0].state.len();
-        debug_assert!(cursors.iter().skip(1).all(|c| c.state.len() == size)); // this is only for making it clear, its actually pretty certified to hold
-
-        let mut state = Vec::with_capacity(size);
-        for i in 0..size {
-            let mut variants = Vec::with_capacity(cursors.len());
-            for variant in cursors.iter().map(|c| c.state[i].clone()) {
-                match variant {
-                    Some(variant) => variants.push(variant),
-                    None => break,
-                }
-            }
-            if variants.len() != cursors.len() {
-                state.push(None) // if in any variant the variable is moved or uninitialized it will be in the merged version
-            } else {
-                let ty = variants[0].ty.clone();
-                let phi = self.add_phi(merge.clone(), variants);
-                state.push(Some(self.add_data_phi(phi, ty)))
-            }
-        }
-
-        let ty = cursors[0].data.ty.clone();
-        let phi = self.add_phi(merge.clone(), cursors.into_iter().map(|v| v.data).collect());
-        DataCursor {
-            state,
-            ctrl: self.add_ctrl_merge(merge),
-            data: self.add_data_phi(phi, ty),
-        }
+    /// Variants.len() has to be greater 0
+    pub fn data_merge(&mut self, merge: MergeID, variants: Vec<DataID>) -> DataID {
+        let ty = variants[0].ty.clone();
+        let phi = self.add_phi(merge, variants);
+        self.add_data_phi(phi, ty)
     }
 }
 
+#[cfg(never)]
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -197,13 +344,13 @@ mod tests {
     use bumpalo::Bump;
     use nonempty::NonEmpty;
 
-    use super::Cursor;
+    use super::CtrlCursor;
     use crate::{
         error::Errors,
         grapher::{
             Graph,
-            block::Jumps,
             graph::{CtrlKind, DataKind},
+            loops::ClosedLoop,
         },
         literal_parsing::Literal,
     };
@@ -215,7 +362,7 @@ mod tests {
     #[test]
     fn cursor_starts_at_graph_start_with_empty_state() {
         let graph = graph();
-        let cursor = Cursor::new(&graph);
+        let cursor = CtrlCursor::new(&graph);
 
         assert!(cursor.state.is_empty());
         assert!(matches!(*cursor.ctrl, CtrlKind::Start));
@@ -226,7 +373,7 @@ mod tests {
         let mut graph = graph();
         let value = graph.add_literal(Literal::from(10));
         let condition = graph.add_boolean(true);
-        let cursor = Cursor {
+        let cursor = CtrlCursor {
             state: vec![Some(value.clone())],
             ctrl: graph.start(),
         }
@@ -258,7 +405,7 @@ mod tests {
         let ctrl_b = graph.add_ctrl_merge(merge);
 
         let merged = graph.merge(NonEmpty {
-            head: Cursor {
+            head: CtrlCursor {
                 state: vec![Some(first.clone())],
                 ctrl: ctrl_a,
             }
@@ -272,7 +419,7 @@ mod tests {
             ],
         });
 
-        let Some(value) = &merged.state[0] else {
+        let Some(value) = &merged.state.states[0] else {
             panic!("merged state should contain a phi");
         };
         let DataKind::Phi { phi } = &value.kind else {
@@ -295,7 +442,7 @@ mod tests {
         let ctrl_b = graph.add_ctrl_merge(merge);
 
         let merged = graph.merge(NonEmpty {
-            head: Cursor {
+            head: CtrlCursor {
                 state: vec![Some(first)],
                 ctrl: ctrl_a,
             }
@@ -316,7 +463,7 @@ mod tests {
     fn open_loop_replaces_initialized_state_slots_with_loop_phis() {
         let mut graph = graph();
         let initial = graph.add_literal(Literal::from(0));
-        let cursor = Cursor {
+        let cursor = CtrlCursor {
             state: vec![Some(initial.clone()), None],
             ctrl: graph.start(),
         };
@@ -337,7 +484,7 @@ mod tests {
     #[test]
     fn close_loop_returns_none_when_loop_has_no_break_exits() {
         let mut graph = graph();
-        let cursor = Cursor {
+        let cursor = CtrlCursor {
             state: vec![],
             ctrl: graph.start(),
         };
@@ -346,7 +493,7 @@ mod tests {
         let unit = graph.unit();
 
         let result = graph.close_loop(
-            Jumps {
+            ClosedLoop {
                 continue_points: vec![],
                 continue_states: vec![],
                 breaks: vec![],

@@ -11,7 +11,6 @@ use crate::{
 };
 
 pub struct UniqueNodes {
-    pub data: Vec<DataID>,
     pub types: Vec<TypeID>,
     _arena: Bump,
 }
@@ -107,6 +106,7 @@ pub enum DataKind {
         ty: TypeID,
     },
 
+    Placeholder,
     Error,
 }
 
@@ -152,7 +152,6 @@ enum DataKey {
 #[derive(Debug)]
 pub struct Graph {
     arena: Bump,
-    data_cache: HashMap<DataKey, DataID>,
     type_cache: HashMap<TypeKey, TypeID>,
     // these are certain always needed things that are therefore not stored in the HashMap
     start: CtrlID,      // == CtrlKind::Start
@@ -160,6 +159,7 @@ pub struct Graph {
     error_type: TypeID, // == TypeKind::Error
     error: DataID,      // .kind == DataKind::Error
 }
+
 impl Graph {
     pub fn new(arena: Bump) -> Self {
         let mut type_cache = HashMap::new();
@@ -188,7 +188,6 @@ impl Graph {
             &arena,
         );
         Self {
-            data_cache: HashMap::new(),
             type_cache,
             arena,
             start,
@@ -200,22 +199,9 @@ impl Graph {
 
     pub fn destruct(mut self) -> UniqueNodes {
         UniqueNodes {
-            data: self.data_cache.drain().map(|(_, v)| v).collect(),
             types: self.type_cache.drain().map(|(_, v)| v).collect(),
             _arena: self.arena,
         }
-    }
-
-    fn push_data(&mut self, kind: DataKind, ty: TypeID) -> DataID {
-        let key = kind.key();
-        if let Some(existing) = self.data_cache.get(&key) {
-            return existing.clone();
-        }
-
-        let node = DataNode { kind, ty };
-        let id = Rc::<DataNode, NoDealloc>::new_in_bump(node, &self.arena);
-        self.data_cache.insert(key, id.clone());
-        id
     }
 
     fn push_type(&mut self, ty: TypeKind) -> TypeID {
@@ -229,7 +215,7 @@ impl Graph {
         id
     }
 
-    fn push_data_no_dedup(&mut self, kind: DataKind, ty: TypeID) -> DataID {
+    fn push_data(&mut self, kind: DataKind, ty: TypeID) -> DataID {
         Rc::<DataNode, NoDealloc>::new_in_bump(DataNode { kind, ty }, &self.arena)
     }
 
@@ -289,10 +275,6 @@ impl Graph {
         self.push_data(DataKind::Phi { phi }, ty)
     }
 
-    pub fn add_phi_no_dedup(&mut self, phi: PhiID, ty: TypeID) -> DataID {
-        self.push_data_no_dedup(DataKind::Phi { phi }, ty)
-    }
-
     pub fn add_boolean(&mut self, boolean: bool) -> DataID {
         let ty = self.push_type(TypeKind::BuiltinType(BuiltinType::Bool));
         self.push_data(DataKind::Boolean(boolean), ty)
@@ -300,6 +282,10 @@ impl Graph {
 
     pub fn add_builtin_type(&mut self, ty: BuiltinType) -> TypeID {
         self.push_type(TypeKind::BuiltinType(ty))
+    }
+
+    pub fn add_placeholder(&mut self) -> DataID {
+        self.push_data(DataKind::Placeholder, self.error_type())
     }
 
     pub fn start(&self) -> CtrlID {
@@ -357,6 +343,7 @@ impl DataKind {
             },
             DataKind::Type { ty } => DataKey::Type { ty: ty.addr() },
             DataKind::Error => DataKey::Error,
+            Self::Placeholder => todo!(),
         }
     }
 }
@@ -383,18 +370,12 @@ mod tests {
     }
 
     #[test]
-    fn deduplicates_stable_data_and_type_nodes() {
+    fn deduplicates_stable_type_nodes() {
         let mut graph = graph();
 
-        let lit_a = graph.add_literal(Literal::from(7));
-        let lit_b = graph.add_literal(Literal::from(7));
-        let bool_a = graph.add_boolean(true);
-        let bool_b = graph.add_boolean(true);
         let ty_a = graph.add_builtin_type(BuiltinType::Signed { size: 32 });
         let ty_b = graph.add_builtin_type(BuiltinType::Signed { size: 32 });
 
-        assert_eq!(lit_a.addr(), lit_b.addr());
-        assert_eq!(bool_a.addr(), bool_b.addr());
         assert_eq!(ty_a.addr(), ty_b.addr());
     }
 
@@ -422,24 +403,6 @@ mod tests {
         assert_eq!(false_branch.addr(), true_branch.addr());
         assert_eq!(false_branch.ctrl.addr(), ctrl.addr());
         assert_eq!(false_branch.condition.addr(), condition.addr());
-    }
-
-    #[test]
-    fn destruct_returns_interned_nodes() {
-        let mut graph = graph();
-        let lit = graph.add_literal(Literal::from(3));
-        let ty = graph.add_builtin_type(BuiltinType::Bool);
-
-        let nodes = graph.destruct();
-
-        assert!(nodes.data.iter().any(|node| node.addr() == lit.addr()));
-        assert!(nodes.types.iter().any(|node| node.addr() == ty.addr()));
-        assert!(
-            nodes
-                .types
-                .iter()
-                .any(|node| matches!(**node, TypeKind::BuiltinType(BuiltinType::Unit)))
-        );
     }
 
     #[test]

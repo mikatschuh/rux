@@ -88,7 +88,7 @@ pub enum ErrorCode {
     UnknownIdent { symbol: Symbol },
     AssignmentToUnknownIdent { symbol: Symbol },
     AssignmentToImmutableIdent { symbol: Symbol },
-    ReadUnitializedOrMoved { symbol: Symbol },
+    ReadUnitializedOrMoved,
 
     // control flow
     ContinueOutsideLoop,
@@ -319,10 +319,9 @@ impl Error {
                 "assignment to immutable, initialized variable {}",
                 [interner.resolve(*symbol)]
             ),
-            ReadUnitializedOrMoved { symbol } => format_error!(
+            ReadUnitializedOrMoved => format_error!(
                 self.span.to_string(path),
-                "tried to read uninitialized/moved variable {}",
-                interner.resolve(*symbol)
+                "tried to read uninitialized/moved variable"
             ),
             ContinueOutsideLoop => format_error!(
                 self.span.to_string(path),

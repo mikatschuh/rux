@@ -34,10 +34,7 @@ type GraphDump = petgraph::Graph<String, String>;
 
 type Visited = HashMap<usize, NodeIndex>;
 
-pub fn dump_text(
-    UniqueNodes { data, types, .. }: UniqueNodes,
-    cursor: Option<DataCursor>,
-) -> String {
+pub fn dump_text(UniqueNodes { types, .. }: UniqueNodes, cursor: Option<DataCursor>) -> String {
     let mut visited = Visited::new();
 
     let mut graph_dump: GraphDump = petgraph::Graph::new();
@@ -58,10 +55,6 @@ pub fn dump_text(
             },
         );
     }*/
-
-    for node in data {
-        process_data_node(&mut graph_dump, &mut visited, node);
-    }
 
     for node in types {
         process_type_node(&mut graph_dump, &mut visited, node);
@@ -85,7 +78,7 @@ pub fn process_data_node(graph: &mut GraphDump, visited: &mut Visited, node: Dat
         return *idx;
     }
     use DataKind::*;
-    let ty = process_type_node(graph, visited, node.ty.clone());
+    // let ty = process_type_node(graph, visited, node.ty.clone());
     let data = match node.kind.clone() {
         Literal { literal } => {
             let idx = graph.add_node(format!("lit {}", literal));
@@ -153,8 +146,13 @@ pub fn process_data_node(graph: &mut GraphDump, visited: &mut Visited, node: Dat
             visited.insert(node_addr, idx);
             idx
         }
+        Placeholder => {
+            let idx = graph.add_node("error".to_string());
+            visited.insert(node_addr, idx);
+            idx
+        }
     };
-    graph.add_edge(data, ty, ty!("type"));
+    // graph.add_edge(data, ty, ty!("type"));
     data
 }
 

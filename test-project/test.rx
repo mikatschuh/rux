@@ -11,4 +11,5 @@ let main = { // place holder for a function (not yet implemented)
 
         if i > 255 break
     }
+    i
 }

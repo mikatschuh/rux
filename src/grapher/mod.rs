@@ -4,9 +4,9 @@ use crate::{
     error::{ErrorCode, Errors, Span},
     grapher::{
         binding::{Binding, SymbolTableStack},
-        block::JumpTableStack,
-        builder::{Cursor, DataCursor},
-        graph::TypeID,
+        builder::{CtrlCursor, Cursor, DataCursor},
+        graph::{DataKind, TypeID},
+        loops::JumpTableStack,
         type_check::require_type,
     },
     parser::{
@@ -17,16 +17,15 @@ use crate::{
 };
 
 mod binding;
-mod block;
 mod builder;
 mod graph;
 pub mod graph_dump;
 mod item;
+mod loops;
 mod type_check;
 
 use bumpalo::Bump;
 pub use graph::Graph;
-use nonempty::NonEmpty;
 
 pub fn build_graph_debug<'errors>(
     ParserOutput {
@@ -66,7 +65,7 @@ pub struct GraphBuilder<'errors> {
     graph: Graph,
 
     symbol_table: SymbolTableStack,
-    blocks: JumpTableStack,
+    jump_table: JumpTableStack,
 
     raw_item_table: HashMap<Symbol, Item>,
 }
@@ -76,29 +75,33 @@ impl<'errors> GraphBuilder<'errors> {
         errors: Rc<Errors<'errors>>,
         arena: Bump,
         raw_item_table: HashMap<Symbol, Item>,
-    ) -> (Self, Cursor) {
+    ) -> (Self, CtrlCursor) {
         let graph = Graph::new(arena);
-        let cursor = Cursor::new(&graph);
+        let cursor = Cursor::new().with_ctrl(graph.start());
         (
             Self {
                 errors,
                 graph,
                 symbol_table: SymbolTableStack::new(),
-                blocks: JumpTableStack::new(),
+                jump_table: JumpTableStack::new(),
                 raw_item_table,
             },
             cursor,
         )
     }
 
-    fn decl_stmt_pot_divergent(&mut self, cursor: Cursor, stmt: DeclStmt) -> Option<DataCursor> {
+    fn decl_stmt_pot_divergent(
+        &mut self,
+        cursor: CtrlCursor,
+        stmt: DeclStmt,
+    ) -> Option<DataCursor> {
         match (*stmt.val).clone() {
             DeclStmtKind::ExprStmt { expr_stmt } => self.expr_stmt_pot_divergent(cursor, expr_stmt),
             _ => Some(self.decl_stmt(cursor, stmt)),
         }
     }
 
-    fn decl_stmt(&mut self, cursor: Cursor, stmt: DeclStmt) -> DataCursor {
+    fn decl_stmt(&mut self, cursor: CtrlCursor, stmt: DeclStmt) -> DataCursor {
         match (*stmt.val).clone() {
             DeclStmtKind::Binding {
                 mutable,
@@ -113,7 +116,7 @@ impl<'errors> GraphBuilder<'errors> {
         }
     }
 
-    fn expr_stmt(&mut self, cursor: Cursor, expr_stmt: ExprStmt) -> DataCursor {
+    fn expr_stmt(&mut self, cursor: CtrlCursor, expr_stmt: ExprStmt) -> DataCursor {
         match (*expr_stmt.val).clone() {
             ExprStmtKind::Assignment {
                 symbol,
@@ -129,7 +132,7 @@ impl<'errors> GraphBuilder<'errors> {
 
     fn expr_stmt_pot_divergent(
         &mut self,
-        cursor: Cursor,
+        cursor: CtrlCursor,
         expr_stmt: ExprStmt,
     ) -> Option<DataCursor> {
         match (*expr_stmt.val).clone() {
@@ -157,9 +160,8 @@ impl<'errors> GraphBuilder<'errors> {
                         let stmt = statements.next().unwrap();
                         if statements.peek().is_none() {
                             match self.decl_stmt_pot_divergent(cursor, stmt) {
-                                Some(mut value) => {
-                                    self.symbol_table
-                                        .close_scope_and_state(open_scope, &mut value.state);
+                                Some(value) => {
+                                    self.symbol_table.close_scope(open_scope);
                                     return Some(value);
                                 }
                                 None => {
@@ -168,7 +170,7 @@ impl<'errors> GraphBuilder<'errors> {
                                 }
                             }
                         } else {
-                            cursor = self.decl_stmt(cursor, stmt).cursor();
+                            cursor = self.decl_stmt(cursor, stmt).without_data();
                         }
                     }
                 }
@@ -178,15 +180,15 @@ impl<'errors> GraphBuilder<'errors> {
                     when_body,
                     else_body,
                 } => self.if_stmt_pot_divergent(keyword, condition, when_body, else_body, cursor),
-                ExprKind::Label { label, body } => self.label(label, body, cursor),
-                ExprKind::Loop { keyword, body } => self.loop_stmt(keyword, body, cursor),
+                ExprKind::Label { label, body } => self.loop_stmt(Some(label), body, cursor),
+                ExprKind::Loop { keyword, body } => self.loop_stmt(None, body, cursor),
                 _ => Some(self.expr(cursor, expr)),
             },
             _ => Some(self.expr_stmt(cursor, expr_stmt)),
         }
     }
 
-    fn expr(&mut self, cursor: Cursor, expr: Expr) -> DataCursor {
+    fn expr(&mut self, mut cursor: CtrlCursor, expr: Expr) -> DataCursor {
         match (*expr.val).clone() {
             ExprKind::BuiltinType(builtin_type) => {
                 let ty = self.graph.add_builtin_type(builtin_type);
@@ -198,22 +200,36 @@ impl<'errors> GraphBuilder<'errors> {
             ExprKind::Unit => cursor.with_data(self.graph.unit()),
 
             ExprKind::Unary { op, value: input } => {
-                let (cursor, value) = self.expr(cursor, input).split_data();
+                let (cursor, value) = self.expr(cursor, input).split();
                 let ty = value.ty.clone();
                 cursor.with_data(self.graph.add_unary(op.val, value, ty))
             }
             ExprKind::Binary { lhs, op, rhs } => {
-                let (cursor, lhs) = self.expr(cursor, lhs).split_data();
-                let (cursor, rhs) = self.expr(cursor, rhs).split_data();
+                let (cursor, lhs) = self.expr(cursor, lhs).split();
+                let (cursor, rhs) = self.expr(cursor, rhs).split();
                 let ty = lhs.ty.clone();
                 cursor.with_data(self.graph.add_binary(op.val, lhs, rhs, ty))
             }
 
             ExprKind::Ident(symbol) => match self.symbol_table.get_binding(symbol) {
-                Some(Binding { id, .. }) => match cursor.state[*id].clone() {
-                    Some(value) => cursor.with_data(value),
-                    None => self.uninitialized_moved_variable(expr.span, symbol, cursor),
-                },
+                Some(Binding { id, ty, .. }) => {
+                    match cursor.cursor.get_value(
+                        *id,
+                        ty.clone(),
+                        expr.clone(),
+                        &mut self.graph,
+                        &mut self.jump_table,
+                    ) {
+                        Some(mut value) => {
+                            if value.kind == DataKind::Error {
+                                // Placeholder because of Loop
+                                value.ty = ty.clone();
+                            }
+                            cursor.with_data(value)
+                        }
+                        None => self.uninitialized_moved_variable(expr.span, cursor),
+                    }
+                }
                 None => match self.raw_item_table.get(&symbol) {
                     Some(_) => todo!(),
                     None => self.unknown_identifier(expr.span, symbol, cursor),
@@ -235,17 +251,12 @@ impl<'errors> GraphBuilder<'errors> {
                 loop {
                     let stmt = statements.next().unwrap();
                     if statements.peek().is_none() {
-                        let DataCursor {
-                            mut state,
-                            ctrl,
-                            data,
-                        } = self.decl_stmt(cursor, stmt);
-                        self.symbol_table
-                            .close_scope_and_state(open_scope, &mut state);
+                        let DataCursor { cursor, ctrl, data } = self.decl_stmt(cursor, stmt);
+                        self.symbol_table.close_scope(open_scope);
 
-                        return DataCursor { state, ctrl, data };
+                        return DataCursor { cursor, ctrl, data };
                     } else {
-                        cursor = self.decl_stmt(cursor, stmt).cursor();
+                        cursor = self.decl_stmt(cursor, stmt).without_data();
                     }
                 }
             }
@@ -255,12 +266,13 @@ impl<'errors> GraphBuilder<'errors> {
                 when_body,
                 else_body,
             } => self.if_stmt(keyword, condition, when_body, else_body, cursor),
-            ExprKind::Label { label, body } => match self.label(label, body, cursor.clone()) {
-                Some(cursor) => cursor,
-                None => self.divergent_control_flow(label.span(), cursor),
-            },
-            ExprKind::Loop { keyword, body } => match self.loop_stmt(keyword, body, cursor.clone())
-            {
+            ExprKind::Label { label, body } => {
+                match self.loop_stmt(Some(label), body, cursor.clone()) {
+                    Some(cursor) => cursor,
+                    None => self.divergent_control_flow(label.span(), cursor),
+                }
+            }
+            ExprKind::Loop { keyword, body } => match self.loop_stmt(None, body, cursor.clone()) {
                 Some(cursor) => cursor,
                 None => self.divergent_control_flow(keyword, cursor),
             },
@@ -285,30 +297,28 @@ impl<'errors> GraphBuilder<'errors> {
         ty: Option<Expr>,
         assignment: Option<(Span, Expr)>,
 
-        mut cursor: Cursor,
-    ) -> Cursor {
+        cursor: CtrlCursor,
+    ) -> CtrlCursor {
         match ty {
             Some(ty) => {
                 let ty = self.type_expr(ty);
-                if let Some(id) =
-                    self.symbol_table
-                        .add_symbol(mutable, symbol.val, ty.clone(), &mut cursor.state)
+                if let Some(id) = self
+                    .symbol_table
+                    .add_symbol(mutable, symbol.val, ty.clone())
                 {
                     match assignment {
                         Some((_, value)) => {
                             let DataCursor {
-                                mut state,
+                                mut cursor,
                                 ctrl,
                                 data,
                             } = self.expr(cursor, value.clone());
-                            state[id] = Some(require_type(
-                                &self.graph,
-                                value.span,
-                                ty,
-                                data,
-                                &mut self.errors,
-                            ));
-                            Cursor { state, ctrl }
+
+                            cursor.state.insert(
+                                id,
+                                require_type(&self.graph, value.span, ty, data, &mut self.errors),
+                            );
+                            CtrlCursor { cursor, ctrl }
                         }
                         None => cursor,
                     }
@@ -320,22 +330,20 @@ impl<'errors> GraphBuilder<'errors> {
             None => match assignment {
                 Some((_, value)) => {
                     let DataCursor {
-                        mut state,
+                        mut cursor,
                         ctrl,
                         data,
                     } = self.expr(cursor, value);
 
-                    if let Some(id) = self.symbol_table.add_symbol(
-                        mutable,
-                        symbol.val,
-                        data.ty.clone(),
-                        &mut state,
-                    ) {
-                        state[id] = Some(data);
-                        Cursor { state, ctrl }
+                    if let Some(id) =
+                        self.symbol_table
+                            .add_symbol(mutable, symbol.val, data.ty.clone())
+                    {
+                        cursor.state.insert(id, data);
+                        CtrlCursor { cursor, ctrl }
                     } else {
                         self.errors.push(keyword, ErrorCode::BindingOutsideScope);
-                        Cursor { state, ctrl }
+                        CtrlCursor { cursor, ctrl }
                     }
                 }
                 None => {
@@ -352,23 +360,20 @@ impl<'errors> GraphBuilder<'errors> {
         symbol: Spanned<Symbol>,
         equal: Span,
         value: Expr,
-        cursor: Cursor,
-    ) -> Cursor {
+        cursor: CtrlCursor,
+    ) -> CtrlCursor {
         let DataCursor {
-            mut state,
+            mut cursor,
             ctrl,
             data,
         } = self.expr(cursor, value.clone());
         if let Some(binding) = self.symbol_table.get_binding(symbol.val) {
-            if binding.mutable || state[binding.id].is_none() {
+            if binding.mutable {
                 let ty = binding.ty.clone();
-                state[binding.id] = Some(require_type(
-                    &self.graph,
-                    value.span,
-                    ty,
-                    data,
-                    &mut self.errors,
-                ));
+                cursor.state.insert(
+                    binding.id,
+                    require_type(&self.graph, value.span, ty, data, &mut self.errors),
+                );
             } else {
                 self.errors.push(
                     equal,
@@ -381,11 +386,11 @@ impl<'errors> GraphBuilder<'errors> {
                 ErrorCode::AssignmentToUnknownIdent { symbol: symbol.val },
             );
         }
-        Cursor { state, ctrl }
+        CtrlCursor { cursor, ctrl }
     }
 
-    fn continue_stmt(&mut self, keyword: Span, label: Option<Label>, cursor: Cursor) {
-        let Some(block) = self.blocks.get(label.map(|l| l.label.val)) else {
+    fn continue_stmt(&mut self, keyword: Span, label: Option<Label>, cursor: CtrlCursor) {
+        let Some(block) = self.jump_table.get(label.map(|l| l.label.val)) else {
             self.errors.push(
                 keyword,
                 label.map_or(ErrorCode::ContinueOutsideLoop, |l| {
@@ -395,11 +400,8 @@ impl<'errors> GraphBuilder<'errors> {
             return;
         };
 
-        let Cursor { state, ctrl } = cursor;
-        block.continue_jumps.push(Cursor {
-            state: state[..block.state_size].to_vec(),
-            ctrl,
-        });
+        let CtrlCursor { cursor, ctrl } = cursor;
+        block.continue_jumps.push(CtrlCursor { cursor, ctrl });
     }
 
     fn break_stmt(
@@ -407,13 +409,13 @@ impl<'errors> GraphBuilder<'errors> {
         keyword: Span,
         label: Option<Label>,
         value: Option<Expr>,
-        cursor: Cursor,
+        cursor: CtrlCursor,
     ) {
-        let DataCursor { state, ctrl, data } = match value {
+        let DataCursor { cursor, ctrl, data } = match value {
             Some(value) => self.expr(cursor, value),
             None => cursor.with_data(self.graph.unit()),
         };
-        let Some(block) = self.blocks.get(label.map(|l| l.label.val)) else {
+        let Some(block) = self.jump_table.get(label.map(|l| l.label.val)) else {
             self.errors.push(
                 keyword,
                 label.map_or(ErrorCode::BreakOutsideLoop, |l| {
@@ -423,11 +425,7 @@ impl<'errors> GraphBuilder<'errors> {
             return;
         };
 
-        block.break_jumps.push(DataCursor {
-            state: state[..block.state_size].to_vec(),
-            ctrl,
-            data,
-        });
+        block.break_jumps.push(DataCursor { cursor, ctrl, data });
     }
 
     fn if_stmt(
@@ -436,7 +434,7 @@ impl<'errors> GraphBuilder<'errors> {
         condition: Expr,
         when_body: ExprStmt,
         else_body: Option<(Span, ExprStmt)>,
-        cursor: Cursor,
+        cursor: CtrlCursor,
     ) -> DataCursor {
         let condition_cursor = self.expr(cursor, condition);
 
@@ -456,15 +454,16 @@ impl<'errors> GraphBuilder<'errors> {
                 return cursor_when_true;
             };
 
-            self.graph.merge(NonEmpty {
-                head: cursor_when_false,
-                tail: vec![cursor_when_true],
-            })
+            self.graph
+                .merge(vec![cursor_when_false, cursor_when_true])
+                .unwrap() // we dont put in an empty vec
         } else {
-            self.graph.merge(NonEmpty {
-                head: false_branch.with_data(self.graph.unit()),
-                tail: vec![cursor_when_true],
-            })
+            self.graph
+                .merge(vec![
+                    false_branch.with_data(self.graph.unit()),
+                    cursor_when_true,
+                ])
+                .unwrap()
         }
     }
 
@@ -474,7 +473,7 @@ impl<'errors> GraphBuilder<'errors> {
         condition: Expr,
         when_body: ExprStmt,
         else_body: Option<(Span, ExprStmt)>,
-        cursor: Cursor,
+        cursor: CtrlCursor,
     ) -> Option<DataCursor> {
         let condition_cursor = self.expr(cursor, condition);
 
@@ -494,57 +493,49 @@ impl<'errors> GraphBuilder<'errors> {
                 return Some(cursor_when_true);
             };
 
-            self.graph
-                .merge_pot_diverge(vec![cursor_when_false, cursor_when_true])
+            self.graph.merge(vec![cursor_when_false, cursor_when_true])
         } else {
-            self.graph.merge_pot_diverge(vec![
+            self.graph.merge(vec![
                 false_branch.with_data(self.graph.unit()),
                 cursor_when_true,
             ])
         }
     }
 
-    fn label(&mut self, label: Label, body: ExprStmt, cursor: Cursor) -> Option<DataCursor> {
-        let (body_cursor, incomplete) = self.graph.open_loop(cursor);
-        let tok = self
-            .blocks
-            .open_block(Some(label.label.val), body_cursor.state.len()); // store how many variables belonged to the previous state
+    fn loop_stmt(
+        &mut self,
+        label: Option<Label>,
+        body: ExprStmt,
+        cursor: CtrlCursor,
+    ) -> Option<DataCursor> {
+        let tok = self.jump_table.open_loop(label.map(|l| l.label.val));
+        let (loop_head, entry, body_cursor) = self.graph.open_loop(cursor, &tok);
 
         let body = self.expr_stmt_pot_divergent(body_cursor, body); // parse the hole body
 
-        let jumps = self.blocks.close_block(tok);
-        self.graph
-            .close_loop(jumps, body, false, incomplete, &mut self.errors)
+        let closed_loop = self.jump_table.close_loop(tok);
+        self.graph.close_loop(
+            loop_head,
+            entry,
+            closed_loop,
+            &mut self.jump_table,
+            body,
+            false,
+            &mut self.errors,
+        )
     }
 
-    fn loop_stmt(&mut self, _keyword: Span, body: ExprStmt, cursor: Cursor) -> Option<DataCursor> {
-        let (body_cursor, incomplete) = self.graph.open_loop(cursor);
-        let tok = self.blocks.open_block(None, body_cursor.state.len()); // store how many variables belonged to the previous state
-
-        let body = self.expr_stmt_pot_divergent(body_cursor, body); // parse the hole body
-
-        let jumps = self.blocks.close_block(tok);
-        self.graph
-            .close_loop(jumps, body, true, incomplete, &mut self.errors)
-    }
-
-    fn divergent_control_flow(&mut self, span: Span, cursor: Cursor) -> DataCursor {
+    fn divergent_control_flow(&mut self, span: Span, cursor: CtrlCursor) -> DataCursor {
         self.errors.push(span, ErrorCode::DivergentControlFlow);
         cursor.with_data(self.graph.error())
     }
 
-    fn uninitialized_moved_variable(
-        &mut self,
-        span: Span,
-        symbol: Symbol,
-        cursor: Cursor,
-    ) -> DataCursor {
-        self.errors
-            .push(span, ErrorCode::ReadUnitializedOrMoved { symbol });
+    fn uninitialized_moved_variable(&mut self, span: Span, cursor: CtrlCursor) -> DataCursor {
+        self.errors.push(span, ErrorCode::ReadUnitializedOrMoved);
         cursor.with_data(self.graph.error())
     }
 
-    fn unknown_identifier(&mut self, span: Span, symbol: Symbol, cursor: Cursor) -> DataCursor {
+    fn unknown_identifier(&mut self, span: Span, symbol: Symbol, cursor: CtrlCursor) -> DataCursor {
         self.errors.push(span, ErrorCode::UnknownIdent { symbol });
         cursor.with_data(self.graph.error())
     }
@@ -602,6 +593,7 @@ mod tests {
             DataKind::Phi { .. } => "phi",
             DataKind::Type { .. } => "type",
             DataKind::Error => "error",
+            DataKind::Placeholder => "placeholder",
         }
     }
 

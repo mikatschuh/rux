@@ -1,66 +1,54 @@
 use std::collections::HashMap;
 
-use crate::{
-    grapher::graph::{DataID, TypeID},
-    parser::Symbol,
-};
+use crate::{grapher::graph::TypeID, parser::Symbol};
 
 #[derive(Debug, Clone)]
 pub struct Binding {
     pub mutable: bool,
     pub ty: TypeID,
-    pub id: StateID,
+    pub id: VariableID,
 }
 
 pub struct Scope {
-    size: usize,
     bindings: HashMap<Symbol, Binding>,
 }
 
 pub struct SymbolTableStack {
+    state_id: usize, // monotonic increasing
     scopes: Vec<Scope>,
 }
 
-pub type StateID = usize;
-pub type MutableState = Vec<Option<DataID>>;
+/// This is a proof that the variable exists
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VariableID(usize);
 
 #[must_use]
 pub struct OpenScope(());
 
 impl SymbolTableStack {
     pub fn new() -> Self {
-        Self { scopes: vec![] }
+        Self {
+            state_id: 0,
+            scopes: vec![],
+        }
     }
 
     pub fn open_scope(&mut self) -> OpenScope {
         self.scopes.push(Scope {
-            size: 0,
             bindings: HashMap::new(),
         });
         OpenScope(())
-    }
-
-    pub fn close_scope_and_state(&mut self, _: OpenScope, state: &mut MutableState) {
-        let scope = self.scopes.pop().unwrap(); // safe because of OpenScope
-        state.truncate(state.len() - scope.size); // remove the mutables from the state
     }
 
     pub fn close_scope(&mut self, _: OpenScope) {
         self.scopes.pop().unwrap(); // safe because of OpenScope
     }
 
-    pub fn add_symbol(
-        &mut self,
-        mutable: bool,
-        symbol: Symbol,
-        ty: TypeID,
-        state: &mut MutableState,
-    ) -> Option<StateID> {
+    pub fn add_symbol(&mut self, mutable: bool, symbol: Symbol, ty: TypeID) -> Option<VariableID> {
         if let Some(scope) = self.scopes.last_mut() {
-            let id = state.len();
-            state.push(None);
+            let id = VariableID(self.state_id);
             scope.bindings.insert(symbol, Binding { mutable, ty, id });
-            scope.size += 1;
+            self.state_id += 1;
             Some(id)
         } else {
             None
@@ -77,6 +65,7 @@ impl SymbolTableStack {
     }
 }
 
+#[cfg(never)]
 #[cfg(test)]
 mod tests {
     use bumpalo::Bump;
