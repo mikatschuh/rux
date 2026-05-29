@@ -9,6 +9,7 @@ use crate::{
             BranchID, CtrlID, CtrlKind, DataID, DataKind, MergeID, TypeID, TypeKind, UniqueNodes,
         },
     },
+    parser::{Interner, Symbol},
     tokenizing,
 };
 
@@ -34,7 +35,12 @@ type GraphDump = petgraph::Graph<String, String>;
 
 type Visited = HashMap<usize, NodeIndex>;
 
-pub fn dump_text(UniqueNodes { types, .. }: UniqueNodes, cursor: Option<DataCursor>) -> String {
+pub fn dump_text(
+    UniqueNodes { types, .. }: UniqueNodes,
+    symbols: Vec<(Symbol, DataID)>,
+    cursor: Option<DataCursor>,
+    interner: &Interner,
+) -> String {
     let mut visited = Visited::new();
 
     let mut graph_dump: GraphDump = petgraph::Graph::new();
@@ -58,6 +64,13 @@ pub fn dump_text(UniqueNodes { types, .. }: UniqueNodes, cursor: Option<DataCurs
 
     for node in types {
         process_type_node(&mut graph_dump, &mut visited, node);
+    }
+
+    for (symbol, value) in symbols {
+        let value = process_data_node(&mut graph_dump, &mut visited, value);
+
+        let name = graph_dump.add_node(interner.resolve(symbol).to_string());
+        graph_dump.add_edge(name, value, "".to_string());
     }
 
     if let Some(DataCursor { ctrl, data, .. }) = cursor {
@@ -257,6 +270,11 @@ pub fn process_ctrl_node(graph: &mut GraphDump, visited: &mut Visited, node: Ctr
         }
         Merge { merge } => {
             let idx = process_merge_node(graph, visited, merge);
+            visited.insert(node_addr, idx);
+            idx
+        }
+        Placeholder => {
+            let idx = graph.add_node("error".to_string());
             visited.insert(node_addr, idx);
             idx
         }

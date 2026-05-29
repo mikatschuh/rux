@@ -51,6 +51,7 @@ pub enum CtrlKind {
     Merge { merge: MergeID },
     TrueBranch { branch: BranchID },
     FalseBranch { branch: BranchID },
+    Placeholder,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -286,6 +287,10 @@ impl Graph {
 
     pub fn add_placeholder(&mut self) -> DataID {
         self.push_data(DataKind::Placeholder, self.error_type())
+    }
+
+    pub fn add_ctrl_placeholder(&mut self) -> CtrlID {
+        self.push_ctrl_node(CtrlKind::Placeholder)
     }
 
     pub fn start(&self) -> CtrlID {

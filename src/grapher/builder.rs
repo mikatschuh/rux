@@ -1,28 +1,30 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::{
     error::{ErrorCode, Errors},
     grapher::{
         Graph,
-        binding::VariableID,
-        graph::{CtrlID, DataID, DataKind, MergeID, TypeID},
-        loops::{ClosedLoop, JumpTableStack, OpenLoop},
+        binding::VarID,
+        graph::{CtrlID, CtrlKind, DataID, DataKind, MergeID, TypeID},
+        loops::{LoopBackedges, OpenLoop},
     },
     parser::Expr,
 };
 
-pub type State = HashMap<VariableID, DataID>;
-pub type Incompletes = HashMap<VariableID, Incomplete>;
+/// This describes an **existing** block.
+pub type BlockID = usize;
 
-pub struct Incomplete {
-    placeholder: DataID,
+#[derive(Clone, Debug)]
+pub struct Placeholder {
+    var: VarID,
+    data_placeholder: DataID,
     /// this the AST-Node that read out the value of the incomplete phi for the first time
     reference: Expr,
 }
 
 #[derive(Clone, Debug)]
-pub struct Cursor {
-    pub state: State,
+pub struct Block {
+    definitions: HashMap<VarID, DataID>,
     cfg: CfgNode,
 }
 
@@ -30,231 +32,101 @@ pub struct Cursor {
 enum CfgNode {
     Start,
     Branch {
-        pred: Box<Cursor>,
+        predecessor: BlockID,
     },
     Merge {
         merge: MergeID,
         /// pred.len() > 1
-        pred: Vec<Cursor>,
+        predecessors: Vec<BlockID>,
     },
     IncompleteMerge,
 }
 
-impl Cursor {
-    pub fn new() -> Self {
-        Self {
-            state: State::new(),
-            cfg: CfgNode::Start,
-        }
-    }
-
-    pub fn with_ctrl(self, ctrl: CtrlID) -> CtrlCursor {
-        CtrlCursor { cursor: self, ctrl }
-    }
-
-    pub fn get_value(
-        &mut self,
-        id: VariableID,
-        ty: TypeID,
-        read: Expr,
-        graph: &mut Graph,
-        jump_table: &mut JumpTableStack,
-    ) -> Option<DataID> {
-        let mut visited = HashSet::new();
-
-        self.get_value_recursive(id, read, graph, jump_table, &mut visited)
-            .map(|mut data| {
-                data.ty = ty;
-                data
-            })
-    }
-
-    pub fn get_value_recursive(
-        &mut self,
-        id: VariableID,
-        read: Expr,
-        graph: &mut Graph,
-        jump_table: &mut JumpTableStack,
-        visited: &mut HashSet<*const CfgNode>, // Just the addresses
-    ) -> Option<DataID> {
-        if let Some(state) = self.state.get(&id) {
-            Some(state.clone())
-        } else {
-            if !visited.insert(&self.cfg as *const CfgNode) {
-                return None;
-            }
-
-            match &mut self.cfg {
-                CfgNode::Start => None,
-                CfgNode::Branch { pred } => {
-                    match pred.get_value_recursive(id, read, graph, jump_table, visited) {
-                        Some(state) => {
-                            self.state.insert(id, state.clone()); // insert for the next lookup
-                            Some(state)
-                        }
-                        None => None,
-                    }
-                }
-                CfgNode::Merge { merge, pred } => {
-                    let mut variants = vec![];
-                    for pred in pred {
-                        variants.push(pred.get_value_recursive(
-                            id,
-                            read.clone(),
-                            graph,
-                            jump_table,
-                            visited,
-                        )?);
-                    }
-                    let first = variants.first().unwrap();
-                    if variants.iter().all(|v| v == first) {
-                        let state = variants.pop().unwrap();
-                        self.state.insert(id, state.clone()); // insert for the next lookup
-                        Some(state)
-                    } else {
-                        let ty = variants[0].ty.clone();
-                        let phi = graph.add_phi(merge.clone(), variants);
-                        let phi = graph.add_data_phi(phi, ty);
-                        self.state.insert(id, phi.clone()); // insert for the next lookup
-                        Some(phi)
-                    }
-                }
-                CfgNode::IncompleteMerge => {
-                    // we know that jump_table has to have at least one loop as IncompleteMerge cant be created without that to hold
-                    let placeholder = graph.add_placeholder();
-                    jump_table.get_block().incomplete_phis.insert(
-                        id,
-                        Incomplete {
-                            placeholder: placeholder.clone(),
-                            reference: read,
-                        },
-                    );
-                    self.state.insert(id, placeholder.clone()); // insert for the next lookup
-                    Some(placeholder)
-                }
-            }
-        }
-    }
+pub struct Cfg {
+    blocks: Vec<Block>,
+    placeholders: Vec<Vec<Placeholder>>,
+    ctrl_placeholders: Vec<CtrlID>,
 }
 
-#[derive(Clone, Debug)]
-pub struct CtrlCursor {
-    pub cursor: Cursor,
-    pub ctrl: CtrlID,
-}
-
-impl CtrlCursor {
-    pub fn with_data(self, data: DataID) -> DataCursor {
-        DataCursor {
-            cursor: self.cursor,
-            ctrl: self.ctrl,
-            data,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct DataCursor {
-    pub cursor: Cursor,
-    pub ctrl: CtrlID,
-    pub data: DataID,
-}
-
-impl DataCursor {
-    pub fn without_data(self) -> CtrlCursor {
-        CtrlCursor {
-            cursor: self.cursor,
-            ctrl: self.ctrl,
-        }
-    }
-
-    pub fn split(self) -> (CtrlCursor, DataID) {
+impl Cfg {
+    pub fn new() -> (Self, BlockID) {
         (
-            CtrlCursor {
-                cursor: self.cursor,
-                ctrl: self.ctrl,
+            Self {
+                blocks: vec![Block {
+                    definitions: HashMap::new(),
+                    cfg: CfgNode::Start,
+                }],
+                placeholders: vec![],
+                ctrl_placeholders: vec![],
             },
-            self.data,
+            0,
         )
     }
-}
 
-impl Graph {
-    pub fn open_loop(&mut self, cursor: CtrlCursor, _: &OpenLoop) -> (MergeID, Cursor, CtrlCursor) {
-        let CtrlCursor { cursor, ctrl } = cursor;
-        // ctrl node structure setup
-        let loop_head = self.add_merge(vec![ctrl.clone()]);
-        let ctrl_cursor = CtrlCursor {
-            ctrl: self.add_ctrl_merge(loop_head.clone()),
-            cursor: Cursor {
-                state: State::new(),
-                cfg: CfgNode::IncompleteMerge,
-            },
-        };
-        (loop_head, cursor, ctrl_cursor)
+    fn push_block(&mut self, block: Block) -> BlockID {
+        let id = self.blocks.len();
+        self.blocks.push(block);
+        id
     }
 
-    pub fn close_loop(
-        &mut self,
-        mut loop_head: MergeID,
-        mut entry: Cursor,
+    fn branch(&mut self, predecessor: BlockID) -> BlockID {
+        self.push_block(Block {
+            definitions: HashMap::new(),
+            cfg: CfgNode::Branch { predecessor },
+        })
+    }
 
-        closed_loop: ClosedLoop,
-        jump_table: &mut JumpTableStack,
-
-        body: Option<DataCursor>,
-        loop_backedge: bool,
-
-        errors: &mut Errors,
-    ) -> Option<DataCursor> {
-        let ClosedLoop {
-            mut continues,
-            mut breaks,
-            incomplete_phis: incompletes,
-        } = closed_loop;
-
-        if let Some(cursor) = body {
-            if loop_backedge {
-                continues.push(cursor.without_data()); // add the regular backedge
-            } else {
-                breaks.push(cursor);
-            }
-        }
-
-        let (mut continue_states, mut continue_points): (Vec<Cursor>, Vec<CtrlID>) =
-            continues.into_iter().map(|c| (c.cursor, c.ctrl)).unzip();
-
-        loop_head.branches.append(&mut continue_points); // add the continuation points as backedges
-
-        // add thoses backedges to the phi nodes of mutable variables declared outside the loo but used inside
-        'outer: for (
-            id,
-            Incomplete {
-                mut placeholder,
-                reference,
+    fn merge(&mut self, predecessors: Vec<BlockID>, merge: MergeID) -> BlockID {
+        self.push_block(Block {
+            definitions: HashMap::new(),
+            cfg: CfgNode::Merge {
+                merge,
+                predecessors,
             },
-        ) in incompletes
+        })
+    }
+
+    fn add_unsealed(&mut self, graph: &mut Graph) -> BlockID {
+        let id = self.push_block(Block {
+            definitions: HashMap::new(),
+            cfg: CfgNode::IncompleteMerge,
+        });
+        self.placeholders.push(vec![]);
+        self.ctrl_placeholders.push(graph.add_ctrl_placeholder());
+        id
+    }
+
+    fn seal_block(
+        &mut self,
+        block: BlockID,
+        predecessors: Vec<BlockID>,
+        ctrl_predecessors: Vec<CtrlID>,
+        graph: &mut Graph,
+        errors: &mut Errors,
+    ) {
+        let merge = graph.add_merge(ctrl_predecessors);
+        let mut ctrl_placeholder = self.ctrl_placeholders.pop().unwrap();
+        *ctrl_placeholder = CtrlKind::Merge {
+            merge: merge.clone(),
+        };
+
+        let unsealed = &mut self.blocks[block];
+        unsealed.cfg = CfgNode::Merge {
+            merge: merge.clone(),
+            predecessors: predecessors.clone(),
+        };
+        let placeholders = self.placeholders.pop().unwrap(); // caller side guaranties
+
+        // add thoses backedges to the phi nodes of mutable variables declared outside the loop but used inside
+        'outer: for Placeholder {
+            var,
+            data_placeholder: mut placeholder,
+            reference,
+        } in placeholders
         {
-            let mut variants = if let Some(entry) = entry.get_value(
-                id,
-                placeholder.ty.clone(),
-                reference.clone(),
-                self,
-                jump_table,
-            ) {
-                vec![entry]
-            } else {
-                errors.push(reference.span, ErrorCode::ReadUnitializedOrMoved);
-                continue 'outer;
-            };
-            for cursor in &mut continue_states {
-                match cursor.get_value(
-                    id,
-                    placeholder.ty.clone(),
-                    reference.clone(),
-                    self,
-                    jump_table,
-                ) {
+            let mut variants = vec![];
+            for block in &predecessors {
+                match self.get_definition(*block, var, reference.clone(), graph) {
                     Some(variant) => variants.push(variant),
                     None => {
                         errors.push(reference.span, ErrorCode::ReadUnitializedOrMoved);
@@ -263,41 +135,210 @@ impl Graph {
                 }
             }
 
-            let phi = self.add_phi(loop_head.clone(), variants);
+            let phi = graph.add_phi(merge.clone(), variants);
             placeholder.kind = DataKind::Phi { phi };
         }
+    }
 
-        self.merge(breaks)
+    pub fn assign_variable(&mut self, block: BlockID, var: VarID, value: DataID) -> Option<DataID> {
+        self.blocks[block].definitions.insert(var, value)
+    }
+
+    pub fn read_variable(
+        &mut self,
+        ty: TypeID,
+
+        block: BlockID,
+        var: VarID,
+        read: Expr,
+        graph: &mut Graph,
+    ) -> Option<DataID> {
+        self.get_definition(block, var, read, graph)
+            .map(|mut data| {
+                data.ty = ty;
+                data
+            })
+    }
+
+    fn get_definition(
+        &mut self,
+        block: BlockID,
+        var: VarID,
+        read: Expr,
+        graph: &mut Graph,
+    ) -> Option<DataID> {
+        let current_block = &mut self.blocks[block];
+
+        if let Some(current_blocks_definition) = current_block.definitions.get(&var) {
+            return Some(current_blocks_definition.clone());
+        }
+
+        match &mut current_block.cfg {
+            CfgNode::Start => None,
+            CfgNode::Branch { predecessor: pred } => {
+                let block = *pred;
+                match self.get_definition(block, var, read, graph) {
+                    Some(state) => {
+                        self.blocks[block].definitions.insert(var, state.clone()); // insert for the next lookup
+                        Some(state)
+                    }
+                    None => None,
+                }
+            }
+            CfgNode::Merge {
+                merge,
+                predecessors: pred,
+            } => {
+                let merge = merge.clone();
+
+                let mut variants = vec![];
+                for pred in pred.clone() {
+                    variants.push(self.get_definition(pred, var, read.clone(), graph)?);
+                }
+                let first = variants.first().unwrap();
+                let value = if variants.iter().all(|v| v == first) {
+                    variants.pop().unwrap()
+                } else {
+                    let ty = variants[0].ty.clone();
+                    let phi = graph.add_phi(merge, variants);
+
+                    graph.add_data_phi(phi, ty)
+                };
+
+                self.blocks[block].definitions.insert(var, value.clone()); // insert for the next lookup
+
+                Some(value)
+            }
+            CfgNode::IncompleteMerge => {
+                // we know that jump_table has to have at least one loop as IncompleteMerge cant be created without that to hold
+                let placeholder = graph.add_placeholder();
+                self.placeholders.last_mut().unwrap().push(
+                    // an incomplete merge can only exist when there are placeholders
+                    Placeholder {
+                        var,
+                        data_placeholder: placeholder.clone(),
+                        reference: read,
+                    },
+                );
+                self.blocks[block]
+                    .definitions
+                    .insert(var, placeholder.clone()); // insert for the next lookup
+                Some(placeholder)
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct CtrlCursor {
+    pub block: BlockID,
+    pub ctrl: CtrlID,
+}
+
+impl CtrlCursor {
+    pub fn with_data(self, data: DataID) -> DataCursor {
+        DataCursor {
+            block: self.block,
+            ctrl: self.ctrl,
+            data,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct DataCursor {
+    pub block: BlockID,
+    pub ctrl: CtrlID,
+    pub data: DataID,
+}
+
+impl DataCursor {
+    pub fn without_data(self) -> CtrlCursor {
+        CtrlCursor {
+            block: self.block,
+            ctrl: self.ctrl,
+        }
+    }
+
+    pub fn split(self) -> (CtrlCursor, DataID) {
+        (
+            CtrlCursor {
+                block: self.block,
+                ctrl: self.ctrl,
+            },
+            self.data,
+        )
+    }
+}
+
+impl Graph {
+    pub fn open_loop(&mut self, _: &OpenLoop, cfg: &mut Cfg) -> CtrlCursor {
+        // ctrl node structure setup
+        let header = cfg.add_unsealed(self);
+        CtrlCursor {
+            ctrl: cfg.ctrl_placeholders.last().unwrap().clone(),
+            block: header,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn close_loop(
+        &mut self,
+        CtrlCursor {
+            block: entry_block,
+            ctrl: entry_ctrl,
+        }: CtrlCursor,
+        body: Option<DataCursor>,
+
+        header: BlockID,
+
+        LoopBackedges {
+            continues: mut backedges,
+            breaks: mut exits,
+        }: LoopBackedges,
+
+        loop_backedge: bool,
+
+        cfg: &mut Cfg,
+        errors: &mut Errors,
+    ) -> Option<DataCursor> {
+        if let Some(cursor) = body {
+            if loop_backedge {
+                backedges.push(cursor.without_data()); // add the regular backedge, ignoring the data returned by the body
+            } else {
+                exits.push(cursor);
+            }
+        }
+
+        let (mut entry_blocks, mut entry_ctrls): (Vec<BlockID>, Vec<CtrlID>) =
+            backedges.into_iter().map(|c| (c.block, c.ctrl)).unzip();
+
+        entry_blocks.push(entry_block);
+        entry_ctrls.push(entry_ctrl);
+
+        cfg.seal_block(header, entry_blocks, entry_ctrls, self, errors);
+
+        self.merge(exits, cfg)
     }
 
     /// `(false_branch, true_branch)`
-    pub fn branch(&mut self, cursor: DataCursor) -> (CtrlCursor, CtrlCursor) {
+    pub fn branch(&mut self, cursor: DataCursor, cfg: &mut Cfg) -> (CtrlCursor, CtrlCursor) {
         let condition = cursor.data;
         let (false_branch, true_branch) = self.add_branch(cursor.ctrl.clone(), condition.clone());
 
         (
             CtrlCursor {
-                cursor: Cursor {
-                    state: State::new(),
-                    cfg: CfgNode::Branch {
-                        pred: Box::new(cursor.cursor.clone()),
-                    },
-                },
+                block: cfg.branch(cursor.block),
                 ctrl: false_branch,
             },
             CtrlCursor {
-                cursor: Cursor {
-                    state: State::new(),
-                    cfg: CfgNode::Branch {
-                        pred: Box::new(cursor.cursor),
-                    },
-                },
+                block: cfg.branch(cursor.block),
                 ctrl: true_branch,
             },
         )
     }
 
-    pub fn merge(&mut self, cursors: Vec<DataCursor>) -> Option<DataCursor> {
+    pub fn merge(&mut self, cursors: Vec<DataCursor>, cfg: &mut Cfg) -> Option<DataCursor> {
         if cursors.is_empty() {
             return None;
         }
@@ -310,21 +351,14 @@ impl Graph {
             .iter()
             .map(|c| -> (DataID, CtrlID) { (c.data.clone(), c.ctrl.clone()) })
             .unzip();
-        let cursors: Vec<Cursor> = cursors.into_iter().map(|c| c.cursor).collect();
+        let cursors: Vec<BlockID> = cursors.into_iter().map(|c| c.block).collect();
 
         let merge = self.add_merge(ctrls);
 
-        let data_merge = self.data_merge(merge.clone(), variants);
         Some(DataCursor {
-            cursor: Cursor {
-                state: State::new(),
-                cfg: CfgNode::Merge {
-                    merge: merge.clone(),
-                    pred: cursors,
-                },
-            },
-            ctrl: self.add_ctrl_merge(merge),
-            data: data_merge,
+            ctrl: self.add_ctrl_merge(merge.clone()),
+            data: self.data_merge(merge.clone(), variants),
+            block: cfg.merge(cursors, merge),
         })
     }
 
@@ -350,7 +384,7 @@ mod tests {
         grapher::{
             Graph,
             graph::{CtrlKind, DataKind},
-            loops::ClosedLoop,
+            loops::LoopBackedges,
         },
         literal_parsing::Literal,
     };
@@ -493,7 +527,7 @@ mod tests {
         let unit = graph.unit();
 
         let result = graph.close_loop(
-            ClosedLoop {
+            LoopBackedges {
                 continue_points: vec![],
                 continue_states: vec![],
                 breaks: vec![],

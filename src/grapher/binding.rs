@@ -1,12 +1,15 @@
 use std::collections::HashMap;
 
-use crate::{grapher::graph::TypeID, parser::Symbol};
+use crate::{
+    grapher::graph::{DataID, TypeID},
+    parser::Symbol,
+};
 
 #[derive(Debug, Clone)]
 pub struct Binding {
     pub mutable: bool,
     pub ty: TypeID,
-    pub id: VariableID,
+    pub id: VarID,
 }
 
 pub struct Scope {
@@ -18,9 +21,9 @@ pub struct SymbolTableStack {
     scopes: Vec<Scope>,
 }
 
-/// This is a proof that the variable exists
+/// This is an **existing** variable
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct VariableID(usize);
+pub struct VarID(usize);
 
 #[must_use]
 pub struct OpenScope(());
@@ -40,13 +43,22 @@ impl SymbolTableStack {
         OpenScope(())
     }
 
-    pub fn close_scope(&mut self, _: OpenScope) {
-        self.scopes.pop().unwrap(); // safe because of OpenScope
+    pub fn close_scope(
+        &mut self,
+        _: OpenScope,
+        symbol_dump: &mut Vec<(Symbol, DataID)>,
+        mut read_var: impl FnMut(TypeID, VarID) -> Option<DataID>,
+    ) {
+        let symbols = self.scopes.pop().unwrap().bindings; // safe because of OpenScope
+        symbols
+            .into_iter()
+            .filter_map(|(symbol, binding)| read_var(binding.ty, binding.id).map(|d| (symbol, d)))
+            .for_each(|var| symbol_dump.push(var));
     }
 
-    pub fn add_symbol(&mut self, mutable: bool, symbol: Symbol, ty: TypeID) -> Option<VariableID> {
+    pub fn add_symbol(&mut self, mutable: bool, symbol: Symbol, ty: TypeID) -> Option<VarID> {
         if let Some(scope) = self.scopes.last_mut() {
-            let id = VariableID(self.state_id);
+            let id = VarID(self.state_id);
             scope.bindings.insert(symbol, Binding { mutable, ty, id });
             self.state_id += 1;
             Some(id)

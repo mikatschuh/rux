@@ -1,22 +1,18 @@
-use std::collections::HashMap;
-
 use crate::{
-    grapher::builder::{CtrlCursor, DataCursor, Incompletes},
+    grapher::builder::{CtrlCursor, DataCursor},
     parser::Symbol,
 };
 
 #[must_use]
-pub struct ClosedLoop {
+pub struct LoopBackedges {
     pub continues: Vec<CtrlCursor>,
     pub breaks: Vec<DataCursor>,
-    pub incomplete_phis: Incompletes,
 }
 
 pub struct Loop {
     label: Option<Symbol>,
     pub continue_jumps: Vec<CtrlCursor>,
     pub break_jumps: Vec<DataCursor>,
-    pub incomplete_phis: Incompletes, // AST snippets
 }
 
 impl Loop {
@@ -25,7 +21,6 @@ impl Loop {
             label,
             continue_jumps: vec![],
             break_jumps: vec![],
-            incomplete_phis: HashMap::new(),
         }
     }
 }
@@ -47,18 +42,16 @@ impl JumpTableStack {
         OpenLoop(())
     }
 
-    pub fn close_loop(&mut self, _: OpenLoop) -> ClosedLoop {
+    pub fn close_loop(&mut self, _: OpenLoop) -> LoopBackedges {
         let Loop {
             continue_jumps,
             break_jumps,
-            incomplete_phis,
             ..
         } = self.loops.pop().unwrap(); // This is safe because of the OpenLoop token
 
-        ClosedLoop {
+        LoopBackedges {
             continues: continue_jumps,
             breaks: break_jumps,
-            incomplete_phis,
         }
     }
 
