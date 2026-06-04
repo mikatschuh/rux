@@ -67,7 +67,7 @@ Rules are combination of tokens following certain rules. Rules will have no impl
   - `break:IDENTIFIER EXPR`    _Rust: `break 'ident expr`_
   - `return EXPR`
 - `DECLSTMT` can be a `EXPRSTMT` but also something that doesnt even make sense as the body of a control flow branch. The things it does include which `EXPRSTMT` doesn't are:
-  - `;`                          _optional semicolon_
+  - `;`                          _semicolons get consumed as statements_
   - `let IDENTIFIER EXPR = EXPR` 
   - `let IDENTIFIER EXPR`        _checked uninitialization_ 
   - `let IDENTIFIER = EXPR`      _type inference_
