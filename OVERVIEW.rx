@@ -1,0 +1,99 @@
+// This is a Rux overview useful for getting a feeling for the syntax.
+// First of all:
+// Rux has optional semicolons and a Go like declaration syntax.
+// You could say that Rux just removes a lot of the baggage from Rust.
+// But the rest is pretty similar to Rust
+// Datatypes
+u8 u10 u16 usize u64 // unsigned
+i32 i19 i40 isize    // signed
+bool
+type structtype enumtype // comptime types
+
+// declarations
+// immutable
+let z i32 = 10
+let x i32 // checked uninitialization
+let y = 10 // type inference
+
+// mutable
+var a i32 = 11
+var a i8
+var i = 0
+
+// global constants
+let THIS_CANT_CHANGE = 1 // no `const`
+
+// type aliases
+let Usize = usize
+
+// functions
+let main = fn() void {} // return statement can be implicit for any type
+let add = fn(a i32, b i32) i32 a + b
+let add = fn(a i32, b i32) return a + b // return type inference with return instead of the type
+
+// commas are optional
+let long_function = fn(
+    is_true       bool
+    name          String
+    age           usize
+    time_of_birth TimeStamp
+) bool { ... }
+
+
+// structs
+let Vec3 = struct {
+    x f32
+    y f32
+    z f32
+}
+
+// enums
+let State = enum {
+    Done,
+    Processing,
+    NotStarted,
+}
+// commas can be used to insert a void type
+// without commas:
+let State = enum {
+    Done       void
+    Processing void
+    NotStarted void
+}
+
+// all combined:
+let ParsingResult = fn(ok type) return enum {
+    Ok ok
+    Err enum {
+        MissingDigits struct {
+            byte -> u8
+            span Span
+        }
+        MissingExponent Span
+    }
+}
+
+// One proposal would be to allow a simplefication doing:
+let ParsingResult = fn enum(ok type) {
+    Ok ok
+    Err enum {
+        MissingDigits struct {
+            byte -> u8
+            span Span
+        }
+        MissingExponent Span
+    }
+}
+
+// all instances of `fn`, `enum`, `struct` result in distinct values:
+(fn(a i32, b i32) return a + b) != (fn(a i32, b i32) return a + b)
+
+// The question is how to construct ADTs now.
+// Rux' syntax in that regard differs quite a lot from Rust's, as it tries to simplefy and remove nesting
+
+ParsingResult(i32).Ok.10 // ParsingResult::Ok(10)
+ParsingResult(i32).Err.MissingDigits.{
+    byte = -> bytes[0]
+    span = current_span()
+} // ParsingResult::Err(ErrorTypesName::MissingDigits { bytes: bytes[0], span: current_span() })
+ParsingResult(i32).Err.MissingExponent.(current_span()) // ParsingResult::Err(ErrorTypesName::MissingExponent(current_span()))

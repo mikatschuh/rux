@@ -65,10 +65,6 @@ impl JumpTableStack {
             None => self.loops.last_mut(),
         }
     }
-
-    pub fn get_block(&mut self) -> &mut Loop {
-        self.loops.last_mut().unwrap() // caller side proof
-    }
 }
 
 #[cfg(never)]

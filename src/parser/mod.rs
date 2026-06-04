@@ -116,7 +116,7 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
             TokenKind::Let => {
                 self.advance();
                 let symbol = self.expect_name();
-                let ty = self.parse_optional_expr(0);
+                let ty = self.parse_optional_expr();
                 if self.peek().kind == TokenKind::Equal {
                     self.advance();
                 }
@@ -167,6 +167,9 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
         match self.peek().kind {
             TokenKind::Ident => {
                 let symbol = self.get_name();
+                if let Some(expr) = self.parse_optional_label(symbol) {
+                    return self.graph.expr_as_expr_stmt(expr);
+                }
                 self.parse_name_pattern(symbol)
             }
             TokenKind::Unreachable => {
@@ -193,12 +196,12 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
                 } else {
                     None
                 };
-                let value = self.parse_optional_expr(0);
+                let value = self.parse_optional_expr();
                 self.graph.add_break(keyword, label, value)
             }
             TokenKind::Return => {
                 let keyword = self.advance().span;
-                let value = self.parse_optional_expr(0);
+                let value = self.parse_optional_expr();
                 self.graph.add_return(keyword, value)
             }
             _ => {
@@ -213,12 +216,12 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
             Some(expr) => expr,
             None => self.unknown_expr(),
         };
-        self.parse_expr_tail(lhs, min_bp)
+        self.append_operators_to_expression(lhs, min_bp)
     }
 
-    fn parse_optional_expr(&mut self, min_bp: u8) -> Option<Expr> {
+    fn parse_optional_expr(&mut self) -> Option<Expr> {
         let lhs = self.parse_primary()?;
-        Some(self.parse_expr_tail(lhs, min_bp))
+        Some(self.append_operators_to_expression(lhs, 0))
     }
 
     fn parse_primary(&mut self) -> Option<Expr> {
@@ -265,6 +268,9 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
             }
             TokenKind::Ident => {
                 let symbol = self.expect_name();
+                if let Some(expr) = self.parse_optional_label(symbol) {
+                    return Some(expr);
+                }
                 Some(self.graph.add_ident(symbol))
             }
             TokenKind::Open(Bracket::Curly) => {
@@ -345,7 +351,7 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
         }
     }
 
-    fn parse_expr_tail(&mut self, mut lhs: Expr, min_bp: u8) -> Expr {
+    fn append_operators_to_expression(&mut self, mut lhs: Expr, min_bp: u8) -> Expr {
         loop {
             if self.peek().binding_pow() < min_bp {
                 return lhs;
@@ -362,6 +368,22 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
             } else {
                 return lhs;
             }
+        }
+    }
+
+    fn parse_optional_label(&mut self, symbol: Spanned<Symbol>) -> Option<Expr> {
+        if self.peek().kind == TokenKind::Colon {
+            let colon = self.advance().span;
+            let body = self.parse_expr_stmt();
+            Some(self.graph.add_label(
+                Label {
+                    colon,
+                    label: symbol,
+                },
+                body,
+            ))
+        } else {
+            None
         }
     }
 
@@ -406,7 +428,7 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
         let keyword = keyword.span;
         let symbol = self.expect_name();
 
-        let ty = self.parse_optional_expr(0);
+        let ty = self.parse_optional_expr();
         if self.peek().kind == TokenKind::Equal {
             // type inference
             let equal = self.advance().span;
@@ -443,22 +465,8 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
         }
 
         // if we actually didnt have a pattern here
-        // labels: `name: blk`
-        if self.peek().kind == TokenKind::Colon {
-            let colon = self.advance().span;
-            let body = self.parse_expr_stmt();
-            let label = self.graph.add_label(
-                Label {
-                    colon,
-                    label: symbol,
-                },
-                body,
-            );
-            return self.graph.expr_as_expr_stmt(label);
-        }
-
         let lhs = self.graph.add_ident(symbol);
-        let value = self.parse_expr_tail(lhs, 0);
+        let value = self.append_operators_to_expression(lhs, 0);
         self.graph.expr_as_expr_stmt(value)
     }
 
@@ -485,7 +493,7 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
                 }
                 let symbol = self.expect_name();
                 let ty = self
-                    .parse_optional_expr(0)
+                    .parse_optional_expr()
                     .unwrap_or_else(|| self.graph.add_unit(self.pos()));
                 parameters.insert(symbol, ty);
             }

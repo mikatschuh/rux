@@ -2,7 +2,7 @@ use crate::{
     error::{ErrorCode, Errors, Span},
     tokenizing::parse_tok::push_over_until_none_identifier_char,
 };
-use num::{BigInt, BigUint, bigint::Sign};
+use num::{BigInt, BigUint, Zero, bigint::Sign};
 
 mod error;
 mod literal;
@@ -33,8 +33,25 @@ pub fn parse_literal(
 
     let (base, mut digits) = parse_integer(text);
     if digits.is_none() {
-        return None;
+        // a base prefix was parsed but no body
+        return if base != Decimal {
+            span.end += original_len - text.len(); // Add the prefix, note that the text is already consumed
+            errors.push(
+                *span,
+                ErrorCode::LiteralParsingError(Error::BaseWithoutBody),
+            );
+            Some(Literal {
+                base,
+                digits: BigUint::zero(),
+                num_digits_after_dot: None,
+                exponent: None,
+                suffix: "",
+            })
+        } else {
+            None
+        };
     }
+
     // at this point we know for a fact that the user wanted to input a literal
     // that means we are definitely returning Some
     let num_digits_after_dot = if !text.is_empty() && text[0] == b'.' {

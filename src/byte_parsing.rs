@@ -106,7 +106,7 @@ pub fn is_empty_after_spaces_consumed(text: &mut &[u8], pos: &mut Position) -> T
                 pos.next_line();
                 continue; // skip incrementation of collum
             }
-            0x09..=0x0D | 0x20 => *text = &text[1..],
+            0x09..=0x0D | b' ' => *text = &text[1..],
 
             0xC2 => {
                 if text.len() < 2 {

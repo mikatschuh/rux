@@ -31,8 +31,6 @@ pub const ACCESSOR_RIGHT: u8 = 151;
 impl Token {
     pub const fn binding_pow(self) -> u8 {
         match self.kind {
-            Tick => LABEL,
-
             PipePipe | NotPipePipe | RightPipePipe | NotRightPipePipe | AndAnd | NotAndAnd => {
                 BOOLEAN
             }
@@ -51,7 +49,7 @@ impl Token {
 
             Plus | Dash => ADDITIVE,
 
-            Star | Slash | Percent | CenterDot | Cross => MULTIPLICATIVE,
+            Star | Slash | Percent | Cross => MULTIPLICATIVE,
 
             Open(Bracket::Squared | Bracket::Round) | LeftArrow => APPLICATION,
 

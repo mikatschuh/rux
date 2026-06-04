@@ -14,7 +14,6 @@ pub struct Token {
 pub enum TokenKind {
     Not, // !
 
-    Tick,  // '
     Dot,   // .
     Equal, // =
 
@@ -51,11 +50,8 @@ pub enum TokenKind {
     Percent,      // %
     PercentEqual, // %=
 
-    HalfCenterDot, // ·
-    CenterDot,     // ·
-    DotEqual,      // ·=
-    Cross,         // ><
-    CrossEqual,    // ><=
+    Cross,      // ><
+    CrossEqual, // ><=
 
     Pipe,             // |
     PipePipe,         // ||
@@ -175,7 +171,6 @@ pub fn as_keyword(string: &str) -> Option<TokenKind> {
         "f32" => Float(FloatPrecision::Full),
         "f64" => Float(FloatPrecision::Double),
         "f128" => Float(FloatPrecision::DoubleDouble),
-        "complit" => Complit,
         _ => return None,
     })
 }
@@ -202,8 +197,6 @@ impl Bracket {
         }
     }
 }
-const FIRST_CENTER_DOT_CHARACTER: u8 = "·".as_bytes()[0];
-const SECOND_CENTER_DOT_CHARACTER: u8 = "·".as_bytes()[1];
 
 impl Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -226,7 +219,6 @@ impl TokenKind {
     pub const fn new(c: u8) -> Option<TokenKind> {
         Some(match c {
             b'!' => Not,
-            b'\'' => Tick,
             b'.' => Dot,
             b'=' => Equal,
             b'+' => Plus,
@@ -234,7 +226,6 @@ impl TokenKind {
             b'*' => Star,
             b'/' => Slash,
             b'%' => Percent,
-            FIRST_CENTER_DOT_CHARACTER => CenterDot,
             b'|' => Pipe,
             b'&' => And,
             b'<' => Left,
@@ -243,10 +234,10 @@ impl TokenKind {
             b';' => Semicolon,
             b',' => Comma,
             b'(' => Open(Round),
-            b'[' => Open(Squared),
-            b'{' => Open(Curly),
             b')' => Closed(Round),
+            b'[' => Open(Squared),
             b']' => Closed(Squared),
+            b'{' => Open(Curly),
             b'}' => Closed(Curly),
             _ => return None,
         })
@@ -311,9 +302,6 @@ impl TokenKind {
 
             Percent if c == b'=' => PercentEqual,
 
-            HalfCenterDot if c == SECOND_CENTER_DOT_CHARACTER => CenterDot,
-            CenterDot if c == b'=' => DotEqual,
-
             Cross if c == b'=' => CrossEqual,
 
             Pipe if c == b'|' => PipePipe,
@@ -332,7 +320,6 @@ impl TokenKind {
     pub fn ends_with(self, c: char) -> bool {
         match c {
             '!' => matches!(self, Not),
-            '\'' => matches!(self, Tick),
             '.' => matches!(self, Dot),
             '=' => matches!(
                 self,
@@ -342,7 +329,6 @@ impl TokenKind {
                     | StarEqual
                     | SlashEqual
                     | PercentEqual
-                    | DotEqual
                     | CrossEqual
                     | PipeEqual
                     | NotPipeEqual
@@ -363,7 +349,6 @@ impl TokenKind {
             '*' => self == Star,
             '/' => self == Slash,
             '%' => self == Percent,
-            '·' => self == CenterDot,
             '<' => matches!(self, Cross | Left | LeftLeft | NotLeft),
             '|' => matches!(
                 self,
@@ -431,7 +416,6 @@ impl Token {
             Slash => Div,
             Percent => Mod,
 
-            TokenKind::CenterDot => Dot,
             TokenKind::Cross => Cross,
 
             Pipe => BitOr,
@@ -480,7 +464,6 @@ impl Token {
             SlashEqual => Div,
             PercentEqual => Mod,
 
-            DotEqual => Dot,
             CrossEqual => Cross,
 
             _ => return None,
