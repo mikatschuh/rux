@@ -95,5 +95,121 @@ ParsingResult(i32).Ok.10 // ParsingResult::Ok(10)
 ParsingResult(i32).Err.MissingDigits.{
     byte = -> bytes[0]
     span = current_span()
-} // ParsingResult::Err(ErrorTypesName::MissingDigits { bytes: bytes[0], span: current_span() })
+} // ParsingResult::Err(ErrorTypesName::MissingDigits { bytes: &bytes[0], span: current_span() })
 ParsingResult(i32).Err.MissingExponent.(current_span()) // ParsingResult::Err(ErrorTypesName::MissingExponent(current_span()))
+
+// control flow
+// for control flow that is merely branching, `if`s and `match` can be used:
+if condition {}
+if optional => Some(x) println("{x}")
+if condition foo() else foo2()
+
+match condition {
+    true foo()
+    false foo2()
+}
+let not_optional = match optional {
+    Some(x) x
+    None unreachable // most basic modifier, this signals the compiler that this code cant be reached
+}
+
+// wanting to jump to something a label or a loop is needed
+
+loop {
+
+    // implicit `continue`
+}
+
+let y = label: {
+    break 1
+    continue() // jumps always refers to the most recent loop/label
+    break:label 2 // explicit labels are also allowed
+    continue:label;
+    // implicit break
+}
+// jumps can carry values / `()`/`;` but those can be discarded in 90% of the cases:
+if condition {
+    i++
+    break
+} // no need for `()`
+
+// step clauses
+// These are a way to redirect `continue` jumps
+// they get added to a loop/label with a double colon: `::`
+outer:{
+
+    continue 1 // jumps to step clause
+    // implicit break would skip clauses
+} :: x { // pattern same as in `match`, capturing continue's value
+    continue // jumps to `outer` // cant carry values
+    // here still no implicit continue because its in a label
+}
+
+// actual use cases:
+var i usize = 0; loop { if i > 100 break; // inline for reading like C `for`
+    println("{i}")
+
+    if condition {
+        if second_condition {
+            continue // not accidentally skipping `i++`
+        }
+    }
+}::_ i++
+
+// defers
+// defers are important for not forgetting to free resources
+// defers are static statements behaving like declarations:
+
+if condition defer vector.free() // illegal
+
+if condition { defer vector.free() } // legal
+
+// defers get scheduled to run at a certain scope's exits
+// that means they run either at the end or when a jump jumps out of the scope
+{
+    let vector = Vec.new()
+    defer vector.free() // from this point on impossible to forget
+
+    return 0
+    // vector is getting freed
+}
+// when a scope has multiple `defer`s attached to it they run in the opposite order in which they are attached:
+{
+    let a = 3
+    defer a *= 5
+    defer a++
+}
+println("{a}") // a is 20 not 16
+
+// when a defer uses variables
+// it uses the variables from its declaration, before they are shadowed if they are
+// but they use the definition of the variable at the point they are scheduled to be executed at
+{
+    let a = 10
+    defer println("{a}")
+
+    let a = 1
+    return 0
+} // prints "10"
+
+{
+    let a = 10
+    defer println("{a}")
+    a = 1
+    return 0
+} // prints "1"
+// defers have a scope they are attached to.
+// The scope defaults to the scope they are declared in but they can also be explicitely attached using labels:
+{
+    let numbers = Vec.new()
+    defer:err numbers.free()
+
+    if input_not_valid {
+        err:return 0
+    }
+
+    return numbers // numbers are not being freed
+}
+// In this example `numbers` is only getting freed when the `err:` label is exited.
+// At this point it should be pointed out that the "scope" of a `defer` can also be defined using labels.
+// In the OK branch the `err:` label is never entered which means its also never exited.
