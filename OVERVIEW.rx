@@ -1,19 +1,20 @@
-// This is a Rux overview useful for getting a feeling for the syntax.
-// First of all:
-// Rux has optional semicolons and a Go like declaration syntax.
-// You could say that Rux just removes a lot of the baggage from Rust.
-// But the rest is pretty similar to Rust
-// Datatypes
+// This is a Rux overview useful for getting a feeling for the language.
+// First of all Rux:
+// - is built up from its type system
+// - has optional semicolons
+// - simplifies Rust
+// - is similar to Rust when possible
+// example datatypes
 u8 u10 u16 usize u64 // unsigned
 i32 i19 i40 isize    // signed
 bool
-type structtype enumtype // comptime types
+type structtype enumtype fntype // comptime types
 
 // declarations
 // immutable
-let z i32 = 10
-let x i32 // checked uninitialization
-let y = 10 // type inference
+let x usize = 10
+let y i32 // checked uninitialization
+let z = 10 // type inference (defaults to usize)
 
 // mutable
 var a i32 = 11
@@ -21,7 +22,7 @@ var a i8
 var i = 0
 
 // global constants
-let THIS_CANT_CHANGE = 1 // no `const`
+let THIS_CANT_CHANGE = 1 // no `const`, instead module level `let`
 
 // type aliases
 let Usize = usize
@@ -39,30 +40,33 @@ let long_function = fn(
     time_of_birth TimeStamp
 ) bool { ... }
 
+// typing is nominal
+// types can be created like this:
 
-// structs
-let Vec3 = struct {
+// struct
+struct Vec3 {
     x f32
     y f32
     z f32
 }
 
 // enums
-let State = enum {
+enum State {
     Done,
     Processing,
     NotStarted,
 }
 // commas can be used to insert a void type
+
 // without commas:
-let State = enum {
+enum State {
     Done       void
     Processing void
     NotStarted void
 }
 
 // all combined:
-let ParsingResult = fn(ok type) return enum {
+enum Result fn(ok type) {
     Ok ok
     Err enum {
         MissingDigits struct {
@@ -73,35 +77,23 @@ let ParsingResult = fn(ok type) return enum {
     }
 }
 
-// One proposal would be to allow a simplefication doing:
-let ParsingResult = fn enum(ok type) {
-    Ok ok
-    Err enum {
-        MissingDigits struct {
-            byte -> u8
-            span Span
-        }
-        MissingExponent Span
-    }
-}
+// enums and structs can be declared on the fields themselves
+// these types can be accessed like this:
+Result(i32).Err.MissingDigits.byte // == -> u8
 
-// all instances of `fn`, `enum`, `struct` result in distinct values:
-(fn(a i32, b i32) return a + b) != (fn(a i32, b i32) return a + b)
-
-// The question is how to construct ADTs now.
-// Rux' syntax in that regard differs quite a lot from Rust's, as it tries to simplefy and remove nesting
-
-ParsingResult(i32).Ok.10 // ParsingResult::Ok(10)
-ParsingResult(i32).Err.MissingDigits.{
-    byte = -> bytes[0]
-    span = current_span()
-} // ParsingResult::Err(ErrorTypesName::MissingDigits { bytes: &bytes[0], span: current_span() })
-ParsingResult(i32).Err.MissingExponent.(current_span()) // ParsingResult::Err(ErrorTypesName::MissingExponent(current_span()))
+Result.Ok(10) // defaults to usize // Result::Ok(10)
+Result(i32).Err.MissingDigits.{
+    byte: -> bytes[0]
+    span: current_span()
+} // Result::<i32>::Err(SomeOtherEnum::MissingDigits { bytes: &bytes[0], span: current_span() })
+Result(i32).Err.MissingExponent(current_span()) // ParsingResult::Err(SomeOtherEnum::MissingExponent(current_span()))
 
 // control flow
+// The control flow constructs are built to allow for maximum freedom
+// while still enforcing initialization and scoping of variables
 // for control flow that is merely branching, `if`s and `match` can be used:
 if condition {}
-if optional => Some(x) println("{x}")
+if optional = Some(x) println("{x}")
 if condition foo() else foo2()
 
 match condition {
@@ -110,7 +102,7 @@ match condition {
 }
 let not_optional = match optional {
     Some(x) x
-    None unreachable // most basic modifier, this signals the compiler that this code cant be reached
+    None unreachable // control flow modifier, this signals the compiler that this code can't be reached
 }
 
 // wanting to jump to something a label or a loop is needed
@@ -120,45 +112,22 @@ loop {
     // implicit `continue`
 }
 
-let y = label: {
+let y = @label {
     break 1
-    continue() // jumps always refers to the most recent loop/label
-    break:label 2 // explicit labels are also allowed
-    continue:label;
+    continue; // jumps always refers to the most inner loop/label
+    break @label 2 // explicit labels are also allowed
+    continue @label;
     // implicit break
 }
-// jumps can carry values / `()`/`;` but those can be discarded in 90% of the cases:
+// jumps can carry values `()` / `;` but those can be discarded in 90% of the cases:
 if condition {
     i++
     break
 } // no need for `()`
 
-// step clauses
-// These are a way to redirect `continue` jumps
-// they get added to a loop/label with a double colon: `::`
-outer:{
-
-    continue 1 // jumps to step clause
-    // implicit break would skip clauses
-} :: x { // pattern same as in `match`, capturing continue's value
-    continue // jumps to `outer` // cant carry values
-    // here still no implicit continue because its in a label
-}
-
-// actual use cases:
-var i usize = 0; loop { if i > 100 break; // inline for reading like C `for`
-    println("{i}")
-
-    if condition {
-        if second_condition {
-            continue // not accidentally skipping `i++`
-        }
-    }
-}::_ i++
-
 // defers
 // defers are important for not forgetting to free resources
-// defers are static statements behaving like declarations:
+// defers are static statements syntactically behaving like declarations:
 
 if condition defer vector.free() // illegal
 
@@ -202,14 +171,13 @@ println("{a}") // a is 20 not 16
 // The scope defaults to the scope they are declared in but they can also be explicitely attached using labels:
 {
     let numbers = Vec.new()
-    defer:err numbers.free()
+    defer @err numbers.free()
 
     if input_not_valid {
-        err:return 0
+        @err return 0
     }
 
     return numbers // numbers are not being freed
 }
-// In this example `numbers` is only getting freed when the `err:` label is exited.
-// At this point it should be pointed out that the "scope" of a `defer` can also be defined using labels.
-// In the OK branch the `err:` label is never entered which means its also never exited.
+// in this example `numbers` is only getting freed when the `@err` label is exited
+// in the OK branch the `@err` label is never entered which means its also never exited
