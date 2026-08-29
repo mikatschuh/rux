@@ -77,9 +77,7 @@ enum Result fn(ok type) {
     }
 }
 
-// enums and structs can be declared on the fields themselves
-// these types can be accessed like this:
-Result(i32).Err.MissingDigits.byte // == -> u8
+// enums and structs can be declared on the fields themselves but can't be constructed independently from them
 
 Result.Ok(10) // defaults to usize // Result::Ok(10)
 Result(i32).Err.MissingDigits.{
