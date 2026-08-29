@@ -1,5 +1,10 @@
 use std::collections::HashMap;
 
+use crate::{
+    error::Span,
+    parser::ast::{Ident, Spanned},
+};
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Symbol(usize);
 
@@ -37,6 +42,13 @@ impl Interner {
                 self.counter += 1;
                 symbol
             }
+        }
+    }
+
+    pub fn get_ident(&mut self, span: Span, ident: &'static str) -> Ident {
+        Spanned {
+            span,
+            val: self.get(ident),
         }
     }
 

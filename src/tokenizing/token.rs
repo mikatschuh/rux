@@ -82,8 +82,8 @@ pub enum TokenKind {
 
     Colon,      // :
     ColonColon, // ::
-
-    Semicolon, // ;
+    AtSign,     // @
+    Semicolon,  // ;
 
     Comma, // ,
 
@@ -139,7 +139,6 @@ pub enum FloatPrecision {
     DoubleDouble = 128,
 }
 
-use Bracket::*;
 use TokenKind::*;
 
 pub fn as_keyword(string: &str) -> Option<TokenKind> {
@@ -231,14 +230,15 @@ impl TokenKind {
             b'<' => Left,
             b'>' => Right,
             b':' => Colon,
+            b'@' => AtSign,
             b';' => Semicolon,
             b',' => Comma,
-            b'(' => Open(Round),
-            b')' => Closed(Round),
-            b'[' => Open(Squared),
-            b']' => Closed(Squared),
-            b'{' => Open(Curly),
-            b'}' => Closed(Curly),
+            b'(' => Open(Bracket::Round),
+            b')' => Closed(Bracket::Round),
+            b'[' => Open(Bracket::Squared),
+            b']' => Closed(Bracket::Squared),
+            b'{' => Open(Bracket::Curly),
+            b'}' => Closed(Bracket::Curly),
             _ => return None,
         })
     }
@@ -364,12 +364,12 @@ impl TokenKind {
             ':' => matches!(self, Colon | ColonColon),
             ';' => self == Semicolon,
             ',' => self == Comma,
-            '(' => self == Open(Round),
-            '[' => self == Open(Squared),
-            '{' => self == Open(Curly),
-            ')' => self == Closed(Round),
-            ']' => self == Closed(Squared),
-            '}' => self == Closed(Curly),
+            '(' => self == Open(Bracket::Round),
+            '[' => self == Open(Bracket::Squared),
+            '{' => self == Open(Bracket::Curly),
+            ')' => self == Closed(Bracket::Round),
+            ']' => self == Closed(Bracket::Squared),
+            '}' => self == Closed(Bracket::Curly),
             _ => false,
         }
     }

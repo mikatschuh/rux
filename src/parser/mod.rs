@@ -1,36 +1,41 @@
-use std::collections::HashMap;
-
-use bumpalo::Bump;
-use nonempty::NonEmpty;
-
 use crate::{
     error::{ErrorCode, Errors, Span},
     literal_parsing::Literal,
+    parser::ast::{
+        Assignment, AstBuilder, BuiltinType, ControlStruct, Definition, Expr, ExprKind, Ident,
+        Item, JumpStruct, Label, ScopeStmt, ScopeStmtKind, Spanned, StmtExpr, StmtExprKind,
+    },
     ref_count::Rc,
     tokenizing::{
         TokenStream,
         token::{Bracket, Token, TokenKind},
     },
 };
+pub use intern::{Interner, Symbol};
+use nonempty::NonEmpty;
+use std::collections::HashMap;
 
 mod ast;
 mod intern;
 
-pub use ast::{
-    AstBuilder, BuiltinType, DeclStmt, DeclStmtKind, Expr, ExprKind, ExprStmt, ExprStmtKind, Label,
-    Spanned,
-};
-pub use intern::{Interner, Symbol};
-
-pub struct Item {
-    pub ty: Option<Expr>,
-    pub expr: Expr,
+macro_rules! collect {
+    ($self:expr, $expected:expr => $($body:tt)*) => {
+        loop {
+            $($body)*
+            if $self.peek().kind == TokenKind::Eof {
+                $self.expected($expected);
+                break $self.pos();
+            }
+        }
+    };
 }
 
 pub struct ParserOutput {
-    pub arena: Bump,
+    pub ast: AstBuilder,
     pub interner: Interner,
     pub item_table: HashMap<Symbol, Item>,
+    pub err_expr: Vec<Expr>,
+    incomplete_bindings: Vec<IncompleteBinding>,
 }
 
 pub struct Parser<'tokens, 'errors, T> {
@@ -39,6 +44,14 @@ pub struct Parser<'tokens, 'errors, T> {
     graph: AstBuilder,
     interner: Interner,
     symbols: HashMap<Symbol, Item>,
+    err_expr: Vec<Expr>,
+    incomplete_bindings: Vec<IncompleteBinding>,
+}
+
+#[derive(Clone, Debug)]
+pub struct IncompleteBinding {
+    pub keyword: Span,
+    pub definition: Definition,
 }
 
 impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
@@ -49,60 +62,64 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
             graph: AstBuilder::new(),
             interner: Interner::new(),
             symbols: HashMap::new(),
+            err_expr: vec![],
+            incomplete_bindings: vec![],
         }
     }
 
-    pub fn symbol_table(self) -> ParserOutput {
+    pub fn output(self) -> ParserOutput {
         ParserOutput {
-            arena: self.graph.arena(),
+            ast: self.graph,
             interner: self.interner,
             item_table: self.symbols,
+            err_expr: self.err_expr,
+            incomplete_bindings: self.incomplete_bindings,
         }
     }
 
     fn peek(&self) -> Token {
         self.tokens.peek()
     }
+
     fn pos(&self) -> Span {
         self.peek().span.start.into()
     }
+
+    #[must_use]
     fn advance(&mut self) -> Token {
         let tok = self.peek();
         self.tokens.consume();
         tok
     }
 
-    fn get_name(&mut self) -> Spanned<Symbol> {
+    fn get_ident(&mut self) -> Ident {
         let tok = self.advance();
-        Spanned {
-            span: tok.span,
-            val: self.interner.get(tok.src),
-        }
+        self.interner.get_ident(tok.span, tok.src)
     }
-    fn expect_name(&mut self) -> Spanned<Symbol> {
+
+    fn try_get_ident(&mut self) -> Option<Ident> {
         if self.peek().kind == TokenKind::Ident {
-            let name = self.advance();
-            Spanned {
-                span: name.span,
-                val: self.interner.get(name.src),
-            }
+            Some(self.get_ident())
         } else {
-            let span = self.pos();
-            self.errors.push(span, ErrorCode::ExpectedIdent);
-            Spanned {
-                span,
-                val: Symbol::unknown(),
-            }
+            None
         }
     }
 
-    fn unknown_expr(&mut self) -> Expr {
-        let span = self.pos();
-        self.errors.push(span, ErrorCode::ExpectedExpr);
-        self.graph.add_ident(Spanned {
-            span,
-            val: Symbol::unknown(),
-        })
+    fn try_get(&mut self, kind: TokenKind) -> Option<Span> {
+        if self.peek().kind == kind {
+            Some(self.advance().span)
+        } else {
+            None
+        }
+    }
+
+    fn expected(&mut self, error: ErrorCode) {
+        let pos = self.pos();
+        self.errors.push(pos, error)
+    }
+
+    fn stuck(&mut self) {
+        _ = self.advance();
     }
 
     pub fn parse_file(&mut self) {
@@ -114,32 +131,46 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
     fn parse_item(&mut self) {
         match self.peek().kind {
             TokenKind::Let => {
-                self.advance();
-                let symbol = self.expect_name();
-                let ty = self.parse_optional_expr();
-                if self.peek().kind == TokenKind::Equal {
-                    self.advance();
-                }
-                let value = self.parse_expr(0);
-                self.symbols.insert(symbol.val, Item { ty, expr: value });
+                let keyword = self.advance().span;
+                let Some(ident) = self.try_get_ident() else {
+                    self.expected(ErrorCode::ExpectedIdent);
+
+                    let definition = self.parse_definition();
+                    self.incomplete_bindings.push(IncompleteBinding {
+                        keyword,
+                        definition,
+                    });
+                    return;
+                };
+                let definition = self.parse_definition();
+                self.symbols.insert(
+                    ident.val,
+                    Item::Constant {
+                        keyword,
+                        ident: ident.span,
+                        definition,
+                    },
+                );
             }
             TokenKind::Fn => todo!(),
             TokenKind::Enum => todo!(),
             TokenKind::Struct => todo!(),
 
             _ => {
-                let pos = self.peek().span.start;
-                self.errors
-                    .push(pos.into(), ErrorCode::ExpectedItemDeclaration);
-                self.advance();
+                if let Some(expr) = self.parse_optional_expr() {
+                    self.err_expr.push(expr)
+                } else {
+                    self.expected(ErrorCode::ExpectedItemDeclaration);
+                    self.stuck();
+                }
             }
         }
     }
 
-    fn parse_decl_stmt(&mut self) -> Option<DeclStmt> {
+    fn parse_scope_stmt(&mut self) -> Option<ScopeStmt> {
         match self.peek().kind {
             TokenKind::Semicolon => {
-                self.advance();
+                self.stuck();
                 None
             }
 
@@ -158,70 +189,90 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
 
             _ => {
                 let expr = self.parse_expr_stmt();
-                Some(self.graph.expr_stmt_as_decl_stmt(expr))
+                Some(self.graph.stmt_expr_as_scope_stmt(expr))
             }
         }
     }
 
-    fn parse_expr_stmt(&mut self) -> ExprStmt {
+    fn parse_expr_stmt(&mut self) -> StmtExpr {
         match self.peek().kind {
             TokenKind::Ident => {
-                let symbol = self.get_name();
-                if let Some(expr) = self.parse_optional_label(symbol) {
-                    return self.graph.expr_as_expr_stmt(expr);
-                }
-                self.parse_name_pattern(symbol)
+                let ident = self.get_ident();
+                self.parse_name_pattern(ident)
             }
             TokenKind::Unreachable => {
                 let unreachable = self.advance().span;
                 self.graph.add_unreachable(unreachable)
             }
             TokenKind::Continue => {
-                let keyword = self.advance().span;
-                let label = if self.peek().kind == TokenKind::Colon {
-                    let colon = self.advance().span;
-                    let name = self.expect_name();
-                    Some(Label { colon, label: name })
-                } else {
-                    None
-                };
-                self.graph.add_continue(keyword, label)
+                let jump = self.parse_jump_struct();
+                self.graph.add_continue(jump)
             }
             TokenKind::Break => {
-                let keyword = self.advance().span;
-                let label = if self.peek().kind == TokenKind::Colon {
-                    let colon = self.advance().span;
-                    let name = self.expect_name();
-                    Some(Label { colon, label: name })
-                } else {
-                    None
-                };
-                let value = self.parse_optional_expr();
-                self.graph.add_break(keyword, label, value)
+                let jump = self.parse_jump_struct();
+                self.graph.add_break(jump)
             }
             TokenKind::Return => {
-                let keyword = self.advance().span;
-                let value = self.parse_optional_expr();
-                self.graph.add_return(keyword, value)
+                let jump = self.parse_jump_struct();
+                self.graph.add_return(jump)
             }
             _ => {
                 let expr = self.parse_expr(0);
-                self.graph.expr_as_expr_stmt(expr)
+                self.graph.expr_as_stmt_expr(expr)
             }
         }
     }
 
     fn parse_expr(&mut self, min_bp: u8) -> Expr {
-        let lhs = match self.parse_primary() {
-            Some(expr) => expr,
-            None => self.unknown_expr(),
-        };
+        let lhs = self
+            .parse_primary()
+            .unwrap_or_else(|| self.graph.add_err_expr(self.pos()));
         self.append_operators_to_expression(lhs, min_bp)
     }
 
     fn parse_optional_expr(&mut self) -> Option<Expr> {
-        let lhs = self.parse_primary()?;
-        Some(self.append_operators_to_expression(lhs, 0))
+        self.parse_primary()
+            .map(|lhs| self.append_operators_to_expression(lhs, 0))
+    }
+
+    fn parse_jump_struct(&mut self) -> JumpStruct {
+        JumpStruct {
+            keyword: self.advance().span,
+            label: self.parse_optional_label(),
+            value: self.parse_optional_expr(),
+        }
+    }
+
+    fn parse_optional_label(&mut self) -> Option<Label> {
+        self.try_get(TokenKind::AtSign).and_then(|span| {
+            let Some(ident) = self.try_get_ident() else {
+                self.expected(ErrorCode::ExpectedIdent);
+                return None;
+            };
+
+            Some(Label {
+                at_sign: span,
+                ident,
+            })
+        })
+    }
+
+    fn parse_definition(&mut self) -> Definition {
+        if let Some(equal) = self.try_get(TokenKind::Equal) {
+            let value = self.parse_expr(0);
+            let ty = self.parse_optional_expr();
+            Definition::Assignment {
+                ty,
+                assignment: Assignment { equal, value },
+            }
+        } else {
+            if let Some(ty) = self.parse_optional_expr() {
+                Definition::Type(ty)
+            } else {
+                self.expected(ErrorCode::ExpectedType);
+                Definition::Type(self.graph.add_err_expr(self.pos()))
+            }
+        }
     }
 
     fn parse_primary(&mut self) -> Option<Expr> {
@@ -267,48 +318,42 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
                 Some(self.graph.add_boolean(span, boolean))
             }
             TokenKind::Ident => {
-                let symbol = self.expect_name();
-                if let Some(expr) = self.parse_optional_label(symbol) {
-                    return Some(expr);
-                }
-                Some(self.graph.add_ident(symbol))
+                let ident = self.get_ident();
+                Some(self.graph.add_ident(ident))
             }
             TokenKind::Open(Bracket::Curly) => {
                 let opener = self.advance();
                 Some(self.parse_block(opener))
             }
-            TokenKind::Open(opened) => {
+            TokenKind::Open(open_kind) => {
                 let opener = self.advance();
-                if self.peek().kind == TokenKind::Closed(opened) {
+                if self.peek().kind == TokenKind::Closed(open_kind) {
                     let closer = self.advance().span;
                     return Some(self.graph.add_unit(opener.span - closer));
                 }
 
-                let mut expr = self.parse_expr(0);
-                expr.span.start = opener.span.start;
+                let expr = self.parse_expr(0);
+                self.graph.update_start(expr, opener.span.start);
 
                 let closer = self.advance();
                 let span = closer.span;
+                self.graph.update_end(expr, span.end);
                 match closer.kind {
-                    TokenKind::Closed(closed) if closed == opened => {
-                        expr.span.end = closer.span.end;
-                        Some(expr)
-                    }
-                    TokenKind::Closed(closed) => {
+                    TokenKind::Closed(closed_kind) if closed_kind == open_kind => Some(expr),
+                    TokenKind::Closed(closed_kind) => {
                         self.errors.push(
                             span,
-                            ErrorCode::WrongClosedBracket {
-                                expected: opened,
-                                found: closed,
+                            ErrorCode::LonelyClosedBracket {
+                                closed: closed_kind,
                             },
                         );
-                        expr.span.end = closer.span.end;
                         Some(expr)
                     }
                     _ => {
-                        self.errors
-                            .push(closer.span, ErrorCode::ExpectedClosedBracket { opened });
-                        expr.span.end = closer.span.end;
+                        self.errors.push(
+                            closer.span,
+                            ErrorCode::ExpectedClosedBracket { opened: open_kind },
+                        );
                         Some(expr)
                     }
                 }
@@ -317,18 +362,19 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
                 let keyword = self.advance().span;
                 let condition = self.parse_expr(0);
                 let when_body = self.parse_expr_stmt();
-                let else_clause = if self.peek().kind == TokenKind::Else {
-                    let else_keyword = self.advance().span;
-                    let else_body = self.parse_expr_stmt();
-                    Some((else_keyword, else_body))
-                } else {
-                    None
-                };
+                let else_clause = self.try_get(TokenKind::Else).map(|keyword| ControlStruct {
+                    keyword,
+                    body: self.parse_expr_stmt(),
+                });
                 Some(
                     self.graph
                         .add_if(keyword, condition, when_body, else_clause),
                 )
             }
+            TokenKind::AtSign => self.parse_optional_label().map(|label| {
+                let body = self.parse_expr_stmt();
+                self.graph.add_label(label, body)
+            }),
             TokenKind::Loop => {
                 let keyword = self.advance().span;
                 let body = self.parse_expr_stmt();
@@ -371,135 +417,98 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
         }
     }
 
-    fn parse_optional_label(&mut self, symbol: Spanned<Symbol>) -> Option<Expr> {
-        if self.peek().kind == TokenKind::Colon {
-            let colon = self.advance().span;
-            let body = self.parse_expr_stmt();
-            Some(self.graph.add_label(
-                Label {
-                    colon,
-                    label: symbol,
-                },
-                body,
-            ))
-        } else {
-            None
-        }
-    }
-
     fn parse_block(&mut self, opener: Token) -> Expr {
-        if self.peek().kind == TokenKind::Closed(Bracket::Curly) {
-            let span = self.advance().span;
-            return self.graph.add_unit(opener.span - span);
-        }
-        let mut statements = vec![];
-        loop {
-            if self.peek().kind == TokenKind::Eof {
-                let pos = self.pos();
-                self.errors.push(
-                    pos,
-                    ErrorCode::ExpectedClosedBracket {
-                        opened: Bracket::Curly,
-                    },
-                );
-                return if statements.is_empty() {
-                    self.graph.add_unit(opener.span)
-                } else {
-                    self.graph
-                        .add_block(opener.span - pos, NonEmpty::from_vec(statements).unwrap())
-                };
-            }
-            if let Some(statement) = self.parse_decl_stmt() {
-                statements.push(statement);
-            }
-            if self.peek().kind == TokenKind::Closed(Bracket::Curly) {
-                let span = self.advance().span;
-                return if statements.is_empty() {
-                    self.graph.add_unit(opener.span - span)
-                } else {
-                    self.graph
-                        .add_block(opener.span - span, NonEmpty::from_vec(statements).unwrap())
-                };
-            }
-        }
-    }
+        let mut stmts = vec![];
+        let end = collect! {
+            self, ErrorCode::ExpectedClosedBracket { opened: Bracket::Curly }
 
-    fn parse_binding(&mut self, keyword: Token, mutable: bool) -> DeclStmt {
-        let keyword = keyword.span;
-        let symbol = self.expect_name();
-
-        let ty = self.parse_optional_expr();
-        if self.peek().kind == TokenKind::Equal {
-            // type inference
-            let equal = self.advance().span;
-            let value = self.parse_expr(0);
-
-            self.graph
-                .add_binding(mutable, keyword, symbol, ty, Some((equal, value)))
+            => if let Some(closed) = self.try_get(TokenKind::Closed(Bracket::Curly)) {
+                break closed;
+            } else if let Some(statement) = self.parse_scope_stmt() {
+                stmts.push(statement);
+            } else {
+                self.stuck(); // The token can't be consumed
+            }
+        };
+        if let Some(stmts) = NonEmpty::from_vec(stmts) {
+            self.graph.add_block(opener.span - end, stmts)
         } else {
-            // unitialized
-            self.graph.add_binding(mutable, keyword, symbol, ty, None)
+            self.graph.add_unit(opener.span - end)
         }
     }
 
-    fn parse_name_pattern(&mut self, symbol: Spanned<Symbol>) -> ExprStmt {
+    fn parse_binding(&mut self, keyword: Token, mutable: bool) -> ScopeStmt {
+        let keyword = keyword.span;
+        let Some(ident) = self.try_get_ident() else {
+            self.expected(ErrorCode::ExpectedIdent);
+
+            let definition = self.parse_definition();
+            return self
+                .graph
+                .add_incomplete_binding(mutable, keyword, definition);
+        };
+
+        let definition = self.parse_definition();
+        self.graph.add_binding(mutable, keyword, ident, definition)
+    }
+
+    fn parse_name_pattern(&mut self, ident: Ident) -> StmtExpr {
         // assignments:
         if self.peek().kind == TokenKind::Equal {
             let equal = self.advance();
             let value = self.parse_expr(0);
-            return self.graph.add_assignment(symbol, equal.span, value);
+            return self.graph.add_assignment(ident, equal.span, value);
         } else if let Some(op) = self.peek().as_assign() {
             let op_span = self.advance().span;
-            let lhs = self.graph.add_ident(symbol);
+            let lhs = self.graph.add_ident(ident);
             let rhs = self.parse_expr(0);
             let value = self.graph.add_binary(op_span, op, lhs, rhs);
 
-            return self.graph.add_assignment(symbol, op_span, value);
+            return self.graph.add_assignment(ident, op_span, value);
         } else if let Some(op) = self.peek().as_inc_or_dec() {
             let op_span = self.advance().span;
-            let lhs = self.graph.add_ident(symbol);
+            let lhs = self.graph.add_ident(ident);
             let rhs = self.graph.add_literal(op_span, Literal::from(1));
             let value = self.graph.add_binary(op_span, op, lhs, rhs);
 
-            return self.graph.add_assignment(symbol, op_span, value);
+            return self.graph.add_assignment(ident, op_span, value);
         }
 
         // if we actually didnt have a pattern here
-        let lhs = self.graph.add_ident(symbol);
+        let lhs = self.graph.add_ident(ident);
         let value = self.append_operators_to_expression(lhs, 0);
-        self.graph.expr_as_expr_stmt(value)
+        self.graph.expr_as_stmt_expr(value)
     }
 
     fn parse_function(&mut self, keyword: Token) -> Expr {
         let keyword = keyword.span;
         let mut parameters = HashMap::new();
-        if let TokenKind::Open(opened) = self.peek().kind
-            && opened != Bracket::Curly
-        {
-            self.advance();
-            loop {
-                if let TokenKind::Closed(closed) = self.peek().kind {
-                    let span = self.advance().span;
-                    if closed != opened {
-                        self.errors.push(
-                            span,
-                            ErrorCode::WrongClosedBracket {
-                                expected: opened,
-                                found: closed,
-                            },
-                        );
-                    }
-                    break;
+        if self.try_get(TokenKind::Open(Bracket::Round)).is_some() {
+            _ = collect! {
+                self, ErrorCode::ExpectedClosedBracket { opened:Bracket::Round }
+
+                => if let Some(closed) = self.try_get(TokenKind::Closed(Bracket::Round)) {
+                    break closed;
                 }
-                let symbol = self.expect_name();
+
+                let Some(ident) = self.try_get_ident() else {
+                    if let Some(expr) = self.parse_optional_expr() {
+                        self.err_expr.push(expr);
+                    } else {
+                        self.stuck();
+                    }
+
+                    continue;
+                };
+
                 let ty = self
                     .parse_optional_expr()
                     .unwrap_or_else(|| self.graph.add_unit(self.pos()));
-                parameters.insert(symbol, ty);
-            }
+                parameters.insert(ident, ty);
+            };
         } else {
             let span = self.pos();
-            self.errors.push(span, ErrorCode::ExpectedOpenBracket);
+            self.errors.push(span, ErrorCode::ExpectedOpenParen);
         }
 
         let output = self.parse_expr(0);
@@ -521,7 +530,7 @@ mod tests {
         let mut tokenizer = Tokenizer::new(source, errors.clone(), 64);
         let mut parser = Parser::new(&mut tokenizer, errors.clone());
         parser.parse_file();
-        (parser.symbol_table(), errors)
+        (parser.output(), errors)
     }
 
     #[test]

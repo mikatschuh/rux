@@ -1,78 +1,159 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, vec};
 
-use bumpalo::Bump;
 use nonempty::NonEmpty;
 
 use crate::{
-    error::Span,
+    error::{Position, Span},
     literal_parsing::Literal,
     parser::intern::Symbol,
-    ref_count::{NoDealloc, Rc},
     tokenizing::{binary_op::BinaryOp, token::FloatPrecision, unary_op::UnaryOp},
     type_parsing::{IntegerType, TypeSize},
 };
-
-pub type DeclStmt = Spanned<Rc<DeclStmtKind, NoDealloc>>;
-pub type ExprStmt = Spanned<Rc<ExprStmtKind, NoDealloc>>;
-pub type Expr = Spanned<Rc<ExprKind, NoDealloc>>;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct Spanned<T> {
     pub span: Span,
     pub val: T,
 }
+pub type Ident = Spanned<Symbol>;
 
 #[derive(Clone, Debug)]
-pub enum DeclStmtKind {
-    /// Either one, type or value
+pub enum Item {
+    Constant {
+        keyword: Span,
+        ident: Span,
+        definition: Definition,
+    },
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub struct ScopeStmt(usize);
+
+#[derive(Clone, Debug)]
+pub enum ScopeStmtKind {
+    DeclStmt(DeclStmt),
     Binding {
         keyword: Span,
         mutable: bool,
-        symbol: Spanned<Symbol>,
-        ty: Option<Expr>,
-        assignment: Option<(Span, Expr)>, // equal-sign expr
+        ident: Ident,
+        definition: Definition,
     },
-    ExprStmt {
-        expr_stmt: ExprStmt,
+    BindingWithoutIdent {
+        keyword: Span,
+        mutable: bool,
+        definition: Definition,
     },
+    Defer(JumpStruct),
+    StmtExpr(StmtExpr), // expression statement would be a single expression used as a statement
+    Err,                // An incomplete unparseable statement
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct Label {
-    pub colon: Span,
-    pub label: Spanned<Symbol>,
-}
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub struct DeclStmt(usize);
 
-impl Label {
-    pub fn span(&self) -> Span {
-        self.label.span - self.colon
-    }
+#[derive(Clone, Debug)]
+pub enum DeclStmtKind {
+    Struct {},
+    Enum {},
 }
 
 #[derive(Clone, Debug)]
-pub enum ExprStmtKind {
+pub enum Definition {
+    Type(Expr),
     Assignment {
-        symbol: Spanned<Symbol>,
-        equal: Span,
-        value: Expr,
+        ty: Option<Expr>,
+        assignment: Assignment,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct Assignment {
+    pub equal: Span,
+    pub value: Expr,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub struct StmtExpr(usize);
+
+#[derive(Clone, Debug)]
+pub enum StmtExprKind {
+    Assignment {
+        ident: Ident,
+        assignment: Assignment,
     },
     Unreachable,
-    Continue {
+    Continue(JumpStruct),
+    Break(JumpStruct),
+    Return(JumpStruct),
+    Expr(Expr),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub struct Expr(usize);
+
+#[derive(Clone, Debug)]
+pub enum ExprKind {
+    Ident(Symbol),
+
+    BuiltinType(BuiltinType),
+    Literal(Literal),
+    Quote(String),
+    Boolean(bool),
+    Unit,
+
+    Unary {
+        op: Spanned<UnaryOp>,
+        value: Expr,
+    },
+    Binary {
+        lhs: Expr,
+        op: Spanned<BinaryOp>,
+        rhs: Expr,
+    },
+
+    Block {
+        stmts: NonEmpty<ScopeStmt>,
+    },
+
+    If {
         keyword: Span,
-        label: Option<Label>,
+        condition: Expr,
+        when_body: StmtExpr,
+        else_body: Option<ControlStruct>,
     },
-    Break {
+    Loop(ControlStruct),
+    Label {
+        label: Label,
+        body: StmtExpr,
+    },
+
+    Function {
         keyword: Span,
-        label: Option<Label>,
-        value: Option<Expr>,
+        parameters: HashMap<Ident, Expr>,
+        output: Expr,
+        body: StmtExpr,
     },
-    Return {
-        keyword: Span,
-        value: Option<Expr>,
-    },
-    Expr {
-        expr: Expr,
-    },
+
+    Err,
+}
+
+#[derive(Clone, Debug)]
+pub struct Label {
+    pub at_sign: Span,
+    pub ident: Ident,
+}
+
+#[derive(Clone, Debug)]
+pub struct ControlStruct {
+    pub keyword: Span,
+    pub body: StmtExpr,
+}
+
+#[derive(Clone, Debug)]
+pub struct JumpStruct {
+    pub keyword: Span,
+    pub label: Option<Label>,
+    pub value: Option<Expr>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -96,186 +177,174 @@ impl From<IntegerType> for BuiltinType {
     }
 }
 
-#[derive(Clone, Debug)]
-pub enum ExprKind {
-    Ident(Symbol),
-
-    BuiltinType(BuiltinType),
-    Literal(Literal),
-    Quote(String),
-    Boolean(bool),
-    Unit,
-
-    Unary {
-        op: Spanned<UnaryOp>,
-        value: Expr,
-    },
-    Binary {
-        lhs: Expr,
-        op: Spanned<BinaryOp>,
-        rhs: Expr,
-    },
-
-    Block {
-        statements: NonEmpty<DeclStmt>,
-    },
-
-    If {
-        keyword: Span,
-        condition: Expr,
-        when_body: ExprStmt,
-        else_body: Option<(Span, ExprStmt)>,
-    },
-    Loop {
-        keyword: Span,
-        body: ExprStmt,
-    },
-    Label {
-        label: Label,
-        body: ExprStmt,
-    },
-
-    Function {
-        keyword: Span,
-        parameters: HashMap<Spanned<Symbol>, Expr>,
-        output: Expr,
-        body: ExprStmt,
-    },
-}
-
 /// This one is DAG
 #[derive(Debug)]
 pub struct AstBuilder {
-    arena: Bump,
+    scope_stmts: Vec<Spanned<ScopeStmtKind>>,
+    decl_stmts: Vec<Spanned<DeclStmtKind>>,
+    stmt_exprs: Vec<Spanned<StmtExprKind>>,
+    exprs: Vec<Spanned<ExprKind>>,
 }
 
 impl AstBuilder {
     pub fn new() -> Self {
-        Self { arena: Bump::new() }
-    }
-
-    pub fn arena(self) -> Bump {
-        self.arena
-    }
-
-    fn push_stmt(&mut self, span: Span, kind: DeclStmtKind) -> DeclStmt {
-        Spanned {
-            span,
-            val: Rc::<DeclStmtKind, NoDealloc>::new_in_bump(kind, &self.arena),
-        }
-    }
-    fn push_expr_stmt(&mut self, span: Span, kind: ExprStmtKind) -> ExprStmt {
-        Spanned {
-            span,
-            val: Rc::<ExprStmtKind, NoDealloc>::new_in_bump(kind, &self.arena),
+        Self {
+            scope_stmts: vec![],
+            decl_stmts: vec![],
+            stmt_exprs: vec![],
+            exprs: vec![],
         }
     }
 
-    fn push_expr(&mut self, span: Span, kind: ExprKind) -> Expr {
-        Spanned {
-            span,
-            val: Rc::<ExprKind, NoDealloc>::new_in_bump(kind, &self.arena),
-        }
+    pub fn scope_stmt(&self, scope_stmt: ScopeStmt) -> &Spanned<ScopeStmtKind> {
+        &self.scope_stmts[scope_stmt.0]
+    }
+    pub fn stmt_expr(&self, stmt_expr: StmtExpr) -> &Spanned<StmtExprKind> {
+        &self.stmt_exprs[stmt_expr.0]
+    }
+    pub fn expr(&self, expr: Expr) -> &Spanned<ExprKind> {
+        &self.exprs[expr.0]
     }
 
-    pub fn expr_stmt_as_decl_stmt(&mut self, expr_stmt: ExprStmt) -> DeclStmt {
-        self.push_stmt(expr_stmt.span, DeclStmtKind::ExprStmt { expr_stmt })
+    pub fn update_start(&mut self, expr: Expr, start: Position) {
+        self.exprs[expr.0].span.start = start
+    }
+    pub fn update_end(&mut self, expr: Expr, end: Position) {
+        self.exprs[expr.0].span.end = end
     }
 
-    #[allow(unused)]
-    pub fn expr_as_stmt(&mut self, expr: Expr) -> DeclStmt {
-        let expr_stmt = self.expr_as_expr_stmt(expr);
-        self.expr_stmt_as_decl_stmt(expr_stmt)
+    fn jump_span(&self, jump: &JumpStruct) -> Span {
+        let end = match jump.value {
+            Some(expr) => self.expr(expr).span.end,
+            None => match &jump.label {
+                Some(label) => label.ident.span.end,
+                None => jump.keyword.end,
+            },
+        };
+
+        jump.keyword.start - end
     }
 
-    pub fn expr_as_expr_stmt(&mut self, expr: Expr) -> ExprStmt {
-        self.push_expr_stmt(expr.span, ExprStmtKind::Expr { expr })
+    fn add_scope_stmt(&mut self, span: Span, kind: ScopeStmtKind) -> ScopeStmt {
+        let id = self.scope_stmts.len();
+        self.scope_stmts.push(Spanned { span, val: kind });
+        ScopeStmt(id)
+    }
+
+    fn add_decl_stmt(&mut self, span: Span, kind: DeclStmtKind) -> DeclStmt {
+        let id = self.decl_stmts.len();
+        self.decl_stmts.push(Spanned { span, val: kind });
+        DeclStmt(id)
+    }
+
+    fn add_stmt_expr(&mut self, span: Span, kind: StmtExprKind) -> StmtExpr {
+        let id = self.stmt_exprs.len();
+        self.stmt_exprs.push(Spanned { span, val: kind });
+        StmtExpr(id)
+    }
+
+    fn add_expr(&mut self, span: Span, kind: ExprKind) -> Expr {
+        let id = self.exprs.len();
+        self.exprs.push(Spanned { span, val: kind });
+        Expr(id)
+    }
+
+    pub fn expr_as_stmt_expr(&mut self, expr: Expr) -> StmtExpr {
+        let span = self.expr(expr).span;
+        self.add_stmt_expr(span, StmtExprKind::Expr(expr))
+    }
+
+    pub fn stmt_expr_as_scope_stmt(&mut self, stmt_expr: StmtExpr) -> ScopeStmt {
+        let span = self.stmt_expr(stmt_expr).span;
+        self.add_scope_stmt(span, ScopeStmtKind::StmtExpr(stmt_expr))
+    }
+
+    pub fn decl_stmt_as_scope_stmt(&mut self, decl_stmt: DeclStmt) -> ScopeStmt {
+        let span = self.decl_stmts[decl_stmt.0].span;
+        self.add_scope_stmt(span, ScopeStmtKind::DeclStmt(decl_stmt))
+    }
+
+    pub fn add_err_expr(&mut self, span: Span) -> Expr {
+        self.add_expr(span, ExprKind::Err)
     }
 
     pub fn add_binding(
         &mut self,
         mutable: bool,
         keyword: Span,
-        symbol: Spanned<Symbol>,
-        ty: Option<Expr>,
-        assignment: Option<(Span, Expr)>,
-    ) -> DeclStmt {
-        self.push_stmt(
-            keyword
-                - assignment
-                    .clone()
-                    .map_or(ty.clone().map_or(symbol.span, |ty| ty.span), |a| a.1.span),
-            DeclStmtKind::Binding {
+        ident: Ident,
+        definition: Definition,
+    ) -> ScopeStmt {
+        let end = match &definition {
+            Definition::Type(ty) => self.expr(*ty).span.end,
+            Definition::Assignment { assignment, .. } => self.expr(assignment.value).span.end,
+        };
+
+        self.add_scope_stmt(
+            keyword - end,
+            ScopeStmtKind::Binding {
                 mutable,
                 keyword,
-                symbol,
-                ty,
-                assignment,
+                ident,
+                definition,
             },
         )
     }
 
-    pub fn add_assignment(
+    pub fn add_incomplete_binding(
         &mut self,
-        symbol: Spanned<Symbol>,
-        equal: Span,
-        value: Expr,
-    ) -> ExprStmt {
-        self.push_expr_stmt(
-            symbol.span - value.span,
-            ExprStmtKind::Assignment {
-                symbol,
-                equal,
-                value,
-            },
-        )
-    }
-
-    pub fn add_unreachable(&mut self, span: Span) -> ExprStmt {
-        self.push_expr_stmt(span, ExprStmtKind::Unreachable)
-    }
-
-    pub fn add_continue(&mut self, keyword: Span, label: Option<Label>) -> ExprStmt {
-        self.push_expr_stmt(
-            label.map_or(keyword, |l| keyword - l.label.span),
-            ExprStmtKind::Continue { keyword, label },
-        )
-    }
-
-    pub fn add_break(
-        &mut self,
+        mutable: bool,
         keyword: Span,
-        label: Option<Label>,
-        value: Option<Expr>,
-    ) -> ExprStmt {
-        self.push_expr_stmt(
-            value
-                .clone()
-                .map_or(label.map_or(keyword, |l| keyword - l.label.span), |v| {
-                    keyword - v.span
-                }),
-            ExprStmtKind::Break {
+        definition: Definition,
+    ) -> ScopeStmt {
+        let end = match &definition {
+            Definition::Type(ty) => self.expr(*ty).span.end,
+            Definition::Assignment { assignment, .. } => self.expr(assignment.value).span.end,
+        };
+
+        self.add_scope_stmt(
+            keyword - end,
+            ScopeStmtKind::BindingWithoutIdent {
                 keyword,
-                label,
-                value,
+                mutable,
+                definition,
             },
         )
     }
 
-    pub fn add_return(&mut self, keyword: Span, value: Option<Expr>) -> ExprStmt {
-        self.push_expr_stmt(
-            value.clone().map_or(keyword, |v| keyword - v.span),
-            ExprStmtKind::Return { keyword, value },
+    pub fn add_assignment(&mut self, ident: Ident, equal: Span, value: Expr) -> StmtExpr {
+        self.add_stmt_expr(
+            ident.span - self.expr(value).span,
+            StmtExprKind::Assignment {
+                ident,
+                assignment: Assignment { equal, value },
+            },
         )
+    }
+
+    pub fn add_unreachable(&mut self, span: Span) -> StmtExpr {
+        self.add_stmt_expr(span, StmtExprKind::Unreachable)
+    }
+
+    pub fn add_continue(&mut self, jump: JumpStruct) -> StmtExpr {
+        self.add_stmt_expr(self.jump_span(&jump), StmtExprKind::Continue(jump))
+    }
+
+    pub fn add_break(&mut self, jump: JumpStruct) -> StmtExpr {
+        self.add_stmt_expr(self.jump_span(&jump), StmtExprKind::Break(jump))
+    }
+
+    pub fn add_return(&mut self, jump: JumpStruct) -> StmtExpr {
+        self.add_stmt_expr(self.jump_span(&jump), StmtExprKind::Return(jump))
     }
 
     pub fn add_literal(&mut self, span: Span, literal: Literal) -> Expr {
-        self.push_expr(span, ExprKind::Literal(literal))
+        self.add_expr(span, ExprKind::Literal(literal))
     }
 
     pub fn add_unary(&mut self, op_span: Span, op: UnaryOp, value: Expr) -> Expr {
-        self.push_expr(
-            op_span - value.span,
+        self.add_expr(
+            op_span - self.expr(value).span,
             ExprKind::Unary {
                 op: Spanned {
                     span: op_span,
@@ -287,8 +356,8 @@ impl AstBuilder {
     }
 
     pub fn add_binary(&mut self, op_span: Span, op: BinaryOp, lhs: Expr, rhs: Expr) -> Expr {
-        self.push_expr(
-            lhs.span - rhs.span,
+        self.add_expr(
+            self.expr(lhs).span - self.expr(rhs).span,
             ExprKind::Binary {
                 op: Spanned {
                     span: op_span,
@@ -300,41 +369,44 @@ impl AstBuilder {
         )
     }
 
-    pub fn add_ident(&mut self, symbol: Spanned<Symbol>) -> Expr {
-        self.push_expr(symbol.span, ExprKind::Ident(symbol.val))
+    pub fn add_ident(&mut self, ident: Ident) -> Expr {
+        self.add_expr(ident.span, ExprKind::Ident(ident.val))
     }
 
     pub fn add_quote(&mut self, span: Span, quote: String) -> Expr {
-        self.push_expr(span, ExprKind::Quote(quote))
+        self.add_expr(span, ExprKind::Quote(quote))
     }
 
     pub fn add_boolean(&mut self, span: Span, boolean: bool) -> Expr {
-        self.push_expr(span, ExprKind::Boolean(boolean))
+        self.add_expr(span, ExprKind::Boolean(boolean))
     }
 
     pub fn add_type(&mut self, span: Span, builtin_type: BuiltinType) -> Expr {
-        self.push_expr(span, ExprKind::BuiltinType(builtin_type))
+        self.add_expr(span, ExprKind::BuiltinType(builtin_type))
     }
 
     pub fn add_unit(&mut self, span: Span) -> Expr {
-        self.push_expr(span, ExprKind::Unit)
+        self.add_expr(span, ExprKind::Unit)
     }
 
-    pub fn add_block(&mut self, span: Span, statements: NonEmpty<DeclStmt>) -> Expr {
-        self.push_expr(span, ExprKind::Block { statements })
+    pub fn add_block(&mut self, span: Span, stmts: NonEmpty<ScopeStmt>) -> Expr {
+        self.add_expr(span, ExprKind::Block { stmts })
     }
 
     pub fn add_if(
         &mut self,
         keyword: Span,
         condition: Expr,
-        when_body: ExprStmt,
-        else_body: Option<(Span, ExprStmt)>,
+        when_body: StmtExpr,
+        else_body: Option<ControlStruct>,
     ) -> Expr {
-        self.push_expr(
-            else_body
-                .clone()
-                .map_or(keyword - when_body.span, |e| keyword - e.1.span),
+        let end = match else_body {
+            Some(ControlStruct { body, .. }) => self.stmt_expr(body).span.end,
+            None => self.stmt_expr(when_body).span.end,
+        };
+
+        self.add_expr(
+            keyword - end,
             ExprKind::If {
                 keyword,
                 condition,
@@ -344,13 +416,16 @@ impl AstBuilder {
         )
     }
 
-    pub fn add_loop(&mut self, keyword: Span, body: ExprStmt) -> Expr {
-        self.push_expr(keyword - body.span, ExprKind::Loop { keyword, body })
+    pub fn add_loop(&mut self, keyword: Span, body: StmtExpr) -> Expr {
+        self.add_expr(
+            keyword - self.stmt_expr(body).span,
+            ExprKind::Loop(ControlStruct { keyword, body }),
+        )
     }
 
-    pub fn add_label(&mut self, label: Label, body: ExprStmt) -> Expr {
-        self.push_expr(
-            label.label.span - body.span,
+    pub fn add_label(&mut self, label: Label, body: StmtExpr) -> Expr {
+        self.add_expr(
+            label.ident.span - self.stmt_expr(body).span,
             ExprKind::Label { label, body },
         )
     }
@@ -358,12 +433,12 @@ impl AstBuilder {
     pub fn add_function(
         &mut self,
         keyword: Span,
-        parameters: HashMap<Spanned<Symbol>, Expr>,
+        parameters: HashMap<Ident, Expr>,
         output: Expr,
-        body: ExprStmt,
+        body: StmtExpr,
     ) -> Expr {
-        self.push_expr(
-            keyword - body.span,
+        self.add_expr(
+            keyword - self.stmt_expr(body).span,
             ExprKind::Function {
                 keyword,
                 parameters,

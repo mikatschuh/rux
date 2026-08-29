@@ -3,10 +3,10 @@ use crate::tokenizing::token::{Bracket, Token, TokenKind};
 
 use TokenKind::*;
 
-pub const LABEL: u8 = 15; // allows tick
+pub const LABEL: u8 = 15;
 
-pub const BOOLEAN: u8 = 20;
-pub const BOOLEAN_RIGHT: u8 = 21;
+pub const LOGICAL: u8 = 20;
+pub const LOGICAL_RIGHT: u8 = 21;
 
 pub const COMPARISON: u8 = 50;
 pub const COMPARISON_RIGHT: u8 = 51;
@@ -32,7 +32,7 @@ impl Token {
     pub const fn binding_pow(self) -> u8 {
         match self.kind {
             PipePipe | NotPipePipe | RightPipePipe | NotRightPipePipe | AndAnd | NotAndAnd => {
-                BOOLEAN
+                LOGICAL
             }
 
             EqualEqual | NotEqual | Left | NotLeft | LeftEqual | NotLeftEqual | Right
@@ -81,7 +81,7 @@ impl BinaryOp {
         match self {
             Index | App => panic!("These dont have right binding power!"),
 
-            BinaryOp::Or | Nor | BinaryOp::Xor | Xnor | BinaryOp::And | Nand => BOOLEAN_RIGHT,
+            BinaryOp::Or | Nor | BinaryOp::Xor | Xnor | BinaryOp::And | Nand => LOGICAL_RIGHT,
 
             Eq | Ne | Less | LessEq | Greater | GreaterEq => COMPARISON_RIGHT,
 

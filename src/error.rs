@@ -76,9 +76,9 @@ pub enum ErrorCode {
     ExpectedItemDeclaration,
 
     // bracket
-    ExpectedOpenBracket,
+    ExpectedOpenParen,
     ExpectedClosedBracket { opened: Bracket },
-    WrongClosedBracket { expected: Bracket, found: Bracket },
+    LonelyClosedBracket { closed: Bracket },
 
     // semantic
     MissingEntryPoint { entry: &'static str },
@@ -273,7 +273,7 @@ impl Error {
                 ["::"]
             ),
 
-            ExpectedOpenBracket => {
+            ExpectedOpenParen => {
                 format_error!(
                     self.span.to_string(path),
                     "expected open parentheses {}",
@@ -287,11 +287,11 @@ impl Error {
                     [opened.display_closed()]
                 )
             }
-            WrongClosedBracket { expected, found } => {
+            LonelyClosedBracket { closed } => {
                 format_error!(
                     self.span.to_string(path),
-                    "found a closed bracket {} but actually expected {}",
-                    [found.display_closed(), expected.display_closed()]
+                    "found a closed bracket {} with no opened one before",
+                    [closed.display_closed()]
                 )
             }
 
