@@ -5,7 +5,7 @@ use crate::{
     tokenizing::{
         TokenStream,
         span::Span,
-        token::{Bracket, Token, TokenKind},
+        token::{Bracket, TokenKind},
     },
 };
 use nonempty::NonEmpty;
@@ -19,18 +19,6 @@ pub use intern::{Interner, Symbol};
 
 mod ast;
 mod intern;
-
-macro_rules! collect {
-    ($self:expr, $expected:expr => $($body:tt)*) => {
-        loop {
-            $($body)*
-            if $self.peek().kind == TokenKind::Eof {
-                $self.expected($expected);
-                break $self.pos();
-            }
-        }
-    };
-}
 
 pub struct ParserOutput {
     pub ast: AstBuilder,
@@ -79,28 +67,25 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
         }
     }
 
-    fn peek(&self) -> Token {
-        self.tokens.peek()
-    }
-
-    fn pos(&self) -> Span {
-        self.peek().span.start.into()
+    fn peek(&self) -> Option<TokenKind> {
+        self.tokens.peek().map(|tok| tok.kind)
     }
 
     #[must_use]
-    fn advance(&mut self) -> Token {
-        let tok = self.peek();
+    fn advance(&mut self) -> Span {
+        let pos = self.tokens.pos();
         self.tokens.consume();
-        tok
+        pos
     }
 
     fn get_ident(&mut self) -> Ident {
-        let tok = self.advance();
+        let tok = self.tokens.peek().unwrap();
+        self.tokens.consume();
         self.interner.get_ident(tok.span, tok.src)
     }
 
     fn try_get_ident(&mut self) -> Option<Ident> {
-        if self.peek().kind == TokenKind::Ident {
+        if self.peek().is_some_and(|tok| tok == TokenKind::Ident) {
             Some(self.get_ident())
         } else {
             None
@@ -108,32 +93,55 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
     }
 
     fn try_get(&mut self, kind: TokenKind) -> Option<Span> {
-        if self.peek().kind == kind {
-            Some(self.advance().span)
+        if self.peek().is_some_and(|tok| tok == kind) {
+            Some(self.advance())
         } else {
             None
         }
     }
 
     fn expected(&mut self, error: ErrorCode) {
-        let pos = self.pos();
+        let pos = self.tokens.pos();
         self.errors.push(pos, error)
     }
 
-    fn stuck(&mut self) {
-        _ = self.advance();
+    fn expected_expr(&mut self) -> Expr {
+        self.expected(ErrorCode::ExpectedExpr);
+        self.graph.add_err_expr(self.tokens.pos())
     }
 
-    pub fn parse_file(&mut self) {
-        while self.peek().kind != TokenKind::Eof {
-            self.parse_item();
+    fn expected_stmt_expr(&mut self) -> StmtExpr {
+        self.expected(ErrorCode::ExpectedExpr);
+        let expr = self.graph.add_err_expr(self.tokens.pos());
+        self.graph.expr_as_stmt_expr(expr)
+    }
+
+    fn expected_scope_stmt(&mut self) -> ScopeStmt {
+        self.expected(ErrorCode::ExpectedExpr);
+        let expr = self.graph.add_err_expr(self.tokens.pos());
+        let stmt_expr = self.graph.expr_as_stmt_expr(expr);
+        self.graph.stmt_expr_as_scope_stmt(stmt_expr)
+    }
+
+    fn stuck_at_end(&mut self) -> bool {
+        if self.peek().is_none() {
+            true
+        } else {
+            _ = self.advance();
+            false
         }
     }
 
-    fn parse_item(&mut self) {
-        match self.peek().kind {
+    pub fn parse_file(&mut self) {
+        while let Some(tok) = self.peek() {
+            self.parse_item(tok);
+        }
+    }
+
+    fn parse_item(&mut self, tok: TokenKind) {
+        match tok {
             TokenKind::Let => {
-                let keyword = self.advance().span;
+                let keyword = self.advance();
                 let Some(ident) = self.try_get_ident() else {
                     self.expected(ErrorCode::ExpectedIdent);
 
@@ -159,23 +167,23 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
             TokenKind::Struct => todo!(),
 
             _ => {
-                if let Some(expr) = self.parse_optional_expr() {
+                if let Some(expr) = self.parse_optional_expr(0) {
                     self.err_expr.push(expr)
                 } else {
                     self.expected(ErrorCode::ExpectedItemDeclaration);
-                    self.stuck();
+                    _ = self.stuck_at_end();
                 }
             }
         }
     }
 
-    fn parse_scope_stmt(&mut self) -> Option<ScopeStmt> {
-        match self.peek().kind {
-            TokenKind::Semicolon => {
-                self.stuck();
-                None
-            }
+    fn parse_scope_stmt(&mut self) -> ScopeStmt {
+        self.parse_optional_scope_stmt()
+            .unwrap_or_else(|| self.expected_scope_stmt())
+    }
 
+    fn parse_optional_scope_stmt(&mut self) -> Option<ScopeStmt> {
+        match self.peek()? {
             TokenKind::Fn => todo!(),
             TokenKind::Enum => todo!(),
             TokenKind::Struct => todo!(),
@@ -189,59 +197,204 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
                 Some(self.parse_binding(var_keyword, true))
             }
 
-            _ => {
-                let expr = self.parse_expr_stmt();
-                Some(self.graph.stmt_expr_as_scope_stmt(expr))
-            }
+            _ => self
+                .parse_optional_stmt_expr()
+                .map(|stmt_expr| self.graph.stmt_expr_as_scope_stmt(stmt_expr)),
         }
     }
 
-    fn parse_expr_stmt(&mut self) -> StmtExpr {
-        match self.peek().kind {
+    fn parse_stmt_expr(&mut self) -> StmtExpr {
+        self.parse_optional_stmt_expr()
+            .unwrap_or_else(|| self.expected_stmt_expr())
+    }
+
+    fn parse_optional_stmt_expr(&mut self) -> Option<StmtExpr> {
+        match self.peek()? {
             TokenKind::Ident => {
                 let ident = self.get_ident();
-                self.parse_name_pattern(ident)
+                Some(self.parse_name_pattern(ident))
             }
             TokenKind::Unreachable => {
-                let unreachable = self.advance().span;
-                self.graph.add_unreachable(unreachable)
+                let unreachable = self.advance();
+                Some(self.graph.add_unreachable(unreachable))
             }
             TokenKind::Continue => {
                 let jump = self.parse_jump_struct();
-                self.graph.add_continue(jump)
+                Some(self.graph.add_continue(jump))
             }
             TokenKind::Break => {
                 let jump = self.parse_jump_struct();
-                self.graph.add_break(jump)
+                Some(self.graph.add_break(jump))
             }
             TokenKind::Return => {
                 let jump = self.parse_jump_struct();
-                self.graph.add_return(jump)
+                Some(self.graph.add_return(jump))
             }
-            _ => {
-                let expr = self.parse_expr(0);
-                self.graph.expr_as_stmt_expr(expr)
-            }
+            _ => self
+                .parse_optional_expr(0)
+                .map(|expr| self.graph.expr_as_stmt_expr(expr)),
         }
     }
 
     fn parse_expr(&mut self, min_bp: u8) -> Expr {
-        let lhs = self
-            .parse_primary()
-            .unwrap_or_else(|| self.graph.add_err_expr(self.pos()));
-        self.append_operators_to_expression(lhs, min_bp)
+        self.parse_optional_expr(min_bp)
+            .unwrap_or_else(|| self.expected_expr())
     }
 
-    fn parse_optional_expr(&mut self) -> Option<Expr> {
+    fn parse_optional_expr(&mut self, min_bp: u8) -> Option<Expr> {
         self.parse_primary()
-            .map(|lhs| self.append_operators_to_expression(lhs, 0))
+            .map(|lhs| self.append_operators_to_expression(lhs, min_bp))
+    }
+
+    fn parse_primary(&mut self) -> Option<Expr> {
+        let tok = self.peek()?;
+        match tok {
+            TokenKind::UnitType => {
+                let span = self.advance();
+                Some(self.graph.add_type(span, BuiltinType::Unit))
+            }
+            TokenKind::NeverType => {
+                let span = self.advance();
+                Some(self.graph.add_type(span, BuiltinType::Never))
+            }
+            TokenKind::BoolType => {
+                let span = self.advance();
+                Some(self.graph.add_type(span, BuiltinType::Bool))
+            }
+            TokenKind::IntegerType => {
+                let ty = self.tokens.get_type();
+                let span = self.advance();
+                Some(self.graph.add_type(span, ty.into()))
+            }
+            TokenKind::FloatType(precision) => {
+                let span = self.advance();
+                Some(self.graph.add_type(span, BuiltinType::Float { precision }))
+            }
+            TokenKind::ComplitType => {
+                let span = self.advance();
+                Some(self.graph.add_type(span, BuiltinType::Complit))
+            }
+
+            TokenKind::Literal => {
+                let literal = self.tokens.get_literal();
+                let span = self.advance();
+                Some(self.graph.add_literal(span, literal))
+            }
+            TokenKind::Quote { .. } => {
+                let quote = self.tokens.get_quote();
+                let span = self.advance();
+                Some(self.graph.add_quote(span, quote))
+            }
+            TokenKind::Boolean(boolean) => {
+                let span = self.advance();
+                Some(self.graph.add_boolean(span, boolean))
+            }
+            TokenKind::Ident => {
+                let ident = self.get_ident();
+                Some(self.graph.add_ident(ident))
+            }
+            TokenKind::Open(Bracket::Curly) => {
+                let opener = self.advance();
+                Some(self.parse_block(opener))
+            }
+            TokenKind::Open(open_kind) => {
+                let opener = self.advance();
+                let expr = self
+                    .parse_optional_expr(0)
+                    .unwrap_or_else(|| self.graph.add_unit(opener));
+
+                self.graph.update_start(expr, opener.start);
+
+                let closer_kind = self.peek();
+                let closer_span = self.advance();
+                match closer_kind {
+                    Some(TokenKind::Closed(closed_kind)) if closed_kind == open_kind => {
+                        self.graph.update_end(expr, closer_span.end);
+                        Some(expr)
+                    }
+                    Some(TokenKind::Closed(closed_kind)) => {
+                        self.errors.push(
+                            closer_span,
+                            ErrorCode::LonelyClosedBracket {
+                                closed: closed_kind,
+                            },
+                        );
+                        Some(expr)
+                    }
+                    _ => {
+                        self.errors.push(
+                            closer_span,
+                            ErrorCode::ExpectedClosedBracket { opened: open_kind },
+                        );
+                        Some(expr)
+                    }
+                }
+            }
+            TokenKind::If => {
+                let keyword = self.advance();
+                let condition = self.parse_expr(0);
+                let when_body = self.parse_stmt_expr();
+                let else_clause = self.try_get(TokenKind::Else).map(|keyword| ControlStruct {
+                    keyword,
+                    body: self.parse_stmt_expr(),
+                });
+                Some(
+                    self.graph
+                        .add_if(keyword, condition, when_body, else_clause),
+                )
+            }
+            TokenKind::AtSign => self.parse_optional_label().map(|label| {
+                let body = self.parse_stmt_expr();
+                self.graph.add_label(label, body)
+            }),
+            TokenKind::Loop => {
+                let keyword = self.advance();
+                let body = self.parse_stmt_expr();
+                Some(self.graph.add_loop(keyword, body))
+            }
+
+            TokenKind::Fn => {
+                let keyword = self.advance();
+                Some(self.parse_function(keyword))
+            }
+
+            _ => match tok.as_prefix() {
+                Some(op) => {
+                    let span = self.advance();
+                    let node = self.parse_expr(op.binding_pow());
+                    Some(self.graph.add_unary(span, op, node))
+                }
+                None => None,
+            },
+        }
+    }
+
+    fn append_operators_to_expression(&mut self, mut lhs: Expr, min_bp: u8) -> Expr {
+        loop {
+            let Some(tok) = self.peek() else { return lhs };
+            if tok.binding_pow() < min_bp {
+                return lhs;
+            }
+
+            if let Some(op) = tok.as_infix() {
+                let span = self.advance();
+                let rhs = self.parse_expr(op.binding_pow());
+
+                lhs = self.graph.add_binary(span, op, lhs, rhs);
+            } else if let Some(op) = tok.as_postfix() {
+                let span = self.advance();
+                lhs = self.graph.add_unary(span, op, lhs)
+            } else {
+                return lhs;
+            }
+        }
     }
 
     fn parse_jump_struct(&mut self) -> JumpStruct {
         JumpStruct {
-            keyword: self.advance().span,
+            keyword: self.advance(),
             label: self.parse_optional_label(),
-            value: self.parse_optional_expr(),
+            value: self.parse_optional_expr(0),
         }
     }
 
@@ -262,185 +415,50 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
     fn parse_definition(&mut self) -> Definition {
         if let Some(equal) = self.try_get(TokenKind::Equal) {
             let value = self.parse_expr(0);
-            let ty = self.parse_optional_expr();
+            let ty = self.parse_optional_expr(0);
             Definition::Assignment {
                 ty,
                 assignment: Assignment { equal, value },
             }
         } else {
-            if let Some(ty) = self.parse_optional_expr() {
+            if let Some(ty) = self.parse_optional_expr(0) {
                 Definition::Type(ty)
             } else {
                 self.expected(ErrorCode::ExpectedType);
-                Definition::Type(self.graph.add_err_expr(self.pos()))
+                Definition::Type(self.graph.add_err_expr(self.tokens.pos()))
             }
         }
     }
 
-    fn parse_primary(&mut self) -> Option<Expr> {
-        match self.peek().kind {
-            TokenKind::Unit => {
-                let span = self.advance().span;
-                Some(self.graph.add_type(span, BuiltinType::Unit))
-            }
-            TokenKind::Never => {
-                let span = self.advance().span;
-                Some(self.graph.add_type(span, BuiltinType::Never))
-            }
-            TokenKind::Bool => {
-                let span = self.advance().span;
-                Some(self.graph.add_type(span, BuiltinType::Bool))
-            }
-            TokenKind::IntegerType => {
-                let ty = self.tokens.get_type();
-                let span = self.advance().span;
-                Some(self.graph.add_type(span, ty.into()))
-            }
-            TokenKind::Float(precision) => {
-                let span = self.advance().span;
-                Some(self.graph.add_type(span, BuiltinType::Float { precision }))
-            }
-            TokenKind::Complit => {
-                let span = self.advance().span;
-                Some(self.graph.add_type(span, BuiltinType::Complit))
-            }
-
-            TokenKind::Literal => {
-                let literal = self.tokens.get_literal();
-                let span = self.advance().span;
-                Some(self.graph.add_literal(span, literal))
-            }
-            TokenKind::Quote { .. } => {
-                let quote = self.tokens.get_quote();
-                let span = self.advance().span;
-                Some(self.graph.add_quote(span, quote))
-            }
-            TokenKind::Boolean(boolean) => {
-                let span = self.advance().span;
-                Some(self.graph.add_boolean(span, boolean))
-            }
-            TokenKind::Ident => {
-                let ident = self.get_ident();
-                Some(self.graph.add_ident(ident))
-            }
-            TokenKind::Open(Bracket::Curly) => {
-                let opener = self.advance();
-                Some(self.parse_block(opener))
-            }
-            TokenKind::Open(open_kind) => {
-                let opener = self.advance();
-                if self.peek().kind == TokenKind::Closed(open_kind) {
-                    let closer = self.advance().span;
-                    return Some(self.graph.add_unit(opener.span - closer));
-                }
-
-                let expr = self.parse_expr(0);
-                self.graph.update_start(expr, opener.span.start);
-
-                let closer = self.advance();
-                let span = closer.span;
-                self.graph.update_end(expr, span.end);
-                match closer.kind {
-                    TokenKind::Closed(closed_kind) if closed_kind == open_kind => Some(expr),
-                    TokenKind::Closed(closed_kind) => {
-                        self.errors.push(
-                            span,
-                            ErrorCode::LonelyClosedBracket {
-                                closed: closed_kind,
-                            },
-                        );
-                        Some(expr)
-                    }
-                    _ => {
-                        self.errors.push(
-                            closer.span,
-                            ErrorCode::ExpectedClosedBracket { opened: open_kind },
-                        );
-                        Some(expr)
-                    }
-                }
-            }
-            TokenKind::If => {
-                let keyword = self.advance().span;
-                let condition = self.parse_expr(0);
-                let when_body = self.parse_expr_stmt();
-                let else_clause = self.try_get(TokenKind::Else).map(|keyword| ControlStruct {
-                    keyword,
-                    body: self.parse_expr_stmt(),
-                });
-                Some(
-                    self.graph
-                        .add_if(keyword, condition, when_body, else_clause),
-                )
-            }
-            TokenKind::AtSign => self.parse_optional_label().map(|label| {
-                let body = self.parse_expr_stmt();
-                self.graph.add_label(label, body)
-            }),
-            TokenKind::Loop => {
-                let keyword = self.advance().span;
-                let body = self.parse_expr_stmt();
-                Some(self.graph.add_loop(keyword, body))
-            }
-
-            TokenKind::Fn => {
-                let keyword = self.advance();
-                Some(self.parse_function(keyword))
-            }
-
-            _ => match self.peek().as_prefix() {
-                Some(op) => {
-                    let span = self.advance().span;
-                    let node = self.parse_expr(op.binding_pow());
-                    Some(self.graph.add_unary(span, op, node))
-                }
-                None => None,
-            },
-        }
-    }
-
-    fn append_operators_to_expression(&mut self, mut lhs: Expr, min_bp: u8) -> Expr {
-        loop {
-            if self.peek().binding_pow() < min_bp {
-                return lhs;
-            }
-
-            if let Some(op) = self.peek().as_infix() {
-                let span = self.advance().span;
-                let rhs = self.parse_expr(op.binding_pow());
-
-                lhs = self.graph.add_binary(span, op, lhs, rhs);
-            } else if let Some(op) = self.peek().as_postfix() {
-                let span = self.advance().span;
-                lhs = self.graph.add_unary(span, op, lhs)
-            } else {
-                return lhs;
-            }
-        }
-    }
-
-    fn parse_block(&mut self, opener: Token) -> Expr {
+    fn parse_block(&mut self, opener: Span) -> Expr {
         let mut stmts = vec![];
-        let end = collect! {
-            self, ErrorCode::ExpectedClosedBracket { opened: Bracket::Curly }
+        let end = loop {
+            while self.peek().is_some_and(|tok| tok == TokenKind::Semicolon) {
+                self.tokens.consume()
+            }
+            if let Some(closer) = self.try_get(TokenKind::Closed(Bracket::Curly)) {
+                break closer;
+            }
 
-            => if let Some(closed) = self.try_get(TokenKind::Closed(Bracket::Curly)) {
-                break closed;
-            } else if let Some(statement) = self.parse_scope_stmt() {
+            if let Some(statement) = self.parse_optional_scope_stmt() {
                 stmts.push(statement);
             } else {
-                self.stuck(); // The token can't be consumed
+                self.expected(ErrorCode::ExpectedClosedBracket {
+                    opened: Bracket::Curly,
+                });
+                if self.stuck_at_end() {
+                    break self.advance();
+                }
             }
         };
         if let Some(stmts) = NonEmpty::from_vec(stmts) {
-            self.graph.add_block(opener.span - end, stmts)
+            self.graph.add_block(opener - end, stmts)
         } else {
-            self.graph.add_unit(opener.span - end)
+            self.graph.add_unit(opener - end)
         }
     }
 
-    fn parse_binding(&mut self, keyword: Token, mutable: bool) -> ScopeStmt {
-        let keyword = keyword.span;
+    fn parse_binding(&mut self, keyword: Span, mutable: bool) -> ScopeStmt {
         let Some(ident) = self.try_get_ident() else {
             self.expected(ErrorCode::ExpectedIdent);
 
@@ -455,20 +473,24 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
     }
 
     fn parse_name_pattern(&mut self, ident: Ident) -> StmtExpr {
+        let Some(tok) = self.peek() else {
+            let expr = self.graph.add_ident(ident);
+            return self.graph.expr_as_stmt_expr(expr);
+        };
+
         // assignments:
-        if self.peek().kind == TokenKind::Equal {
-            let equal = self.advance();
+        if let Some(equal) = self.try_get(TokenKind::Equal) {
             let value = self.parse_expr(0);
-            return self.graph.add_assignment(ident, equal.span, value);
-        } else if let Some(op) = self.peek().as_assign() {
-            let op_span = self.advance().span;
+            return self.graph.add_assignment(ident, equal, value);
+        } else if let Some(op) = tok.as_assign() {
+            let op_span = self.advance();
             let lhs = self.graph.add_ident(ident);
             let rhs = self.parse_expr(0);
             let value = self.graph.add_binary(op_span, op, lhs, rhs);
 
             return self.graph.add_assignment(ident, op_span, value);
-        } else if let Some(op) = self.peek().as_inc_or_dec() {
-            let op_span = self.advance().span;
+        } else if let Some(op) = tok.as_inc_or_dec() {
+            let op_span = self.advance();
             let lhs = self.graph.add_ident(ident);
             let rhs = self.graph.add_literal(op_span, Literal::from(1));
             let value = self.graph.add_binary(op_span, op, lhs, rhs);
@@ -482,39 +504,40 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
         self.graph.expr_as_stmt_expr(value)
     }
 
-    fn parse_function(&mut self, keyword: Token) -> Expr {
-        let keyword = keyword.span;
+    fn parse_function(&mut self, keyword: Span) -> Expr {
         let mut parameters = HashMap::new();
         if self.try_get(TokenKind::Open(Bracket::Round)).is_some() {
-            _ = collect! {
-                self, ErrorCode::ExpectedClosedBracket { opened:Bracket::Round }
+            _ = loop {
+                while self.peek() == Some(TokenKind::Comma) {
+                    self.tokens.consume();
+                }
 
-                => if let Some(closed) = self.try_get(TokenKind::Closed(Bracket::Round)) {
+                if let Some(closed) = self.try_get(TokenKind::Closed(Bracket::Round)) {
                     break closed;
                 }
 
                 let Some(ident) = self.try_get_ident() else {
-                    if let Some(expr) = self.parse_optional_expr() {
+                    self.expected(ErrorCode::ExpectedIdent);
+                    if let Some(expr) = self.parse_optional_expr(0) {
                         self.err_expr.push(expr);
-                    } else {
-                        self.stuck();
+                    } else if self.stuck_at_end() {
+                        break self.tokens.pos();
                     }
-
                     continue;
                 };
 
                 let ty = self
-                    .parse_optional_expr()
-                    .unwrap_or_else(|| self.graph.add_unit(self.pos()));
+                    .parse_optional_expr(0)
+                    .unwrap_or_else(|| self.graph.add_type(self.tokens.pos(), BuiltinType::Unit));
                 parameters.insert(ident, ty);
             };
         } else {
-            let span = self.pos();
+            let span = self.tokens.pos();
             self.errors.push(span, ErrorCode::ExpectedOpenParen);
         }
 
         let output = self.parse_expr(0);
-        let body = self.parse_expr_stmt();
+        let body = self.parse_stmt_expr();
 
         self.graph.add_function(keyword, parameters, output, body)
     }

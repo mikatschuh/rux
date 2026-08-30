@@ -114,12 +114,12 @@ pub enum TokenKind {
     TypesType,
     StructType,
     EnumType,
-    Unit,
-    Never,
+    UnitType,
+    NeverType,
 
-    Bool,
-    Float(FloatPrecision),
-    Complit,
+    BoolType,
+    FloatType(FloatPrecision),
+    ComplitType,
     // =========
     IntegerType, // u8, i8, i1, u0, u128, i32, u11818
     Literal,     // 1001010101
@@ -127,8 +127,6 @@ pub enum TokenKind {
         closing_scope: bool,
         opening_scope: bool,
     }, // "..." / }..." / "...{ / }...{
-
-    Eof,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Hash)]
@@ -159,17 +157,17 @@ pub fn as_keyword(string: &str) -> Option<TokenKind> {
         "return" => Return,
         "unreachable" => Unreachable,
 
-        "void" => Unit,
-        "never" => Never,
+        "void" => UnitType,
+        "never" => NeverType,
 
         "type" => TypesType,
         "structtype" => StructType,
         "enumtype" => EnumType,
-        "bool" => Bool,
-        "f16" => Float(FloatPrecision::Half),
-        "f32" => Float(FloatPrecision::Full),
-        "f64" => Float(FloatPrecision::Double),
-        "f128" => Float(FloatPrecision::DoubleDouble),
+        "bool" => BoolType,
+        "f16" => FloatType(FloatPrecision::Half),
+        "f32" => FloatType(FloatPrecision::Full),
+        "f64" => FloatType(FloatPrecision::Double),
+        "f128" => FloatType(FloatPrecision::DoubleDouble),
         _ => return None,
     })
 }
@@ -374,15 +372,9 @@ impl TokenKind {
         }
     }
 
-    pub const fn is_terminator(self) -> bool {
-        matches!(self, Closed(..) | Comma | Semicolon | Eof)
-    }
-}
-
-impl Token {
     pub fn as_prefix(self) -> Option<UnaryOp> {
         use UnaryOp::*;
-        Some(match self.kind {
+        Some(match self {
             Dash => Neg,
             TokenKind::Not => Not,
             RightArrow => Ptr,
@@ -392,7 +384,7 @@ impl Token {
 
     pub fn as_infix(self) -> Option<BinaryOp> {
         use BinaryOp::*;
-        Some(match self.kind {
+        Some(match self {
             TokenKind::Dot => FieldAccess,
             EqualEqual => Eq,
             NotEqual => Ne,
@@ -439,7 +431,7 @@ impl Token {
 
     pub fn as_assign(self) -> Option<BinaryOp> {
         use BinaryOp::*;
-        Some(match self.kind {
+        Some(match self {
             PipePipeEqual => Or,
             NotPipePipeEqual => Nor,
             RightPipePipeEqual => Xor,
@@ -472,7 +464,7 @@ impl Token {
 
     pub fn as_inc_or_dec(self) -> Option<BinaryOp> {
         use BinaryOp::*;
-        Some(match self.kind {
+        Some(match self {
             PlusPlus => Add,
             DashDash => Sub,
             _ => return None,
@@ -481,7 +473,7 @@ impl Token {
 
     pub fn as_postfix(self) -> Option<UnaryOp> {
         use UnaryOp::*;
-        Some(match self.kind {
+        Some(match self {
             LeftArrow => Ptr,
             _ => return None,
         })

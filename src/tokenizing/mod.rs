@@ -5,12 +5,9 @@ use crate::{
     ref_count::Rc,
     tokenizing::{
         parse_tok::parse_token,
-        quote::EmbeddingSyntax,
-        span::Position,
-        token::{
-            Token,
-            TokenKind::{self, *},
-        },
+        quote::QuoteEmbeddingState,
+        span::{Position, Span},
+        token::{Token, TokenKind},
     },
     type_parsing::{IntegerType, TypeSize},
 };
@@ -24,15 +21,14 @@ pub mod span;
 #[cfg(test)]
 #[allow(dead_code)]
 pub mod test;
-#[allow(dead_code)]
 pub mod token;
-#[allow(unused)]
 pub mod unary_op;
 
 pub use quote::with_written_out_escape_sequences;
 
 pub trait TokenStream {
-    fn peek(&self) -> Token; // has to be free
+    fn peek(&self) -> Option<Token>; // has to be free
+    fn pos(&self) -> Span;
 
     fn get_literal(&mut self) -> Literal;
     fn get_quote(&mut self) -> String;
@@ -43,10 +39,10 @@ pub trait TokenStream {
 pub struct Tokenizer<'errors> {
     text: &'static [u8],
 
-    tok: Token,
+    tok: Result<Token, Position>,
     data: Option<Data>,
 
-    state: EmbeddingSyntax,
+    quote_embedding_state: QuoteEmbeddingState,
 
     errors: Rc<Errors<'errors>>,
     target_ptr_size: TypeSize, // necessary for type parsing
@@ -60,32 +56,44 @@ enum Data {
 }
 
 impl<'src> Tokenizer<'src> {
-    pub fn new(text: &'static str, mut errors: Rc<Errors<'src>>, target_ptr_size: u128) -> Self {
-        let mut state = EmbeddingSyntax::default();
-        let mut text = text.as_bytes();
+    pub fn new(text: &'static str, errors: Rc<Errors<'src>>, target_ptr_size: u128) -> Self {
+        let quote_embedding_state = QuoteEmbeddingState::default();
+        let text = text.as_bytes();
+        let pos = Position::beginning();
 
-        let (tok, data) = parse_token(
-            &mut text,
-            Position::beginning(),
-            &mut state,
-            &mut errors,
-            target_ptr_size,
-        );
-
-        Self {
+        let mut tokenizer = Self {
             text,
-            tok,
-            data,
-            state,
+            tok: Err(pos),
+            data: None,
+            quote_embedding_state,
             errors,
             target_ptr_size,
-        }
+        };
+        tokenizer.advance(pos);
+        tokenizer
+    }
+
+    pub fn advance(&mut self, pos: Position) {
+        self.data = None;
+        self.tok = parse_token(
+            &mut self.text,
+            pos,
+            &mut self.data,
+            &mut self.quote_embedding_state,
+            &mut self.errors,
+            self.target_ptr_size,
+        )
+        .ok_or(pos);
     }
 }
 
 impl<'src> TokenStream for Tokenizer<'src> {
-    fn peek(&self) -> Token {
-        self.tok
+    fn peek(&self) -> Option<Token> {
+        self.tok.ok()
+    }
+
+    fn pos(&self) -> Span {
+        self.tok.map_or_else(|pos| pos.into(), |tok| tok.span)
     }
 
     fn get_literal(&mut self) -> Literal {
@@ -110,18 +118,10 @@ impl<'src> TokenStream for Tokenizer<'src> {
     }
 
     fn consume(&mut self) {
-        if self.tok.kind == Eof {
+        let Ok(tok) = self.tok else {
             return;
-        }
+        };
 
-        let (tok, data) = parse_token(
-            &mut self.text,
-            self.tok.span.end,
-            &mut self.state,
-            &mut self.errors,
-            self.target_ptr_size,
-        );
-        self.tok = tok;
-        self.data = data;
+        self.advance(tok.span.end);
     }
 }

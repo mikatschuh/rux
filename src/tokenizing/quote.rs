@@ -8,22 +8,22 @@ use crate::{
 };
 
 #[derive(Clone, Default, Debug, PartialEq, Eq)]
-pub struct EmbeddingSyntax {
+pub struct QuoteEmbeddingState {
     open_braces_after_embedding_quote: Vec<usize>,
 }
 
-impl EmbeddingSyntax {
-    pub fn embedded_scope_opening(&mut self) {
+impl QuoteEmbeddingState {
+    pub fn open_scope(&mut self) {
         self.open_braces_after_embedding_quote.push(0)
     }
 
-    pub fn opening_curly_brace(&mut self) {
+    pub fn open_brace(&mut self) {
         if let Some(open_braces) = self.open_braces_after_embedding_quote.last_mut() {
             *open_braces += 1
         }
     }
 
-    pub fn closing_curly_brace(
+    pub fn closing_brace(
         &mut self,
         text: &mut &'static [u8],
         pos: Position,
@@ -74,7 +74,7 @@ pub fn with_written_out_escape_sequences(quote: &str) -> String {
 pub fn parse_quote(
     text: &mut &'static [u8],
     pos: Position,
-    state: &mut EmbeddingSyntax,
+    state: &mut QuoteEmbeddingState,
     closing_scope: bool,
 
     errors: &mut Errors,
@@ -109,7 +109,7 @@ pub fn parse_quote(
         if slice.current_byte() == b'{' {
             slice.push_byte_over();
 
-            state.embedded_scope_opening();
+            state.open_scope();
             return (
                 Token {
                     span,

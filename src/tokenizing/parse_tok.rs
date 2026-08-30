@@ -7,7 +7,7 @@ use crate::{
     tokenizing::{
         Data,
         TokenKind::*,
-        quote::{EmbeddingSyntax, parse_quote},
+        quote::{QuoteEmbeddingState, parse_quote},
         span::{Position, Span},
         token::{Bracket, Token, TokenKind, as_keyword},
         whitespace_at_start_or_empty,
@@ -44,52 +44,41 @@ pub fn push_over_until_none_identifier_char<'a>(
 pub(super) fn parse_token(
     text: &mut &'static [u8],
     mut pos: Position,
-    embedding_syntax_state: &mut EmbeddingSyntax,
-
+    data: &mut Option<Data>,
+    embedding_syntax_state: &mut QuoteEmbeddingState,
     errors: &mut Errors,
     target_ptr_size: TypeSize,
-) -> (Token, Option<Data>) {
-    if consume_spaces(text, &mut pos, errors) {
-        return (
-            Token {
-                span: pos.into(),
-                src: "",
-                kind: Eof,
-            },
-            None,
-        );
+) -> Option<Token> {
+    if consumed_spaces_and_empty(text, &mut pos, errors) {
+        return None;
     }
 
-    // right now self.text can't be empty as that would be an invalid state
     if text[0] == b'}'
-        && let Some((tok, quote)) = embedding_syntax_state.closing_curly_brace(text, pos, errors)
+        && let Some((tok, quote)) = embedding_syntax_state.closing_brace(text, pos, errors)
     {
-        return (tok, Some(Data::Quote(quote)));
+        *data = Some(Data::Quote(quote));
+        return Some(tok);
     }
 
     if text[0] == b'"' {
         let (tok, quote) = parse_quote(text, pos, embedding_syntax_state, false, errors);
-        // we give it the state - it will call the embedding syntax state machine automatically
-        return (tok, Some(Data::Quote(quote)));
+        *data = Some(Data::Quote(quote));
+        return Some(tok);
     }
 
     let mut span: Span = pos.into();
 
-    // we have to parse literals first because they can include a dot
-    // they wouln't be parsed as identifiers and their dot would be identified as TokenKind::Dot
     let text_before = *text;
     match literal_parsing::parse_literal(text, &mut span, errors) {
         Some(literal) => {
-            return (
-                Token {
-                    span,
-                    src: unsafe {
-                        str::from_utf8_unchecked(&text_before[0..text_before.len() - text.len()])
-                    },
-                    kind: Literal,
+            *data = Some(Data::Lit(literal));
+            return Some(Token {
+                span,
+                src: unsafe {
+                    str::from_utf8_unchecked(&text_before[0..text_before.len() - text.len()])
                 },
-                Some(Data::Lit(literal)),
-            );
+                kind: Literal,
+            });
         }
         None => {
             *text = text_before;
@@ -97,10 +86,12 @@ pub(super) fn parse_token(
     }
 
     if let Some(tok_kind) = TokenKind::new(text[0]) {
-        return (
-            parse_operator(text, &mut span, embedding_syntax_state, tok_kind),
-            None,
-        );
+        return Some(parse_operator(
+            text,
+            &mut span,
+            embedding_syntax_state,
+            tok_kind,
+        ));
     }
 
     // assumes that the next token is not a whitespace
@@ -109,33 +100,28 @@ pub(super) fn parse_token(
 
     // possibly reinterpret the identifier
     if let Some(ty) = type_parsing::parse_type(src.as_bytes(), span, errors, target_ptr_size) {
-        return (
-            Token {
-                span,
-                src,
-                kind: IntegerType,
-            },
-            Some(Data::Type(ty)),
-        );
-    }
-    (
-        Token {
+        *data = Some(Data::Type(ty));
+        return Some(Token {
             span,
             src,
-            kind: match src {
-                "true" => Boolean(true),
-                "false" => Boolean(false),
-                _ if src.trim_start_matches('_').is_empty() => TokenKind::Underscore,
-                _ => as_keyword(src).unwrap_or(TokenKind::Ident),
-            },
+            kind: IntegerType,
+        });
+    }
+    Some(Token {
+        span,
+        src,
+        kind: match src {
+            "true" => Boolean(true),
+            "false" => Boolean(false),
+            _ if src.trim_start_matches('_').is_empty() => TokenKind::Underscore,
+            _ => as_keyword(src).unwrap_or(TokenKind::Ident),
         },
-        None,
-    )
+    })
 }
 
 /// - empty => `true`
 /// - spaces consumed until next token => `false`
-fn consume_spaces(text: &mut &[u8], pos: &mut Position, errors: &mut Errors) -> bool {
+fn consumed_spaces_and_empty(text: &mut &[u8], pos: &mut Position, errors: &mut Errors) -> bool {
     let text_state = is_empty_after_spaces_consumed(text, pos);
 
     match text_state {
@@ -154,7 +140,7 @@ fn consume_spaces(text: &mut &[u8], pos: &mut Position, errors: &mut Errors) -> 
 fn parse_operator(
     text: &mut &'static [u8],
     span: &mut Span,
-    embedding_syntax_state: &mut EmbeddingSyntax,
+    embedding_syntax_state: &mut QuoteEmbeddingState,
 
     mut tok_kind: TokenKind,
 ) -> Token {
@@ -169,7 +155,7 @@ fn parse_operator(
             next_state.is_none()
         } {
             if tok_kind == Open(Bracket::Curly) {
-                embedding_syntax_state.opening_curly_brace();
+                embedding_syntax_state.open_brace();
             }
             return Token {
                 span: *span,

@@ -21,18 +21,13 @@ fn collect_tokens_and_quotes(
 
     let mut tokens = vec![];
     let mut quotes = vec![];
-    loop {
-        let tok = tokenizer.peek();
+    while let Some(tok) = tokenizer.peek() {
         if matches!(tok.kind, Quote { .. }) {
             quotes.push(tokenizer.get_quote());
         }
 
         tokens.push(tok);
         tokenizer.consume();
-
-        if tok.kind == Eof {
-            break;
-        }
     }
 
     (tokens, quotes, errors)
@@ -41,14 +36,7 @@ fn collect_tokens_and_quotes(
 #[test]
 fn tokenizes_basic_sequences() {
     let sequences = vec![
-        (
-            "",
-            vec![Token {
-                span: Span::at(1, 1, 1, 1),
-                src: "",
-                kind: Eof,
-            }],
-        ),
+        ("", vec![]),
         /*(
             "++a a+· wdwwkd\n iw22i-*==",
             vec![
@@ -130,11 +118,6 @@ fn tokenizes_basic_sequences() {
                     src: "+",
                     kind: Plus,
                 },
-                Token {
-                    span: Span::at(3, 3, 3, 3),
-                    src: "",
-                    kind: Eof,
-                },
             ],
         ),
         (
@@ -149,11 +132,6 @@ fn tokenizes_basic_sequences() {
                     span: Span::at(1, 2, 2, 2),
                     src: "b",
                     kind: Ident,
-                },
-                Token {
-                    span: Span::at(4, 2, 4, 2),
-                    src: "",
-                    kind: Eof,
                 },
             ],
         ),
@@ -175,21 +153,21 @@ fn tokenizes_literal_sequences() {
 
     assert_eq!(
         tokenizer.peek(),
-        Token {
+        Some(Token {
             span: Span::at(1, 1, 2, 1),
             src: "-",
             kind: Dash
-        }
+        })
     );
     tokenizer.consume();
 
     assert_eq!(
         tokenizer.peek(),
-        Token {
+        Some(Token {
             span: Span::at(2, 1, 5, 1),
             src: "1.3",
             kind: Literal
-        }
+        })
     );
     assert_eq!(
         tokenizer.get_literal(),
@@ -208,21 +186,21 @@ fn tokenizes_literal_sequences() {
 
     assert_eq!(
         tokenizer.peek(),
-        Token {
+        Some(Token {
             span: Span::at(6, 1, 7, 1),
             src: "+",
             kind: Plus
-        }
+        })
     );
     tokenizer.consume();
 
     assert_eq!(
         tokenizer.peek(),
-        Token {
+        Some(Token {
             span: Span::at(8, 1, 13, 1),
             src: "0x345",
             kind: Literal
-        }
+        })
     );
     assert_eq!(
         tokenizer.get_literal(),
@@ -236,14 +214,7 @@ fn tokenizes_literal_sequences() {
     );
     tokenizer.consume();
 
-    assert_eq!(
-        tokenizer.peek(),
-        Token {
-            span: Span::at(13, 1, 13, 1),
-            src: "",
-            kind: Eof
-        }
-    );
+    assert_eq!(tokenizer.peek(), None);
     assert_eq!(*errors, Errors::empty(Path::new("example.rx")));
 }
 
@@ -256,21 +227,14 @@ fn decodes_quote_escape_sequences() {
 
     assert_eq!(
         tokens,
-        vec![
-            Token {
-                span: Span::at(1, 1, input.len() + 1, 1),
-                src: input,
-                kind: Quote {
-                    closing_scope: false,
-                    opening_scope: false,
-                },
+        vec![Token {
+            span: Span::at(1, 1, input.len() + 1, 1),
+            src: input,
+            kind: Quote {
+                closing_scope: false,
+                opening_scope: false,
             },
-            Token {
-                span: Span::at(input.len() + 1, 1, input.len() + 1, 1),
-                src: "",
-                kind: Eof,
-            },
-        ]
+        },]
     );
     assert_eq!(quotes.len(), 1);
     assert_eq!(
@@ -287,21 +251,14 @@ fn decodes_escaped_structural_quote_characters() {
 
     assert_eq!(
         tokens,
-        vec![
-            Token {
-                span: Span::at(1, 1, input.len() + 1, 1),
-                src: input,
-                kind: Quote {
-                    closing_scope: false,
-                    opening_scope: false,
-                },
+        vec![Token {
+            span: Span::at(1, 1, input.len() + 1, 1),
+            src: input,
+            kind: Quote {
+                closing_scope: false,
+                opening_scope: false,
             },
-            Token {
-                span: Span::at(input.len() + 1, 1, input.len() + 1, 1),
-                src: "",
-                kind: Eof,
-            },
-        ]
+        },]
     );
     assert_eq!(quotes, vec!["x\\y\"z'w{".to_owned()]);
     assert_eq!(*errors, Errors::empty(Path::new("example.rx")));
@@ -335,11 +292,6 @@ fn tokenizes_embedded_quotes_across_scopes() {
                     opening_scope: false,
                 },
             },
-            Token {
-                span: Span::at(8, 1, 8, 1),
-                src: "",
-                kind: Eof,
-            },
         ]
     );
     assert_eq!(quotes, vec!["a".to_owned(), "c".to_owned()]);
@@ -352,21 +304,14 @@ fn reports_unknown_escape_sequences() {
 
     assert_eq!(
         tokens,
-        vec![
-            Token {
-                span: Span::at(1, 1, 5, 1),
-                src: "\"\\q\"",
-                kind: Quote {
-                    closing_scope: false,
-                    opening_scope: false,
-                },
+        vec![Token {
+            span: Span::at(1, 1, 5, 1),
+            src: "\"\\q\"",
+            kind: Quote {
+                closing_scope: false,
+                opening_scope: false,
             },
-            Token {
-                span: Span::at(5, 1, 5, 1),
-                src: "",
-                kind: Eof,
-            },
-        ]
+        },]
     );
     assert_eq!(quotes, vec!["\\q".to_owned()]);
 
@@ -386,21 +331,14 @@ fn reports_unterminated_quotes_and_keeps_trailing_backslash() {
 
     assert_eq!(
         tokens,
-        vec![
-            Token {
-                span: Span::at(1, 1, 6, 1),
-                src: "\"abc\\",
-                kind: Quote {
-                    closing_scope: false,
-                    opening_scope: false,
-                },
+        vec![Token {
+            span: Span::at(1, 1, 6, 1),
+            src: "\"abc\\",
+            kind: Quote {
+                closing_scope: false,
+                opening_scope: false,
             },
-            Token {
-                span: Span::at(6, 1, 6, 1),
-                src: "",
-                kind: Eof,
-            },
-        ]
+        },]
     );
     assert_eq!(quotes, vec!["abc\\".to_owned()]);
 

@@ -1,7 +1,8 @@
 use super::{binary_op::BinaryOp, unary_op::UnaryOp};
-use crate::tokenizing::token::{Bracket, Token, TokenKind};
-
-use TokenKind::*;
+use crate::tokenizing::token::{
+    Bracket,
+    TokenKind::{self, *},
+};
 
 pub const LABEL: u8 = 15;
 
@@ -28,9 +29,9 @@ pub const CALL_CONVENTION: u8 = 150;
 pub const ACCESSOR: u8 = 150;
 pub const ACCESSOR_RIGHT: u8 = 151;
 
-impl Token {
+impl TokenKind {
     pub const fn binding_pow(self) -> u8 {
-        match self.kind {
+        match self {
             PipePipe | NotPipePipe | RightPipePipe | NotRightPipePipe | AndAnd | NotAndAnd => {
                 LOGICAL
             }
