@@ -1,6 +1,7 @@
 use crate::{
     error::{ErrorCode, Errors},
     literal_parsing::Literal,
+    parser::ast::DeclStmt,
     ref_count::Rc,
     tokenizing::{
         TokenStream,
@@ -184,7 +185,11 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
 
     fn parse_optional_scope_stmt(&mut self) -> Option<ScopeStmt> {
         match self.peek()? {
-            TokenKind::Fn => todo!(),
+            TokenKind::Fn => {
+                let keyword = self.advance();
+                let function = self.parse_function(keyword);
+                Some(self.graph.decl_stmt_as_scope_stmt(function))
+            }
             TokenKind::Enum => todo!(),
             TokenKind::Struct => todo!(),
 
@@ -353,11 +358,6 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
                 Some(self.graph.add_loop(keyword, body))
             }
 
-            TokenKind::Fn => {
-                let keyword = self.advance();
-                Some(self.parse_function(keyword))
-            }
-
             _ => match tok.as_prefix() {
                 Some(op) => {
                     let span = self.advance();
@@ -461,11 +461,7 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
     fn parse_binding(&mut self, keyword: Span, mutable: bool) -> ScopeStmt {
         let Some(ident) = self.try_get_ident() else {
             self.expected(ErrorCode::ExpectedIdent);
-
-            let definition = self.parse_definition();
-            return self
-                .graph
-                .add_incomplete_binding(mutable, keyword, definition);
+            return self.graph.add_incomplete_binding(keyword);
         };
 
         let definition = self.parse_definition();
@@ -504,7 +500,11 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
         self.graph.expr_as_stmt_expr(value)
     }
 
-    fn parse_function(&mut self, keyword: Span) -> Expr {
+    fn parse_function(&mut self, keyword: Span) -> DeclStmt {
+        let Some(ident) = self.try_get_ident() else {
+            self.expected(ErrorCode::ExpectedIdent);
+            return self.graph.add_incomplete_decl(keyword);
+        };
         let mut parameters = HashMap::new();
         if self.try_get(TokenKind::Open(Bracket::Round)).is_some() {
             _ = loop {
@@ -539,7 +539,8 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
         let output = self.parse_expr(0);
         let body = self.parse_stmt_expr();
 
-        self.graph.add_function(keyword, parameters, output, body)
+        self.graph
+            .add_function(keyword, ident, parameters, output, body)
     }
 }
 

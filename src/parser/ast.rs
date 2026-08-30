@@ -28,6 +28,7 @@ pub enum Item {
         ident: Span,
         definition: Definition,
     },
+    DeclStmt(DeclStmt),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -42,14 +43,11 @@ pub enum ScopeStmtKind {
         ident: Ident,
         definition: Definition,
     },
-    BindingWithoutIdent {
+    IncompleteBinding {
         keyword: Span,
-        mutable: bool,
-        definition: Definition,
     },
     Defer(JumpStruct),
     StmtExpr(StmtExpr), // expression statement would be a single expression used as a statement
-    Err,                // An incomplete unparseable statement
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -57,8 +55,48 @@ pub struct DeclStmt(usize);
 
 #[derive(Clone, Debug)]
 pub enum DeclStmtKind {
-    Struct {},
-    Enum {},
+    Function {
+        keyword: Span,
+        ident: Ident,
+        parameters: HashMap<Ident, Expr>,
+        output: Expr,
+        body: StmtExpr,
+    },
+    Struct {
+        ident: Ident,
+    },
+    Enum {
+        keyword: Span,
+        ident: Ident,
+        variants: HashMap<Symbol, Parameter>,
+    },
+    IncompleteDecl {
+        keyword: Span,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct Parameter {
+    ident: Span,
+    ty: Option<Expr>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub struct TypeDecl(usize);
+
+pub enum TypeDeclKind {
+    Struct {
+        keyword: Span,
+        fields: HashMap<Symbol, Parameter>,
+    },
+    Enum {
+        keyword: Span,
+        variants: HashMap<Symbol, Parameter>,
+    },
+    Newtype {
+        keyword: Span,
+        ty: Expr,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -128,13 +166,6 @@ pub enum ExprKind {
     Loop(ControlStruct),
     Label {
         label: Label,
-        body: StmtExpr,
-    },
-
-    Function {
-        keyword: Span,
-        parameters: HashMap<Ident, Expr>,
-        output: Expr,
         body: StmtExpr,
     },
 
@@ -295,25 +326,8 @@ impl AstBuilder {
         )
     }
 
-    pub fn add_incomplete_binding(
-        &mut self,
-        mutable: bool,
-        keyword: Span,
-        definition: Definition,
-    ) -> ScopeStmt {
-        let end = match &definition {
-            Definition::Type(ty) => self.expr(*ty).span.end,
-            Definition::Assignment { assignment, .. } => self.expr(assignment.value).span.end,
-        };
-
-        self.add_scope_stmt(
-            keyword - end,
-            ScopeStmtKind::BindingWithoutIdent {
-                keyword,
-                mutable,
-                definition,
-            },
-        )
+    pub fn add_incomplete_binding(&mut self, keyword: Span) -> ScopeStmt {
+        self.add_scope_stmt(keyword, ScopeStmtKind::IncompleteBinding { keyword })
     }
 
     pub fn add_assignment(&mut self, ident: Ident, equal: Span, value: Expr) -> StmtExpr {
@@ -437,18 +451,24 @@ impl AstBuilder {
     pub fn add_function(
         &mut self,
         keyword: Span,
+        ident: Ident,
         parameters: HashMap<Ident, Expr>,
         output: Expr,
         body: StmtExpr,
-    ) -> Expr {
-        self.add_expr(
+    ) -> DeclStmt {
+        self.add_decl_stmt(
             keyword - self.stmt_expr(body).span,
-            ExprKind::Function {
+            DeclStmtKind::Function {
                 keyword,
+                ident,
                 parameters,
                 output,
                 body,
             },
         )
+    }
+
+    pub fn add_incomplete_decl(&mut self, keyword: Span) -> DeclStmt {
+        self.add_decl_stmt(keyword, DeclStmtKind::IncompleteDecl { keyword })
     }
 }
