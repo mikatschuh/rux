@@ -3,11 +3,12 @@ use std::path::Path;
 use num::BigUint;
 
 use crate::{
-    error::{ErrorCode, Errors, Span},
+    error::{ErrorCode, Errors},
     literal_parsing::{self, Base},
     ref_count::Rc,
     tokenizing::{
         TokenStream, Tokenizer,
+        span::Span,
         token::{Token, TokenKind::*},
     },
 };

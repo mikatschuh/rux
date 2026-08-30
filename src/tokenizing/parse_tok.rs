@@ -2,12 +2,13 @@ use crate::{
     byte_parsing::{
         TextState, TokenSlice, is_empty_after_spaces_consumed, is_unicode_payload_byte,
     },
-    error::{ErrorCode, Errors, Position, Span},
+    error::{ErrorCode, Errors},
     literal_parsing,
     tokenizing::{
         Data,
         TokenKind::*,
         quote::{EmbeddingSyntax, parse_quote},
+        span::{Position, Span},
         token::{Bracket, Token, TokenKind, as_keyword},
         whitespace_at_start_or_empty,
     },

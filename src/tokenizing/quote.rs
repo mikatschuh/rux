@@ -1,7 +1,10 @@
 use crate::{
     byte_parsing::{TokenSlice, is_unicode_payload_byte},
-    error::{ErrorCode, Errors, Position, Span},
-    tokenizing::token::{Token, TokenKind},
+    error::{ErrorCode, Errors},
+    tokenizing::{
+        span::{Position, Span},
+        token::{Token, TokenKind},
+    },
 };
 
 #[derive(Clone, Default, Debug, PartialEq, Eq)]

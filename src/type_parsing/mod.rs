@@ -1,8 +1,9 @@
 use num::BigUint;
 
 use crate::{
-    error::{ErrorCode, Errors, Span},
+    error::{ErrorCode, Errors},
     literal_parsing,
+    tokenizing::span::Span,
     type_parsing::error::TypeResult,
 };
 

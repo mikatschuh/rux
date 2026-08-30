@@ -1,11 +1,12 @@
 use crate::{
     byte_parsing::whitespace_at_start_or_empty,
-    error::{Errors, Position},
+    error::Errors,
     literal_parsing::Literal,
     ref_count::Rc,
     tokenizing::{
         parse_tok::parse_token,
         quote::EmbeddingSyntax,
+        span::Position,
         token::{
             Token,
             TokenKind::{self, *},
@@ -19,6 +20,7 @@ pub mod binary_op;
 pub mod binding_pow;
 pub mod parse_tok;
 mod quote;
+pub mod span;
 #[cfg(test)]
 #[allow(dead_code)]
 pub mod test;

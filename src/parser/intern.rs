@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use crate::{
-    error::Span,
     parser::ast::{Ident, Spanned},
+    tokenizing::span::Span,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]

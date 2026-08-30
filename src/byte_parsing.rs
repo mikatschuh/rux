@@ -1,6 +1,6 @@
 use std::slice::from_raw_parts;
 
-use crate::error::Position;
+use crate::tokenizing::span::Position;
 
 pub struct TokenSlice<'a, 'b> {
     larger_slice: &'a mut &'b [u8],

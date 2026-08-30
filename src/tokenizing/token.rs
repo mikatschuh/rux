@@ -1,5 +1,5 @@
 use super::binary_op::BinaryOp;
-use crate::{error::Span, tokenizing::unary_op::UnaryOp};
+use crate::tokenizing::{span::Span, unary_op::UnaryOp};
 use colored::{ColoredString, Colorize};
 use std::fmt::Display;
 

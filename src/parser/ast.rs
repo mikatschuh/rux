@@ -3,10 +3,14 @@ use std::{collections::HashMap, vec};
 use nonempty::NonEmpty;
 
 use crate::{
-    error::{Position, Span},
     literal_parsing::Literal,
     parser::intern::Symbol,
-    tokenizing::{binary_op::BinaryOp, token::FloatPrecision, unary_op::UnaryOp},
+    tokenizing::{
+        binary_op::BinaryOp,
+        span::{Position, Span},
+        token::FloatPrecision,
+        unary_op::UnaryOp,
+    },
     type_parsing::{IntegerType, TypeSize},
 };
 

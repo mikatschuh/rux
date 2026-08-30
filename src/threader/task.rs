@@ -106,7 +106,7 @@ impl Task {
                 let mut tokenizer = tokenizing::Tokenizer::new(content, errors.clone(), 64);
                 let mut parser = parser::Parser::new(&mut tokenizer, errors.clone());
                 parser.parse_file();
-                let parser_output = parser.symbol_table();
+                let parser_output = parser.output();
                 let (graph_dump, interner) =
                     grapher::build_graph_debug(parser_output, "main", errors.clone())
                         .expect("graph");

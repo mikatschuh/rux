@@ -1,19 +1,21 @@
 use crate::{
-    error::{ErrorCode, Errors, Span},
+    error::{ErrorCode, Errors},
     literal_parsing::Literal,
-    parser::ast::{
-        Assignment, AstBuilder, BuiltinType, ControlStruct, Definition, Expr, ExprKind, Ident,
-        Item, JumpStruct, Label, ScopeStmt, ScopeStmtKind, Spanned, StmtExpr, StmtExprKind,
-    },
     ref_count::Rc,
     tokenizing::{
         TokenStream,
+        span::Span,
         token::{Bracket, Token, TokenKind},
     },
 };
-pub use intern::{Interner, Symbol};
 use nonempty::NonEmpty;
 use std::collections::HashMap;
+
+pub use ast::{
+    Assignment, AstBuilder, BuiltinType, ControlStruct, Definition, Expr, ExprKind, Ident, Item,
+    JumpStruct, Label, ScopeStmt, ScopeStmtKind, Spanned, StmtExpr, StmtExprKind,
+};
+pub use intern::{Interner, Symbol};
 
 mod ast;
 mod intern;
@@ -35,7 +37,7 @@ pub struct ParserOutput {
     pub interner: Interner,
     pub item_table: HashMap<Symbol, Item>,
     pub err_expr: Vec<Expr>,
-    incomplete_bindings: Vec<IncompleteBinding>,
+    pub incomplete_bindings: Vec<IncompleteBinding>,
 }
 
 pub struct Parser<'tokens, 'errors, T> {

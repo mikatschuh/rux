@@ -1,6 +1,6 @@
 use crate::{
-    error::{ErrorCode, Errors, Span},
-    tokenizing::parse_tok::push_over_until_none_identifier_char,
+    error::{ErrorCode, Errors},
+    tokenizing::{parse_tok::push_over_until_none_identifier_char, span::Span},
 };
 use num::{BigInt, BigUint, Zero, bigint::Sign};
 
