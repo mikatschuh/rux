@@ -41,7 +41,7 @@ let long_function = fn(
 ) bool { ... }
 
 // typing is nominal
-// types can be created like this:
+// new types can be created like this:
 
 // struct
 struct Vec3 {
@@ -60,12 +60,21 @@ enum State {
 
 // without commas:
 enum State {
-    Done       void
-    Processing void
-    NotStarted void
+    Done       ()
+    Processing ()
+    NotStarted ()
 }
 
-// all combined:
+// newtypes
+newtype Meter i32
+
+// types can have parameters:
+enum Result fn(ok type, err type) {
+    Ok ok
+    Err err
+}
+
+// you can add custom types to variants or fields:
 enum Result fn(ok type) {
     Ok ok
     Err enum {
