@@ -101,11 +101,11 @@ pub enum TypeDeclKind {
 
 #[derive(Clone, Debug)]
 pub enum Definition {
-    Type(Expr),
-    Assignment {
-        ty: Option<Expr>,
-        assignment: Assignment,
+    Type {
+        ty: Expr,
+        assignment: Option<Assignment>,
     },
+    Assignment(Assignment),
 }
 
 #[derive(Clone, Debug)]
@@ -311,8 +311,15 @@ impl AstBuilder {
         definition: Definition,
     ) -> ScopeStmt {
         let end = match &definition {
-            Definition::Type(ty) => self.expr(*ty).span.end,
-            Definition::Assignment { assignment, .. } => self.expr(assignment.value).span.end,
+            Definition::Assignment(assignment)
+            | Definition::Type {
+                assignment: Some(assignment),
+                ..
+            } => self.expr(assignment.value).span.end,
+            Definition::Type {
+                ty,
+                assignment: None,
+            } => self.expr(*ty).span.end,
         };
 
         self.add_scope_stmt(

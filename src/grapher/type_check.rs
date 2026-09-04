@@ -1,9 +1,10 @@
 use crate::{
-    error::{ErrorCode, Errors, Span},
+    error::{ErrorCode, Errors},
     grapher::{
         Graph,
         graph::{DataID, TypeID},
     },
+    tokenizing::span::Span,
 };
 
 pub fn require_type(

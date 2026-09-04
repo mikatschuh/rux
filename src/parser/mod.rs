@@ -413,19 +413,31 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
     }
 
     fn parse_definition(&mut self) -> Definition {
+        let ty = self.parse_optional_expr(0);
         if let Some(equal) = self.try_get(TokenKind::Equal) {
             let value = self.parse_expr(0);
-            let ty = self.parse_optional_expr(0);
-            Definition::Assignment {
-                ty,
-                assignment: Assignment { equal, value },
+            let assignment = Assignment { equal, value };
+
+            match ty {
+                Some(ty) => Definition::Type {
+                    ty,
+                    assignment: Some(assignment),
+                },
+                None => Definition::Assignment(assignment),
             }
         } else {
-            if let Some(ty) = self.parse_optional_expr(0) {
-                Definition::Type(ty)
-            } else {
-                self.expected(ErrorCode::ExpectedType);
-                Definition::Type(self.graph.add_err_expr(self.tokens.pos()))
+            match ty {
+                Some(ty) => Definition::Type {
+                    ty,
+                    assignment: None,
+                },
+                None => {
+                    self.expected(ErrorCode::ExpectedType);
+                    Definition::Type {
+                        ty: self.graph.add_err_expr(self.tokens.pos()),
+                        assignment: None,
+                    }
+                }
             }
         }
     }

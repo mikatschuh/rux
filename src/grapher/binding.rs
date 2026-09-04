@@ -9,7 +9,7 @@ use crate::{
 pub struct Binding {
     pub mutable: bool,
     pub ty: TypeID,
-    pub id: VarID,
+    pub id: BindingID,
 }
 
 pub struct Scope {
@@ -23,7 +23,7 @@ pub struct SymbolTableStack {
 
 /// This is an **existing** variable
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct VarID(usize);
+pub struct BindingID(usize);
 
 #[must_use]
 pub struct OpenScope(());
@@ -47,7 +47,7 @@ impl SymbolTableStack {
         &mut self,
         _: OpenScope,
         symbol_dump: &mut Vec<(Symbol, DataID)>,
-        mut read_var: impl FnMut(TypeID, VarID) -> Option<DataID>,
+        mut read_var: impl FnMut(TypeID, BindingID) -> Option<DataID>,
     ) {
         let symbols = self.scopes.pop().unwrap().bindings; // safe because of OpenScope
         symbols
@@ -56,9 +56,14 @@ impl SymbolTableStack {
             .for_each(|var| symbol_dump.push(var));
     }
 
-    pub fn add_symbol(&mut self, mutable: bool, symbol: Symbol, ty: TypeID) -> Option<VarID> {
+    pub fn add_symbol_to_scope(
+        &mut self,
+        mutable: bool,
+        symbol: Symbol,
+        ty: TypeID,
+    ) -> Option<BindingID> {
         if let Some(scope) = self.scopes.last_mut() {
-            let id = VarID(self.state_id);
+            let id = BindingID(self.state_id);
             scope.bindings.insert(symbol, Binding { mutable, ty, id });
             self.state_id += 1;
             Some(id)

@@ -4,19 +4,20 @@ use crate::{
     error::{ErrorCode, Errors},
     grapher::{
         Graph,
-        binding::VarID,
+        binding::BindingID,
         graph::{CtrlID, CtrlKind, DataID, DataKind, MergeID, TypeID},
         loops::{LoopBackedges, OpenLoop},
     },
-    parser::Expr,
+    parser::{AstBuilder, Expr},
 };
 
 /// This describes an **existing** block.
-pub type BlockID = usize;
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub struct BlockID(usize);
 
 #[derive(Clone, Debug)]
 pub struct Placeholder {
-    var: VarID,
+    var: BindingID,
     data_placeholder: DataID,
     /// this the AST-Node that read out the value of the incomplete phi for the first time
     reference: Expr,
@@ -24,7 +25,7 @@ pub struct Placeholder {
 
 #[derive(Clone, Debug)]
 pub struct Block {
-    definitions: HashMap<VarID, DataID>,
+    definitions: HashMap<BindingID, DataID>,
     cfg: CfgNode,
 }
 
@@ -42,6 +43,7 @@ enum CfgNode {
     IncompleteMerge,
 }
 
+#[derive(Clone, Debug)]
 pub struct Cfg {
     blocks: Vec<Block>,
     placeholders: Vec<Vec<Placeholder>>,
@@ -59,14 +61,14 @@ impl Cfg {
                 placeholders: vec![],
                 ctrl_placeholders: vec![],
             },
-            0,
+            BlockID(0),
         )
     }
 
     fn push_block(&mut self, block: Block) -> BlockID {
         let id = self.blocks.len();
         self.blocks.push(block);
-        id
+        BlockID(id)
     }
 
     fn branch(&mut self, predecessor: BlockID) -> BlockID {
@@ -103,6 +105,7 @@ impl Cfg {
         ctrl_predecessors: Vec<CtrlID>,
         graph: &mut Graph,
         errors: &mut Errors,
+        ast: &AstBuilder,
     ) {
         let merge = graph.add_merge(ctrl_predecessors);
         let mut ctrl_placeholder = self.ctrl_placeholders.pop().unwrap();
@@ -110,7 +113,7 @@ impl Cfg {
             merge: merge.clone(),
         };
 
-        let unsealed = &mut self.blocks[block];
+        let unsealed = &mut self.blocks[block.0];
         unsealed.cfg = CfgNode::Merge {
             merge: merge.clone(),
             predecessors: predecessors.clone(),
@@ -129,7 +132,7 @@ impl Cfg {
                 match self.get_definition(*block, var, reference.clone(), graph) {
                     Some(variant) => variants.push(variant),
                     None => {
-                        errors.push(reference.span, ErrorCode::ReadUnitializedOrMoved);
+                        errors.push(ast.expr(reference).span, ErrorCode::ReadUnitializedOrMoved);
                         continue 'outer;
                     }
                 }
@@ -140,8 +143,13 @@ impl Cfg {
         }
     }
 
-    pub fn assign_variable(&mut self, block: BlockID, var: VarID, value: DataID) -> Option<DataID> {
-        self.blocks[block].definitions.insert(var, value)
+    pub fn assign_variable(
+        &mut self,
+        block: BlockID,
+        var: BindingID,
+        value: DataID,
+    ) -> Option<DataID> {
+        self.blocks[block.0].definitions.insert(var, value)
     }
 
     pub fn read_variable(
@@ -149,7 +157,7 @@ impl Cfg {
         ty: TypeID,
 
         block: BlockID,
-        var: VarID,
+        var: BindingID,
         read: Expr,
         graph: &mut Graph,
     ) -> Option<DataID> {
@@ -163,11 +171,11 @@ impl Cfg {
     fn get_definition(
         &mut self,
         block: BlockID,
-        var: VarID,
+        var: BindingID,
         read: Expr,
         graph: &mut Graph,
     ) -> Option<DataID> {
-        let current_block = &mut self.blocks[block];
+        let current_block = &mut self.blocks[block.0];
 
         if let Some(current_blocks_definition) = current_block.definitions.get(&var) {
             return Some(current_blocks_definition.clone());
@@ -179,7 +187,7 @@ impl Cfg {
                 let block = *pred;
                 match self.get_definition(block, var, read, graph) {
                     Some(state) => {
-                        self.blocks[block].definitions.insert(var, state.clone()); // insert for the next lookup
+                        self.blocks[block.0].definitions.insert(var, state.clone()); // insert for the next lookup
                         Some(state)
                     }
                     None => None,
@@ -205,7 +213,7 @@ impl Cfg {
                     graph.add_data_phi(phi, ty)
                 };
 
-                self.blocks[block].definitions.insert(var, value.clone()); // insert for the next lookup
+                self.blocks[block.0].definitions.insert(var, value.clone()); // insert for the next lookup
 
                 Some(value)
             }
@@ -220,7 +228,7 @@ impl Cfg {
                         reference: read,
                     },
                 );
-                self.blocks[block]
+                self.blocks[block.0]
                     .definitions
                     .insert(var, placeholder.clone()); // insert for the next lookup
                 Some(placeholder)
@@ -301,6 +309,7 @@ impl Graph {
 
         cfg: &mut Cfg,
         errors: &mut Errors,
+        ast: &AstBuilder,
     ) -> Option<DataCursor> {
         if let Some(cursor) = body {
             if loop_backedge {
@@ -316,7 +325,7 @@ impl Graph {
         entry_blocks.push(entry_block);
         entry_ctrls.push(entry_ctrl);
 
-        cfg.seal_block(header, entry_blocks, entry_ctrls, self, errors);
+        cfg.seal_block(header, entry_blocks, entry_ctrls, self, errors, ast);
 
         self.merge(exits, cfg)
     }
