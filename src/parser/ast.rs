@@ -21,6 +21,21 @@ pub struct Spanned<T> {
 }
 pub type Ident = Spanned<Symbol>;
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub struct ScopeStmt(usize);
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub struct DeclStmt(usize);
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub struct TypeDecl(usize);
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub struct StmtExpr(usize);
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub struct Expr(usize);
+
 #[derive(Clone, Debug)]
 pub enum Item {
     Constant {
@@ -30,9 +45,6 @@ pub enum Item {
     },
     DeclStmt(DeclStmt),
 }
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub struct ScopeStmt(usize);
 
 #[derive(Clone, Debug)]
 pub enum ScopeStmtKind {
@@ -49,9 +61,6 @@ pub enum ScopeStmtKind {
     Defer(JumpStruct),
     StmtExpr(StmtExpr), // expression statement would be a single expression used as a statement
 }
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub struct DeclStmt(usize);
 
 #[derive(Clone, Debug)]
 pub enum DeclStmtKind {
@@ -80,9 +89,6 @@ pub struct Parameter {
     ident: Span,
     ty: Option<Expr>,
 }
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub struct TypeDecl(usize);
 
 pub enum TypeDeclKind {
     Struct {
@@ -114,9 +120,6 @@ pub struct Assignment {
     pub value: Expr,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub struct StmtExpr(usize);
-
 #[derive(Clone, Debug)]
 pub enum StmtExprKind {
     Assignment {
@@ -129,9 +132,6 @@ pub enum StmtExprKind {
     Return(JumpStruct),
     Expr(Expr),
 }
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub struct Expr(usize);
 
 #[derive(Clone, Debug)]
 pub enum ExprKind {
