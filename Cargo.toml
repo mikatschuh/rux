@@ -10,7 +10,6 @@ num_cpus = "1.15"
 crossbeam = "0.8.4"
 num = "*"
 petgraph = "*"
-bumpalo = { version = "*", features = ["boxed"] }
 nonempty = "*"
 
 # Enable a small amount of optimization in the dev profile.
