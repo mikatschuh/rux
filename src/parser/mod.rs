@@ -117,6 +117,7 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
         self.graph.expr_as_stmt_expr(expr)
     }
 
+    #[cfg(any())]
     fn expected_scope_stmt(&mut self) -> ScopeStmt {
         self.expected(ErrorCode::ExpectedExpr);
         let expr = self.graph.add_err_expr(self.tokens.pos());
@@ -178,6 +179,7 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
         }
     }
 
+    #[cfg(any())]
     fn parse_scope_stmt(&mut self) -> ScopeStmt {
         self.parse_optional_scope_stmt()
             .unwrap_or_else(|| self.expected_scope_stmt())
@@ -304,17 +306,17 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
             }
             TokenKind::Open(open_kind) => {
                 let opener = self.advance();
-                let expr = self
+                let mut expr = self
                     .parse_optional_expr(0)
                     .unwrap_or_else(|| self.graph.add_unit(opener));
 
-                self.graph.update_start(expr, opener.start);
+                self.graph.update_start(&mut expr, opener.start);
 
                 let closer_kind = self.peek();
                 let closer_span = self.advance();
                 match closer_kind {
                     Some(TokenKind::Closed(closed_kind)) if closed_kind == open_kind => {
-                        self.graph.update_end(expr, closer_span.end);
+                        self.graph.update_end(&mut expr, closer_span.end);
                         Some(expr)
                     }
                     Some(TokenKind::Closed(closed_kind)) => {
