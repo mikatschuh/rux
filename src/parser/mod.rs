@@ -277,10 +277,6 @@ impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
                 let span = self.advance();
                 Some(self.graph.add_type(span, BuiltinType::Float { precision }))
             }
-            TokenKind::ComplitType => {
-                let span = self.advance();
-                Some(self.graph.add_type(span, BuiltinType::Complit))
-            }
 
             TokenKind::Literal => {
                 let literal = self.tokens.get_literal();

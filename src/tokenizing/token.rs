@@ -119,7 +119,6 @@ pub enum TokenKind {
 
     BoolType,
     FloatType(FloatPrecision),
-    ComplitType,
     // =========
     IntegerType, // u8, i8, i1, u0, u128, i32, u11818
     Literal,     // 1001010101

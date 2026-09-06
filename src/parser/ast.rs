@@ -201,7 +201,6 @@ pub enum BuiltinType {
     Unsigned { size: TypeSize },
     Signed { size: TypeSize },
     Float { precision: FloatPrecision },
-    Complit,
 }
 
 impl From<IntegerType> for BuiltinType {
