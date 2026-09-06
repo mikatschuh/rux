@@ -5,7 +5,7 @@ use crate::{
     grapher::{
         binding::{Binding, SymbolTableStack},
         builder::{Cfg, CtrlCursor, DataCursor},
-        graph::{Data, DataKind, Type},
+        graph::{Data, Type},
         loops::JumpTableStack,
         type_check::require_type,
     },
@@ -44,9 +44,9 @@ pub fn build_graph_debug<'errors>(
     let Item::Constant {
         ident,
         definition:
-            Definition::Assignment {
-                ty: Some(ty),
-                assignment: Assignment { value, .. },
+            Definition::Type {
+                ty: ty,
+                assignment: Some(Assignment { value, .. }),
             },
         ..
     } = (match item_table.remove(&starting_point_symbol) {
@@ -120,30 +120,32 @@ impl<'errors> GraphBuilder<'errors> {
         stmt: ScopeStmt,
         cursor: CtrlCursor,
     ) -> Option<DataCursor> {
-        match self.ast.scope_stmt(stmt).val {
-            ScopeStmtKind::StmtExpr(stmt_expr) => self.stmt_expr_pot_divergent(stmt_expr, cursor),
+        match &self.ast[&stmt].val {
+            ScopeStmtKind::StmtExpr(stmt_expr) => {
+                self.stmt_expr_pot_divergent(stmt_expr.clone(), cursor)
+            }
             _ => Some(self.scope_stmt(stmt, cursor)),
         }
     }
 
     fn scope_stmt(&mut self, stmt: ScopeStmt, cursor: CtrlCursor) -> DataCursor {
-        match &self.ast.scope_stmt(stmt).val {
+        match self.ast[&stmt].val.clone() {
             ScopeStmtKind::Binding {
                 keyword,
                 mutable,
                 ident,
                 definition,
             } => self
-                .binding(*keyword, *mutable, *ident, definition.clone(), cursor)
+                .binding(keyword, mutable, ident, definition.clone(), cursor)
                 .with_data(self.graph.unit()),
-            ScopeStmtKind::StmtExpr(stmt_expr) => self.stmt_expr(*stmt_expr, cursor),
+            ScopeStmtKind::StmtExpr(stmt_expr) => self.stmt_expr(stmt_expr.clone(), cursor),
             _ => todo!(),
         }
     }
 
     fn stmt_expr(&mut self, stmt_expr: StmtExpr, cursor: CtrlCursor) -> DataCursor {
-        let stmt_expr = self.ast.stmt_expr(stmt_expr);
-        match stmt_expr.val {
+        let stmt_expr = &self.ast[&stmt_expr];
+        match stmt_expr.val.clone() {
             StmtExprKind::Assignment {
                 ident,
                 assignment: Assignment { equal, value },
@@ -160,7 +162,7 @@ impl<'errors> GraphBuilder<'errors> {
         stmt_expr: StmtExpr,
         cursor: CtrlCursor,
     ) -> Option<DataCursor> {
-        match self.ast.stmt_expr(stmt_expr).val.clone() {
+        match self.ast[&stmt_expr].val.clone() {
             StmtExprKind::Continue(JumpStruct {
                 keyword,
                 label,
@@ -183,7 +185,7 @@ impl<'errors> GraphBuilder<'errors> {
                 value,
             }) => todo!(),
             StmtExprKind::Unreachable => None,
-            StmtExprKind::Expr(expr) => match self.ast.expr(expr).val.clone() {
+            StmtExprKind::Expr(expr) => match self.ast[&expr].val.clone() {
                 ExprKind::Block { stmts } => {
                     let open_scope = self.symbol_table.open_scope();
 
@@ -202,7 +204,7 @@ impl<'errors> GraphBuilder<'errors> {
                                                 var,
                                                 cursor.block.clone(),
                                                 ty,
-                                                expr,
+                                                expr.clone(),
                                                 &mut self.graph,
                                             )
                                         },
@@ -246,7 +248,7 @@ impl<'errors> GraphBuilder<'errors> {
     }
 
     fn expr(&mut self, expr: Expr, cursor: CtrlCursor) -> DataCursor {
-        let expression = self.ast.expr(expr);
+        let expression = &self.ast[&expr];
         match expression.val.clone() {
             ExprKind::BuiltinType(builtin_type) => {
                 let ty = self.graph.add_builtin_type(builtin_type);
@@ -254,7 +256,7 @@ impl<'errors> GraphBuilder<'errors> {
             }
             ExprKind::Literal(literal) => cursor.with_data(self.graph.add_literal(literal)),
             ExprKind::Boolean(boolean) => cursor.with_data(self.graph.add_boolean(boolean)),
-            ExprKind::Quote(quote) => todo!(),
+            ExprKind::Quote(..) => todo!("implement quotes"),
             ExprKind::Unit => cursor.with_data(self.graph.unit()),
 
             ExprKind::Unary { op, value: input } => {
@@ -351,7 +353,7 @@ impl<'errors> GraphBuilder<'errors> {
     }
 
     fn type_expr(&mut self, expr: Expr) -> Type {
-        let expression = self.ast.expr(expr);
+        let expression = &self.ast[&expr];
         match expression.val.clone() {
             ExprKind::BuiltinType(builtin_type) => self.graph.add_builtin_type(builtin_type),
             _ => {
@@ -379,7 +381,7 @@ impl<'errors> GraphBuilder<'errors> {
                 {
                     match assignment {
                         Some(Assignment { value, .. }) => {
-                            let span = self.ast.expr(value).span;
+                            let span = self.ast[&value].span;
                             let DataCursor { block, ctrl, data } = self.expr(value.clone(), cursor);
                             let value = require_type(&self.graph, span, ty, data, &mut self.errors);
 
@@ -418,7 +420,7 @@ impl<'errors> GraphBuilder<'errors> {
         value: Expr,
         cursor: CtrlCursor,
     ) -> CtrlCursor {
-        let span = self.ast.expr(value).span;
+        let span = self.ast[&value].span;
         let DataCursor { block, ctrl, data } = self.expr(value.clone(), cursor);
         if let Some(binding) = self.symbol_table.get_binding(ident.val) {
             if binding.mutable {

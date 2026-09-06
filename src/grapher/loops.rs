@@ -67,7 +67,7 @@ impl JumpTableStack {
     }
 }
 
-#[cfg(never)]
+#[cfg(any())]
 #[cfg(test)]
 mod tests {
     use bumpalo::Bump;

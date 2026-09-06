@@ -372,74 +372,6 @@ impl DataKind {
     }
 }
 
-#[cfg(never)]
-#[cfg(test)]
-mod tests {
-    use bumpalo::Bump;
-
-    use super::{CtrlKind, DataKind, Graph, TypeKind};
-    use crate::{literal_parsing::Literal, parser::BuiltinType};
-
-    fn graph() -> Graph {
-        Graph::new(Bump::new())
-    }
-
-    #[test]
-    fn unit_uses_the_canonical_builtin_unit_type() {
-        let mut graph = graph();
-
-        let unit = graph.unit();
-        let unit_type = graph.add_builtin_type(BuiltinType::Unit);
-
-        assert_eq!(unit.ty.addr(), unit_type.addr());
-    }
-
-    #[test]
-    fn deduplicates_stable_type_nodes() {
-        let mut graph = graph();
-
-        let ty_a = graph.add_builtin_type(BuiltinType::Signed { size: 32 });
-        let ty_b = graph.add_builtin_type(BuiltinType::Signed { size: 32 });
-
-        assert_eq!(ty_a.addr(), ty_b.addr());
-    }
-
-    #[test]
-    fn branches_remember_input_control_and_condition() {
-        let mut graph = graph();
-        let ctrl = graph.start();
-        let condition = graph.add_boolean(true);
-
-        let (false_ctrl, true_ctrl) = graph.add_branch(ctrl.clone(), condition.clone());
-
-        let CtrlKind::FalseBranch {
-            branch: false_branch,
-        } = &*false_ctrl
-        else {
-            panic!("expected false branch");
-        };
-        let CtrlKind::TrueBranch {
-            branch: true_branch,
-        } = &*true_ctrl
-        else {
-            panic!("expected true branch");
-        };
-
-        assert_eq!(false_branch.addr(), true_branch.addr());
-        assert_eq!(false_branch.ctrl.addr(), ctrl.addr());
-        assert_eq!(false_branch.condition.addr(), condition.addr());
-    }
-
-    #[test]
-    fn error_node_is_not_accidentally_deduped_through_the_cache() {
-        let graph = graph();
-        let error = graph.error();
-
-        assert!(matches!(&error.kind, DataKind::Err));
-        assert!(matches!(*error.ty, TypeKind::Err));
-    }
-}
-
 mod graph_indexing {
     use std::ops::{Index, IndexMut};
 
@@ -516,5 +448,73 @@ mod graph_indexing {
         fn index(&self, index: &Type) -> &Self::Output {
             &self.types[index.0]
         }
+    }
+}
+
+#[cfg(any())]
+#[cfg(test)]
+mod tests {
+    use bumpalo::Bump;
+
+    use super::{CtrlKind, DataKind, Graph, TypeKind};
+    use crate::{literal_parsing::Literal, parser::BuiltinType};
+
+    fn graph() -> Graph {
+        Graph::new(Bump::new())
+    }
+
+    #[test]
+    fn unit_uses_the_canonical_builtin_unit_type() {
+        let mut graph = graph();
+
+        let unit = graph.unit();
+        let unit_type = graph.add_builtin_type(BuiltinType::Unit);
+
+        assert_eq!(unit.ty.addr(), unit_type.addr());
+    }
+
+    #[test]
+    fn deduplicates_stable_type_nodes() {
+        let mut graph = graph();
+
+        let ty_a = graph.add_builtin_type(BuiltinType::Signed { size: 32 });
+        let ty_b = graph.add_builtin_type(BuiltinType::Signed { size: 32 });
+
+        assert_eq!(ty_a.addr(), ty_b.addr());
+    }
+
+    #[test]
+    fn branches_remember_input_control_and_condition() {
+        let mut graph = graph();
+        let ctrl = graph.start();
+        let condition = graph.add_boolean(true);
+
+        let (false_ctrl, true_ctrl) = graph.add_branch(ctrl.clone(), condition.clone());
+
+        let CtrlKind::FalseBranch {
+            branch: false_branch,
+        } = &*false_ctrl
+        else {
+            panic!("expected false branch");
+        };
+        let CtrlKind::TrueBranch {
+            branch: true_branch,
+        } = &*true_ctrl
+        else {
+            panic!("expected true branch");
+        };
+
+        assert_eq!(false_branch.addr(), true_branch.addr());
+        assert_eq!(false_branch.ctrl.addr(), ctrl.addr());
+        assert_eq!(false_branch.condition.addr(), condition.addr());
+    }
+
+    #[test]
+    fn error_node_is_not_accidentally_deduped_through_the_cache() {
+        let graph = graph();
+        let error = graph.error();
+
+        assert!(matches!(&error.kind, DataKind::Err));
+        assert!(matches!(*error.ty, TypeKind::Err));
     }
 }

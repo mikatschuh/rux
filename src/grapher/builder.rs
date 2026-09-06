@@ -138,7 +138,7 @@ impl Cfg {
                 ) {
                     Some(variant) => variants.push(variant),
                     None => {
-                        errors.push(ast.expr(reference).span, ErrorCode::ReadUnitializedOrMoved);
+                        errors.push(ast[&reference].span, ErrorCode::ReadUnitializedOrMoved);
                         continue 'outer;
                     }
                 }
@@ -171,10 +171,7 @@ impl Cfg {
             CfgNode::Start => None,
             CfgNode::Branch { predecessor: pred } => {
                 let block = pred.clone();
-                match self.get_definition(var.clone(), block.clone(), ty, read, graph) {
-                    Some(state) => Some(state),
-                    None => None,
-                }
+                self.get_definition(var.clone(), block.clone(), ty, read, graph)
             }
             CfgNode::Merge {
                 merge,
@@ -219,9 +216,8 @@ impl Cfg {
                 Some(data)
             }
         }
-        .map(|data| {
+        .inspect(|data| {
             self.blocks[block.0].definitions.insert(var, data.clone()); // insert for the next lookup
-            data
         })
     }
 }
@@ -273,7 +269,7 @@ impl Graph {
         // ctrl node structure setup
         let header = cfg.add_unsealed(self);
         CtrlCursor {
-            ctrl: cfg.ctrl_placeholders.last().unwrap().clone().ctrl(),
+            ctrl: cfg.ctrl_placeholders.last().unwrap().ctrl(),
             block: header,
         }
     }
@@ -368,7 +364,7 @@ impl Graph {
     }
 }
 
-#[cfg(never)]
+#[cfg(any())]
 #[cfg(test)]
 mod tests {
     use std::path::Path;

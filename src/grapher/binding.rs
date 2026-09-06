@@ -89,7 +89,7 @@ impl SymbolTableStack {
     }
 }
 
-#[cfg(never)]
+#[cfg(any())]
 #[cfg(test)]
 mod tests {
     use bumpalo::Bump;
