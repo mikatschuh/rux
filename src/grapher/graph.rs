@@ -10,8 +10,26 @@ use crate::{
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct Data(usize);
 
+#[derive(PartialEq, Eq, Debug, Hash)]
+pub struct DataPlaceholder(usize);
+
+impl DataPlaceholder {
+    pub fn data(&self) -> Data {
+        Data(self.0)
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct Ctrl(usize);
+
+#[derive(PartialEq, Eq, Debug, Hash)]
+pub struct CtrlPlaceholder(usize);
+
+impl CtrlPlaceholder {
+    pub fn ctrl(&self) -> Ctrl {
+        Ctrl(self.0)
+    }
+}
 
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct BranchID(usize);
@@ -189,6 +207,10 @@ impl Graph {
         }
     }
 
+    pub(super) fn type_ids(&self) -> impl Iterator<Item = Type> + '_ {
+        (0..self.types.len()).map(Type)
+    }
+
     fn push_type(&mut self, ty: TypeKind) -> Type {
         let key = ty.key();
         if let Some(existing) = self.type_cache.get(&key) {
@@ -278,12 +300,12 @@ impl Graph {
         self.push_type(TypeKind::BuiltinType(ty))
     }
 
-    pub fn add_placeholder(&mut self) -> Data {
-        self.push_data(DataKind::Placeholder, self.error_type())
+    pub fn add_placeholder(&mut self, ty: Type) -> DataPlaceholder {
+        DataPlaceholder(self.push_data(DataKind::Placeholder, ty).0)
     }
 
-    pub fn add_ctrl_placeholder(&mut self) -> Ctrl {
-        self.push_ctrl_node(CtrlKind::Placeholder)
+    pub fn add_ctrl_placeholder(&mut self) -> CtrlPlaceholder {
+        CtrlPlaceholder(self.push_ctrl_node(CtrlKind::Placeholder).0)
     }
 
     pub fn start(&self) -> Ctrl {
@@ -346,93 +368,6 @@ impl DataKind {
             DataKind::Type { ty } => DataKey::Type { ty: ty.0 },
             DataKind::Err => DataKey::Error,
             Self::Placeholder => todo!(),
-        }
-    }
-}
-
-mod graph_indexing {
-    use std::ops::{Index, IndexMut};
-
-    use super::{
-        Branch, BranchID, Ctrl, CtrlKind, Data, DataNode, Graph, Merge, MergeID, Phi, PhiID, Type,
-        TypeKind,
-    };
-
-    impl Index<&Data> for Graph {
-        type Output = DataNode;
-        fn index(&self, index: &Data) -> &Self::Output {
-            &self.data_nodes[index.0]
-        }
-    }
-
-    impl IndexMut<&Data> for Graph {
-        fn index_mut(&mut self, index: &Data) -> &mut Self::Output {
-            &mut self.data_nodes[index.0]
-        }
-    }
-
-    impl Index<&Ctrl> for Graph {
-        type Output = CtrlKind;
-        fn index(&self, index: &Ctrl) -> &Self::Output {
-            &self.ctrl_nodes[index.0]
-        }
-    }
-
-    impl IndexMut<&Ctrl> for Graph {
-        fn index_mut(&mut self, index: &Ctrl) -> &mut Self::Output {
-            &mut self.ctrl_nodes[index.0]
-        }
-    }
-
-    impl Index<&BranchID> for Graph {
-        type Output = Branch;
-        fn index(&self, index: &BranchID) -> &Self::Output {
-            &self.branches[index.0]
-        }
-    }
-
-    impl IndexMut<&BranchID> for Graph {
-        fn index_mut(&mut self, index: &BranchID) -> &mut Self::Output {
-            &mut self.branches[index.0]
-        }
-    }
-
-    impl Index<&MergeID> for Graph {
-        type Output = Merge;
-        fn index(&self, index: &MergeID) -> &Self::Output {
-            &self.merges[index.0]
-        }
-    }
-
-    impl IndexMut<&MergeID> for Graph {
-        fn index_mut(&mut self, index: &MergeID) -> &mut Self::Output {
-            &mut self.merges[index.0]
-        }
-    }
-
-    impl Index<&PhiID> for Graph {
-        type Output = Phi;
-        fn index(&self, index: &PhiID) -> &Self::Output {
-            &self.phis[index.0]
-        }
-    }
-
-    impl IndexMut<&PhiID> for Graph {
-        fn index_mut(&mut self, index: &PhiID) -> &mut Self::Output {
-            &mut self.phis[index.0]
-        }
-    }
-
-    impl Index<&Type> for Graph {
-        type Output = TypeKind;
-        fn index(&self, index: &Type) -> &Self::Output {
-            &self.types[index.0]
-        }
-    }
-
-    impl IndexMut<&Type> for Graph {
-        fn index_mut(&mut self, index: &Type) -> &mut Self::Output {
-            &mut self.types[index.0]
         }
     }
 }
@@ -502,5 +437,84 @@ mod tests {
 
         assert!(matches!(&error.kind, DataKind::Err));
         assert!(matches!(*error.ty, TypeKind::Err));
+    }
+}
+
+mod graph_indexing {
+    use std::ops::{Index, IndexMut};
+
+    use crate::grapher::graph::{CtrlPlaceholder, DataPlaceholder};
+
+    use super::{
+        Branch, BranchID, Ctrl, CtrlKind, Data, DataNode, Graph, Merge, MergeID, Phi, PhiID, Type,
+        TypeKind,
+    };
+
+    impl Index<&Data> for Graph {
+        type Output = DataNode;
+        fn index(&self, index: &Data) -> &Self::Output {
+            &self.data_nodes[index.0]
+        }
+    }
+
+    impl Index<&DataPlaceholder> for Graph {
+        type Output = DataNode;
+        fn index(&self, index: &DataPlaceholder) -> &Self::Output {
+            &self.data_nodes[index.0]
+        }
+    }
+
+    impl IndexMut<&DataPlaceholder> for Graph {
+        fn index_mut(&mut self, index: &DataPlaceholder) -> &mut Self::Output {
+            &mut self.data_nodes[index.0]
+        }
+    }
+
+    impl Index<&Ctrl> for Graph {
+        type Output = CtrlKind;
+        fn index(&self, index: &Ctrl) -> &Self::Output {
+            &self.ctrl_nodes[index.0]
+        }
+    }
+
+    impl Index<&CtrlPlaceholder> for Graph {
+        type Output = CtrlKind;
+        fn index(&self, index: &CtrlPlaceholder) -> &Self::Output {
+            &self.ctrl_nodes[index.0]
+        }
+    }
+
+    impl IndexMut<&CtrlPlaceholder> for Graph {
+        fn index_mut(&mut self, index: &CtrlPlaceholder) -> &mut Self::Output {
+            &mut self.ctrl_nodes[index.0]
+        }
+    }
+
+    impl Index<&BranchID> for Graph {
+        type Output = Branch;
+        fn index(&self, index: &BranchID) -> &Self::Output {
+            &self.branches[index.0]
+        }
+    }
+
+    impl Index<&MergeID> for Graph {
+        type Output = Merge;
+        fn index(&self, index: &MergeID) -> &Self::Output {
+            &self.merges[index.0]
+        }
+    }
+
+    impl Index<&PhiID> for Graph {
+        type Output = Phi;
+        fn index(&self, index: &PhiID) -> &Self::Output {
+            &self.phis[index.0]
+        }
+    }
+
+    impl Index<&Type> for Graph {
+        type Output = TypeKind;
+        fn index(&self, index: &Type) -> &Self::Output {
+            &self.types[index.0]
+        }
     }
 }

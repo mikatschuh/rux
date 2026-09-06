@@ -65,16 +65,11 @@ pub fn build_graph_debug<'errors>(
         todo!()
     };
 
-    let (mut builder, cursor) = GraphBuilder::new(ast, errors, Bump::new(), item_table);
+    let (mut builder, cursor) = GraphBuilder::new(ast, errors, item_table);
     let cursor = builder.expr(value, cursor);
 
     Some((
-        graph_dump::dump_text(
-            builder.graph.destruct(),
-            builder.symbol_dump,
-            Some(cursor),
-            &interner,
-        ),
+        graph_dump::dump_text(&builder.graph, builder.symbol_dump, Some(cursor), &interner),
         interner,
     ))
 }
@@ -97,10 +92,9 @@ impl<'errors> GraphBuilder<'errors> {
     fn new(
         ast: AstBuilder,
         errors: Rc<Errors<'errors>>,
-        arena: Bump,
         raw_item_table: HashMap<Symbol, Item>,
     ) -> (Self, CtrlCursor) {
-        let graph = Graph::new(arena);
+        let graph = Graph::new();
         let (cfg, start) = Cfg::new();
         let start = CtrlCursor {
             block: start,
@@ -126,30 +120,30 @@ impl<'errors> GraphBuilder<'errors> {
         stmt: ScopeStmt,
         cursor: CtrlCursor,
     ) -> Option<DataCursor> {
-        match self.ast.scope_stmt(stmt).val.clone() {
+        match self.ast.scope_stmt(stmt).val {
             ScopeStmtKind::StmtExpr(stmt_expr) => self.stmt_expr_pot_divergent(stmt_expr, cursor),
             _ => Some(self.scope_stmt(stmt, cursor)),
         }
     }
 
     fn scope_stmt(&mut self, stmt: ScopeStmt, cursor: CtrlCursor) -> DataCursor {
-        match self.ast.scope_stmt(stmt).val.clone() {
+        match &self.ast.scope_stmt(stmt).val {
             ScopeStmtKind::Binding {
                 keyword,
                 mutable,
                 ident,
                 definition,
             } => self
-                .binding(keyword, mutable, ident, definition, cursor)
+                .binding(*keyword, *mutable, *ident, definition.clone(), cursor)
                 .with_data(self.graph.unit()),
-            ScopeStmtKind::StmtExpr(stmt_expr) => self.stmt_expr(stmt_expr, cursor),
+            ScopeStmtKind::StmtExpr(stmt_expr) => self.stmt_expr(*stmt_expr, cursor),
             _ => todo!(),
         }
     }
 
     fn stmt_expr(&mut self, stmt_expr: StmtExpr, cursor: CtrlCursor) -> DataCursor {
         let stmt_expr = self.ast.stmt_expr(stmt_expr);
-        match stmt_expr.val.clone() {
+        match stmt_expr.val {
             StmtExprKind::Assignment {
                 ident,
                 assignment: Assignment { equal, value },
@@ -198,17 +192,17 @@ impl<'errors> GraphBuilder<'errors> {
                     loop {
                         let stmt = stmts.next().unwrap();
                         if stmts.peek().is_none() {
-                            match self.scope_stmt_pot_divergent(stmt, cursor.clone()) {
+                            match self.scope_stmt_pot_divergent(stmt.clone(), cursor.clone()) {
                                 Some(value) => {
                                     self.symbol_table.close_scope(
                                         open_scope,
                                         &mut self.symbol_dump,
                                         |ty, var| {
-                                            self.cfg.read_variable(
-                                                ty,
-                                                cursor.block,
+                                            self.cfg.get_definition(
                                                 var,
-                                                expr.clone(),
+                                                cursor.block.clone(),
+                                                ty,
+                                                expr,
                                                 &mut self.graph,
                                             )
                                         },
@@ -220,10 +214,10 @@ impl<'errors> GraphBuilder<'errors> {
                                         open_scope,
                                         &mut self.symbol_dump,
                                         |ty, var| {
-                                            self.cfg.read_variable(
-                                                ty,
-                                                cursor.block,
+                                            self.cfg.get_definition(
                                                 var,
+                                                cursor.block.clone(),
+                                                ty,
                                                 expr.clone(),
                                                 &mut self.graph,
                                             )
@@ -233,7 +227,7 @@ impl<'errors> GraphBuilder<'errors> {
                                 }
                             }
                         } else {
-                            cursor = self.scope_stmt(stmt, cursor).without_data();
+                            cursor = self.scope_stmt(stmt.clone(), cursor).without_data();
                         }
                     }
                 }
@@ -265,37 +259,31 @@ impl<'errors> GraphBuilder<'errors> {
 
             ExprKind::Unary { op, value: input } => {
                 let (cursor, value) = self.expr(input, cursor).split();
-                let ty = value.ty.clone();
+                let ty = self.graph[&value].ty.clone();
                 cursor.with_data(self.graph.add_unary(op.val, value, ty))
             }
             ExprKind::Binary { lhs, op, rhs } => {
                 let (cursor, lhs) = self.expr(lhs, cursor).split();
                 let (cursor, rhs) = self.expr(rhs, cursor).split();
-                let ty = lhs.ty.clone();
+                let ty = self.graph[&lhs].ty.clone();
                 cursor.with_data(self.graph.add_binary(op.val, lhs, rhs, ty))
             }
 
             ExprKind::Ident(symbol) => match self.symbol_table.get_binding(symbol) {
                 Some(Binding { id, ty, .. }) => {
-                    match self.cfg.read_variable(
+                    match self.cfg.get_definition(
+                        id.clone(),
+                        cursor.block.clone(),
                         ty.clone(),
-                        cursor.block,
-                        *id,
                         expr.clone(),
                         &mut self.graph,
                     ) {
-                        Some(mut value) => {
-                            if value.kind == DataKind::Err {
-                                // Placeholder because of Loop
-                                value.ty = ty.clone();
-                            }
-                            cursor.with_data(value)
-                        }
-                        None => self.uninitialized_moved_variable(expression.span, cursor),
+                        Some(value) => cursor.with_data(value),
+                        None => self.uninitialized_or_moved_variable(expression.span, cursor),
                     }
                 }
                 None => match self.raw_item_table.get(&symbol) {
-                    Some(_) => todo!(),
+                    Some(_) => todo!("implement item lookup"),
                     None => self.unknown_identifier(
                         Spanned {
                             span: expression.span,
@@ -314,19 +302,15 @@ impl<'errors> GraphBuilder<'errors> {
                 loop {
                     let stmt = statements.next().unwrap();
                     if statements.peek().is_none() {
-                        let DataCursor {
-                            block: cursor,
-                            ctrl,
-                            data,
-                        } = self.scope_stmt(stmt, cursor);
+                        let DataCursor { block, ctrl, data } = self.scope_stmt(stmt, cursor);
                         self.symbol_table.close_scope(
                             open_scope,
                             &mut self.symbol_dump,
                             |ty, var| {
-                                self.cfg.read_variable(
-                                    ty,
-                                    cursor,
+                                self.cfg.get_definition(
                                     var,
+                                    block.clone(),
+                                    ty,
                                     expr.clone(),
                                     &mut self.graph,
                                 )
@@ -334,7 +318,7 @@ impl<'errors> GraphBuilder<'errors> {
                         );
 
                         return DataCursor {
-                            block: cursor,
+                            block: block.clone(),
                             ctrl,
                             data,
                         };
@@ -399,7 +383,7 @@ impl<'errors> GraphBuilder<'errors> {
                             let DataCursor { block, ctrl, data } = self.expr(value.clone(), cursor);
                             let value = require_type(&self.graph, span, ty, data, &mut self.errors);
 
-                            self.cfg.assign_variable(block, var, value.clone());
+                            self.cfg.assign_variable(block.clone(), var, value.clone());
                             CtrlCursor { block, ctrl }
                         }
                         None => cursor,
@@ -409,14 +393,15 @@ impl<'errors> GraphBuilder<'errors> {
                     cursor
                 }
             }
-            Definition::Assignment(Assignment { equal, value }) => {
+            Definition::Assignment(Assignment { value, .. }) => {
                 let DataCursor { block, ctrl, data } = self.expr(value, cursor);
 
-                if let Some(var) =
-                    self.symbol_table
-                        .add_symbol_to_scope(mutable, ident.val, data.ty.clone())
-                {
-                    self.cfg.assign_variable(block, var, data);
+                if let Some(var) = self.symbol_table.add_symbol_to_scope(
+                    mutable,
+                    ident.val,
+                    self.graph[&data].ty.clone(),
+                ) {
+                    self.cfg.assign_variable(block.clone(), var, data);
                     CtrlCursor { block, ctrl }
                 } else {
                     self.errors.push(keyword, ErrorCode::BindingOutsideScope);
@@ -439,7 +424,8 @@ impl<'errors> GraphBuilder<'errors> {
             if binding.mutable {
                 let ty = binding.ty.clone();
                 let value = require_type(&self.graph, span, ty, data, &mut self.errors);
-                self.cfg.assign_variable(block, binding.id, value.clone());
+                self.cfg
+                    .assign_variable(block.clone(), binding.id.clone(), value.clone());
             } else {
                 self.errors.push(
                     equal,
@@ -605,7 +591,7 @@ impl<'errors> GraphBuilder<'errors> {
             .jump_table
             .open_loop(label.as_ref().map(|l| l.ident.val));
         let body_cursor = self.graph.open_loop(&tok, &mut self.cfg);
-        let header_block = body_cursor.block;
+        let header_block = body_cursor.block.clone();
 
         let body = self.stmt_expr_pot_divergent(body, body_cursor); // parse the hole body
 
@@ -627,7 +613,7 @@ impl<'errors> GraphBuilder<'errors> {
         cursor.with_data(self.graph.err())
     }
 
-    fn uninitialized_moved_variable(&mut self, span: Span, cursor: CtrlCursor) -> DataCursor {
+    fn uninitialized_or_moved_variable(&mut self, span: Span, cursor: CtrlCursor) -> DataCursor {
         self.errors.push(span, ErrorCode::ReadUnitializedOrMoved);
         cursor.with_data(self.graph.err())
     }

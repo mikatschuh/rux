@@ -5,7 +5,7 @@ use petgraph::{graph::NodeIndex, visit::EdgeRef};
 use crate::{
     grapher::{
         builder::DataCursor,
-        graph::{Branch, Ctrl, CtrlKind, Data, DataKind, MergeID, Type, TypeKind, UniqueNodes},
+        graph::{BranchID, Ctrl, CtrlKind, Data, DataKind, Graph, MergeID, Type, TypeKind},
     },
     parser::{Interner, Symbol},
     tokenizing,
@@ -31,10 +31,19 @@ macro_rules! ty {
 
 type GraphDump = petgraph::Graph<String, String>;
 
-type Visited = HashMap<usize, NodeIndex>;
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum NodeID {
+    Data(Data),
+    Type(Type),
+    Merge(MergeID),
+    Branch(BranchID),
+    Ctrl(Ctrl),
+}
+
+type Visited = HashMap<NodeID, NodeIndex>;
 
 pub fn dump_text(
-    UniqueNodes { types, .. }: UniqueNodes,
+    source: &Graph,
     symbols: Vec<(Symbol, Data)>,
     cursor: Option<DataCursor>,
     interner: &Interner,
@@ -43,38 +52,21 @@ pub fn dump_text(
 
     let mut graph_dump: GraphDump = petgraph::Graph::new();
 
-    /*for (symbol, mutable, ty, value) in bindings {
-        let name = graph_dump.add_node(interner.resolve(symbol).to_string());
-        let value = match value {
-            Some(value) => process_data_node(&mut graph_dump, &mut visited, value),
-            None => graph_dump.add_node("uninitialized".to_string()),
-        };
-        graph_dump.add_edge(
-            name,
-            value,
-            if mutable {
-                "mutable".to_string()
-            } else {
-                "immutable".to_string()
-            },
-        );
-    }*/
-
-    for node in types {
-        process_type_node(&mut graph_dump, &mut visited, node);
+    for node in source.type_ids() {
+        process_type_node(source, &mut graph_dump, &mut visited, node);
     }
 
     for (symbol, value) in symbols {
-        let value = process_data_node(&mut graph_dump, &mut visited, value);
+        let value = process_data_node(source, &mut graph_dump, &mut visited, value);
 
         let name = graph_dump.add_node(interner.resolve(symbol).to_string());
         graph_dump.add_edge(name, value, "".to_string());
     }
 
     if let Some(DataCursor { ctrl, data, .. }) = cursor {
-        process_data_node(&mut graph_dump, &mut visited, data);
+        process_data_node(source, &mut graph_dump, &mut visited, data);
 
-        let current = process_ctrl_node(&mut graph_dump, &mut visited, ctrl);
+        let current = process_ctrl_node(source, &mut graph_dump, &mut visited, ctrl);
 
         let current_node = graph_dump.add_node(mem!("current"));
         graph_dump.add_edge(current_node, current, "".to_string());
@@ -83,17 +75,22 @@ pub fn dump_text(
     dump_cytoscape(&graph_dump)
 }
 
-pub fn process_data_node(graph: &mut GraphDump, visited: &mut Visited, node: Data) -> NodeIndex {
-    let node_addr = node.addr();
-    if let Some(idx) = visited.get(&node_addr) {
+fn process_data_node(
+    source: &Graph,
+    graph: &mut GraphDump,
+    visited: &mut Visited,
+    node: Data,
+) -> NodeIndex {
+    let node_id = NodeID::Data(node.clone());
+    if let Some(idx) = visited.get(&node_id) {
         return *idx;
     }
     use DataKind::*;
-    // let ty = process_type_node(graph, visited, node.ty.clone());
-    let data = match node.kind.clone() {
+    // let ty = process_type_node(source, graph, visited, source[&node].ty.clone());
+    let data = match source[&node].kind.clone() {
         Literal { literal } => {
             let idx = graph.add_node(format!("lit {}", literal));
-            visited.insert(node_addr, idx);
+            visited.insert(node_id, idx);
             idx
         }
         Quote { quote } => {
@@ -101,32 +98,32 @@ pub fn process_data_node(graph: &mut GraphDump, visited: &mut Visited, node: Dat
                 "lit \"{}\"",
                 tokenizing::with_written_out_escape_sequences(&quote)
             ));
-            visited.insert(node_addr, idx);
+            visited.insert(node_id, idx);
             idx
         }
         Boolean(boolean) => {
             let idx = graph.add_node(format!("lit {}", boolean));
-            visited.insert(node_addr, idx);
+            visited.insert(node_id, idx);
             idx
         }
         Unit => {
             let idx = graph.add_node("lit unit".to_string());
-            visited.insert(node_addr, idx);
+            visited.insert(node_id, idx);
             idx
         }
 
         Unary { op, value } => {
             let op = graph.add_node(format!("operator {}", op));
-            visited.insert(node_addr, op);
-            let input = process_data_node(graph, visited, value);
+            visited.insert(node_id, op);
+            let input = process_data_node(source, graph, visited, value);
             graph.add_edge(op, input, "".to_string());
             op
         }
         Binary { op, lhs, rhs } => {
             let op = graph.add_node(format!("operator {}", op));
-            visited.insert(node_addr, op);
-            let lhs = process_data_node(graph, visited, lhs);
-            let rhs = process_data_node(graph, visited, rhs);
+            visited.insert(node_id, op);
+            let lhs = process_data_node(source, graph, visited, lhs);
+            let rhs = process_data_node(source, graph, visited, rhs);
             graph.add_edge(op, lhs, "a".to_string());
             graph.add_edge(op, rhs, "b".to_string());
             op
@@ -135,11 +132,11 @@ pub fn process_data_node(graph: &mut GraphDump, visited: &mut Visited, node: Dat
 
         Phi { phi } => {
             let phi_node = graph.add_node("phi".to_string());
-            visited.insert(node_addr, phi_node);
-            let merge = process_merge_node(graph, visited, phi.merge.clone());
+            visited.insert(node_id, phi_node);
+            let merge = process_merge_node(source, graph, visited, source[&phi].merge.clone());
 
-            phi.variants.iter().enumerate().for_each(|(i, v)| {
-                let variant = process_data_node(graph, visited, v.clone());
+            source[&phi].variants.iter().enumerate().for_each(|(i, v)| {
+                let variant = process_data_node(source, graph, visited, v.clone());
                 graph.add_edge(phi_node, variant, format!("{}", i));
             });
             graph.add_edge(phi_node, merge, mem!("ctrl"));
@@ -147,19 +144,19 @@ pub fn process_data_node(graph: &mut GraphDump, visited: &mut Visited, node: Dat
         }
 
         Type { ty } => {
-            let idx = process_type_node(graph, visited, ty);
-            visited.insert(node_addr, idx);
+            let idx = process_type_node(source, graph, visited, ty);
+            visited.insert(node_id, idx);
             idx
         }
 
         Err => {
             let idx = graph.add_node("error".to_string());
-            visited.insert(node_addr, idx);
+            visited.insert(node_id, idx);
             idx
         }
         Placeholder => {
             let idx = graph.add_node("error".to_string());
-            visited.insert(node_addr, idx);
+            visited.insert(node_id, idx);
             idx
         }
     };
@@ -167,113 +164,129 @@ pub fn process_data_node(graph: &mut GraphDump, visited: &mut Visited, node: Dat
     data
 }
 
-pub fn process_type_node(graph: &mut GraphDump, visited: &mut Visited, node: Type) -> NodeIndex {
-    let node_addr = node.addr();
-    if let Some(idx) = visited.get(&node_addr) {
+fn process_type_node(
+    source: &Graph,
+    graph: &mut GraphDump,
+    visited: &mut Visited,
+    node: Type,
+) -> NodeIndex {
+    let node_id = NodeID::Type(node.clone());
+    if let Some(idx) = visited.get(&node_id) {
         return *idx;
     }
     use TypeKind::*;
-    match &*node {
+    match &source[&node] {
         Type => {
             let idx = graph.add_node(ty!("type"));
-            visited.insert(node_addr, idx);
+            visited.insert(node_id, idx);
             idx
         }
         BuiltinType(builtin_type) => {
             let idx = graph.add_node(ty!("builtin_type[{:?}]", builtin_type));
-            visited.insert(node_addr, idx);
+            visited.insert(node_id, idx);
             idx
         }
 
-        TypeData { data } => process_data_node(graph, visited, data.clone()),
+        TypeData { data } => process_data_node(source, graph, visited, data.clone()),
         Err => {
             let idx = graph.add_node(ty!("error"));
-            visited.insert(node_addr, idx);
+            visited.insert(node_id, idx);
             idx
         }
     }
 }
 
-pub fn process_merge_node(
+fn process_merge_node(
+    source: &Graph,
     graph: &mut GraphDump,
     visited: &mut Visited,
     node: MergeID,
 ) -> NodeIndex {
-    let node_addr = node.addr();
-    if let Some(idx) = visited.get(&node_addr) {
+    let node_id = NodeID::Merge(node.clone());
+    if let Some(idx) = visited.get(&node_id) {
         return *idx;
     }
 
     let merge = graph.add_node(mem!(
         "{}",
-        if node.branches.is_empty() {
+        if source[&node].branches.is_empty() {
             "never"
         } else {
             "merge"
         }
     ));
-    visited.insert(node_addr, merge);
-    node.branches.iter().enumerate().for_each(|(i, b)| {
-        let branch = process_ctrl_node(graph, visited, b.clone());
-        graph.add_edge(merge, branch, mem!("{}", i));
-    });
+    visited.insert(node_id, merge);
+    source[&node]
+        .branches
+        .iter()
+        .enumerate()
+        .for_each(|(i, b)| {
+            let branch = process_ctrl_node(source, graph, visited, b.clone());
+            graph.add_edge(merge, branch, mem!("{}", i));
+        });
     merge
 }
 
-pub fn process_branch_node(
+fn process_branch_node(
+    source: &Graph,
     graph: &mut GraphDump,
     visited: &mut Visited,
-    node: Branch,
+    node: BranchID,
 ) -> NodeIndex {
-    let node_addr = node.addr();
-    if let Some(idx) = visited.get(&node_addr) {
+    let node_id = NodeID::Branch(node.clone());
+    if let Some(idx) = visited.get(&node_id) {
         return *idx;
     }
 
     let branch = graph.add_node(mem!("branch"));
-    visited.insert(node_addr, branch);
-    let ctrl = process_ctrl_node(graph, visited, node.ctrl.clone());
-    let condition = process_data_node(graph, visited, node.condition.clone());
+    visited.insert(node_id, branch);
+    let ctrl = process_ctrl_node(source, graph, visited, source[&node].ctrl.clone());
+    let condition = process_data_node(source, graph, visited, source[&node].condition.clone());
     graph.add_edge(branch, ctrl, mem!("ctrl"));
     graph.add_edge(branch, condition, "condition".to_string());
     branch
 }
 
-pub fn process_ctrl_node(graph: &mut GraphDump, visited: &mut Visited, node: Ctrl) -> NodeIndex {
-    let node_addr = node.addr();
-    if let Some(idx) = visited.get(&node_addr) {
+fn process_ctrl_node(
+    source: &Graph,
+    graph: &mut GraphDump,
+    visited: &mut Visited,
+    node: Ctrl,
+) -> NodeIndex {
+    let node_id = NodeID::Ctrl(node.clone());
+    if let Some(idx) = visited.get(&node_id) {
         return *idx;
     }
 
     use CtrlKind::*;
-    match (*node).clone() {
+    match source[&node].clone() {
         Start => {
             let idx = graph.add_node(mem!("start"));
-            visited.insert(node_addr, idx);
+            visited.insert(node_id, idx);
             idx
         }
         FalseBranch { branch } => {
             let false_branch = graph.add_node(mem!("false branch"));
-            visited.insert(node_addr, false_branch);
-            let branch = process_branch_node(graph, visited, branch.clone());
+            visited.insert(node_id, false_branch);
+            let branch = process_branch_node(source, graph, visited, branch.clone());
             graph.add_edge(false_branch, branch, mem!("branch"));
             false_branch
         }
         TrueBranch { branch } => {
             let true_branch = graph.add_node(mem!("true branch"));
-            visited.insert(node_addr, true_branch);
-            let branch = process_branch_node(graph, visited, branch.clone());
+            visited.insert(node_id, true_branch);
+            let branch = process_branch_node(source, graph, visited, branch.clone());
             graph.add_edge(true_branch, branch, mem!("branch"));
             true_branch
         }
         Merge { merge } => {
-            let idx = process_merge_node(graph, visited, merge);
-            visited.insert(node_addr, idx);
+            let idx = process_merge_node(source, graph, visited, merge);
+            visited.insert(node_id, idx);
             idx
         }
         Placeholder => {
             let idx = graph.add_node("error".to_string());
-            visited.insert(node_addr, idx);
+            visited.insert(node_id, idx);
             idx
         }
     }

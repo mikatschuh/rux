@@ -8,7 +8,7 @@ use crate::{
 };
 
 pub fn require_type(graph: &Graph, span: Span, ty: Type, value: Data, errors: &mut Errors) -> Data {
-    if value.ty.ptr_cmp(&ty) {
+    if graph[&value].ty == ty {
         value
     } else {
         errors.push(span, ErrorCode::WrongType);

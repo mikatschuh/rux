@@ -22,7 +22,7 @@ pub struct SymbolTableStack {
 }
 
 /// This is an **existing** variable
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BindingID(usize);
 
 #[must_use]
@@ -64,7 +64,14 @@ impl SymbolTableStack {
     ) -> Option<BindingID> {
         if let Some(scope) = self.scopes.last_mut() {
             let id = BindingID(self.state_id);
-            scope.bindings.insert(symbol, Binding { mutable, ty, id });
+            scope.bindings.insert(
+                symbol,
+                Binding {
+                    mutable,
+                    ty,
+                    id: id.clone(),
+                },
+            );
             self.state_id += 1;
             Some(id)
         } else {

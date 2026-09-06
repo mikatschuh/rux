@@ -5,20 +5,20 @@ use crate::{
     grapher::{
         Graph,
         binding::BindingID,
-        graph::{Ctrl, CtrlKind, Data, DataKind, MergeID, Type},
+        graph::{Ctrl, CtrlKind, CtrlPlaceholder, Data, DataKind, DataPlaceholder, MergeID, Type},
         loops::{LoopBackedges, OpenLoop},
     },
     parser::{AstBuilder, Expr},
 };
 
 /// This describes an **existing** block.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct BlockID(usize);
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Placeholder {
     var: BindingID,
-    data_placeholder: Data,
+    data_placeholder: DataPlaceholder,
     /// this the AST-Node that read out the value of the incomplete phi for the first time
     reference: Expr,
 }
@@ -43,11 +43,11 @@ enum CfgNode {
     IncompleteMerge,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Cfg {
     blocks: Vec<Block>,
     placeholders: Vec<Vec<Placeholder>>,
-    ctrl_placeholders: Vec<Ctrl>,
+    ctrl_placeholders: Vec<CtrlPlaceholder>,
 }
 
 impl Cfg {
@@ -108,8 +108,8 @@ impl Cfg {
         ast: &AstBuilder,
     ) {
         let merge = graph.add_merge(ctrl_predecessors);
-        let mut ctrl_placeholder = self.ctrl_placeholders.pop().unwrap();
-        *ctrl_placeholder = CtrlKind::Merge {
+        let ctrl_placeholder = self.ctrl_placeholders.pop().unwrap();
+        graph[&ctrl_placeholder] = CtrlKind::Merge {
             merge: merge.clone(),
         };
 
@@ -123,13 +123,19 @@ impl Cfg {
         // add thoses backedges to the phi nodes of mutable variables declared outside the loop but used inside
         'outer: for Placeholder {
             var,
-            data_placeholder: mut placeholder,
+            data_placeholder: placeholder,
             reference,
         } in placeholders
         {
             let mut variants = vec![];
             for block in &predecessors {
-                match self.get_definition(*block, var, reference.clone(), graph) {
+                match self.get_definition(
+                    var.clone(),
+                    block.clone(),
+                    graph[&placeholder].ty.clone(),
+                    reference.clone(),
+                    graph,
+                ) {
                     Some(variant) => variants.push(variant),
                     None => {
                         errors.push(ast.expr(reference).span, ErrorCode::ReadUnitializedOrMoved);
@@ -139,7 +145,7 @@ impl Cfg {
             }
 
             let phi = graph.add_phi(merge.clone(), variants);
-            placeholder.kind = DataKind::Phi { phi };
+            graph[&placeholder].kind = DataKind::Phi { phi };
         }
     }
 
@@ -147,26 +153,11 @@ impl Cfg {
         self.blocks[block.0].definitions.insert(var, value)
     }
 
-    pub fn read_variable(
+    pub fn get_definition(
         &mut self,
+        var: BindingID,
+        block: BlockID,
         ty: Type,
-
-        block: BlockID,
-        var: BindingID,
-        read: Expr,
-        graph: &mut Graph,
-    ) -> Option<Data> {
-        self.get_definition(block, var, read, graph)
-            .map(|mut data| {
-                data.ty = ty;
-                data
-            })
-    }
-
-    fn get_definition(
-        &mut self,
-        block: BlockID,
-        var: BindingID,
         read: Expr,
         graph: &mut Graph,
     ) -> Option<Data> {
@@ -176,15 +167,12 @@ impl Cfg {
             return Some(current_blocks_definition.clone());
         }
 
-        match &mut current_block.cfg {
+        match &current_block.cfg {
             CfgNode::Start => None,
             CfgNode::Branch { predecessor: pred } => {
-                let block = *pred;
-                match self.get_definition(block, var, read, graph) {
-                    Some(state) => {
-                        self.blocks[block.0].definitions.insert(var, state.clone()); // insert for the next lookup
-                        Some(state)
-                    }
+                let block = pred.clone();
+                match self.get_definition(var.clone(), block.clone(), ty, read, graph) {
+                    Some(state) => Some(state),
                     None => None,
                 }
             }
@@ -196,39 +184,45 @@ impl Cfg {
 
                 let mut variants = vec![];
                 for pred in pred.clone() {
-                    variants.push(self.get_definition(pred, var, read.clone(), graph)?);
+                    variants.push(self.get_definition(
+                        var.clone(),
+                        pred,
+                        ty.clone(),
+                        read.clone(),
+                        graph,
+                    )?);
                 }
                 let first = variants.first().unwrap();
                 let value = if variants.iter().all(|v| v == first) {
                     variants.pop().unwrap()
                 } else {
-                    let ty = variants[0].ty.clone();
+                    let ty = graph[&variants[0]].ty.clone();
                     let phi = graph.add_phi(merge, variants);
 
                     graph.add_data_phi(phi, ty)
                 };
 
-                self.blocks[block.0].definitions.insert(var, value.clone()); // insert for the next lookup
-
                 Some(value)
             }
             CfgNode::IncompleteMerge => {
                 // we know that jump_table has to have at least one loop as IncompleteMerge cant be created without that to hold
-                let placeholder = graph.add_placeholder();
+                let placeholder = graph.add_placeholder(ty);
+                let data = placeholder.data();
                 self.placeholders.last_mut().unwrap().push(
                     // an incomplete merge can only exist when there are placeholders
                     Placeholder {
-                        var,
-                        data_placeholder: placeholder.clone(),
+                        var: var.clone(),
+                        data_placeholder: placeholder,
                         reference: read,
                     },
                 );
-                self.blocks[block.0]
-                    .definitions
-                    .insert(var, placeholder.clone()); // insert for the next lookup
-                Some(placeholder)
+                Some(data)
             }
         }
+        .map(|data| {
+            self.blocks[block.0].definitions.insert(var, data.clone()); // insert for the next lookup
+            data
+        })
     }
 }
 
@@ -279,7 +273,7 @@ impl Graph {
         // ctrl node structure setup
         let header = cfg.add_unsealed(self);
         CtrlCursor {
-            ctrl: cfg.ctrl_placeholders.last().unwrap().clone(),
+            ctrl: cfg.ctrl_placeholders.last().unwrap().clone().ctrl(),
             block: header,
         }
     }
@@ -332,7 +326,7 @@ impl Graph {
 
         (
             CtrlCursor {
-                block: cfg.branch(cursor.block),
+                block: cfg.branch(cursor.block.clone()),
                 ctrl: false_branch,
             },
             CtrlCursor {
@@ -368,7 +362,7 @@ impl Graph {
 
     /// Variants.len() has to be greater 0
     pub fn data_merge(&mut self, merge: MergeID, variants: Vec<Data>) -> Data {
-        let ty = variants[0].ty.clone();
+        let ty = self[&variants[0]].ty.clone();
         let phi = self.add_phi(merge, variants);
         self.add_data_phi(phi, ty)
     }
