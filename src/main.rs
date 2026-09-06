@@ -8,15 +8,13 @@ use threader::Threadpool;
 #[macro_use]
 mod error;
 mod byte_parsing;
-mod threader;
-mod tokenizing;
-mod type_parsing;
-#[macro_use]
-mod ref_count;
 mod codegen;
 mod grapher;
 mod literal_parsing;
 mod parser;
+mod threader;
+mod tokenizing;
+mod type_parsing;
 /*
 ___    __
 |#/    `"\_

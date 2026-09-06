@@ -2,7 +2,6 @@ use crate::{
     byte_parsing::whitespace_at_start_or_empty,
     error::Errors,
     literal_parsing::Literal,
-    ref_count::Rc,
     tokenizing::{
         parse_tok::parse_token,
         quote::QuoteEmbeddingState,
@@ -44,7 +43,7 @@ pub struct Tokenizer<'errors> {
 
     quote_embedding_state: QuoteEmbeddingState,
 
-    errors: Rc<Errors<'errors>>,
+    errors: Errors<'errors>,
     target_ptr_size: TypeSize, // necessary for type parsing
 }
 
@@ -56,7 +55,7 @@ enum Data {
 }
 
 impl<'src> Tokenizer<'src> {
-    pub fn new(text: &'static str, errors: Rc<Errors<'src>>, target_ptr_size: TypeSize) -> Self {
+    pub fn new(text: &'static str, errors: Errors<'src>, target_ptr_size: TypeSize) -> Self {
         let quote_embedding_state = QuoteEmbeddingState::default();
         let text = text.as_bytes();
         let pos = Position::beginning();

@@ -13,7 +13,6 @@ use crate::{
         JumpStruct, Label, ParserOutput, ScopeStmt, ScopeStmtKind, Spanned, StmtExpr, StmtExprKind,
         Symbol,
     },
-    ref_count::Rc,
     tokenizing::span::Span,
     type_parsing::TypeSize,
 };
@@ -37,7 +36,7 @@ pub fn build_graph_debug<'errors>(
         incomplete_bindings: _,
     }: ParserOutput,
     starting_point: &'static str,
-    mut errors: Rc<Errors<'errors>>,
+    errors: Errors<'errors>,
     target_ptr_size: TypeSize,
 ) -> Option<(String, Interner, Graph)> {
     let starting_point_symbol = interner.get(starting_point);
@@ -78,7 +77,7 @@ pub fn build_graph_debug<'errors>(
 
 pub struct GraphBuilder<'errors> {
     ast: AstBuilder,
-    errors: Rc<Errors<'errors>>,
+    errors: Errors<'errors>,
 
     graph: Graph,
 
@@ -93,7 +92,7 @@ pub struct GraphBuilder<'errors> {
 impl<'errors> GraphBuilder<'errors> {
     fn new(
         ast: AstBuilder,
-        errors: Rc<Errors<'errors>>,
+        errors: Errors<'errors>,
         raw_item_table: HashMap<Symbol, Item>,
         target_ptr_size: TypeSize,
     ) -> (Self, CtrlCursor) {
@@ -640,7 +639,6 @@ mod tests {
         grapher::graph::{Data, DataKind},
         literal_parsing::Literal,
         parser::{AstBuilder, BuiltinType, Expr, Interner, Label, Spanned, Symbol},
-        ref_count::Rc,
     };
 
     use super::GraphBuilder;
@@ -657,7 +655,7 @@ mod tests {
     }
 
     fn with_built_expr<R>(expr: Expr, arena: bumpalo::Bump, f: impl FnOnce(&Data) -> R) -> R {
-        let errors = Rc::new(Errors::empty(Path::new("grapher-test.rx")));
+        let errors = Errors::empty(Path::new("grapher-test.rx"));
         let (mut builder, cursor) = GraphBuilder::new(errors, arena, HashMap::new());
         let data = builder.expr(cursor, expr).data;
 

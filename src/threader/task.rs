@@ -1,9 +1,7 @@
 use super::files::*;
 use crate::{
     error::{CliError, Errors},
-    grapher, parser,
-    ref_count::Rc,
-    tokenizing,
+    grapher, parser, tokenizing,
 };
 use std::{
     ffi::OsString,
@@ -100,7 +98,7 @@ impl Task {
 
                 // let now = Instant::now();
 
-                let errors = Rc::new(Errors::empty(path));
+                let errors = Errors::empty(path);
 
                 // lazy tokenizing
                 let mut tokenizer = tokenizing::Tokenizer::new(content, errors.clone(), 64);

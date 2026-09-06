@@ -4,6 +4,7 @@ use std::error;
 use std::fmt;
 use std::fmt::Debug;
 use std::path::Path;
+use std::sync::{Arc, RwLock};
 
 use crate::grapher::Graph;
 use crate::grapher::Type;
@@ -15,43 +16,128 @@ use crate::{
     literal_parsing::Error as LiteralError, type_parsing::Error as PrimitiveTypeParsingError,
 };
 
-#[derive(Clone, Debug, PartialEq)]
+/// A shared diagnostic collection. Clones append to the same collection.
+#[derive(Clone, Debug)]
 pub struct Errors<'src> {
     file: &'src Path,
-    errors: Vec<Error>,
+    errors: Arc<RwLock<Vec<Error>>>,
 }
 
 impl<'src> Errors<'src> {
     pub fn new(path: &'src Path, pos: Span, error: ErrorCode) -> Self {
         Self {
             file: path,
-            errors: vec![Error::new(pos, error)],
+            errors: Arc::new(RwLock::new(vec![Error::new(pos, error)])),
         }
     }
 
     pub fn empty(path: &'src Path) -> Self {
         Self {
             file: path,
-            errors: Vec::new(),
+            errors: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.errors.is_empty()
+        self.errors
+            .read()
+            .expect("diagnostic lock poisoned")
+            .is_empty()
     }
 
-    pub fn push(&mut self, pos: Span, error: ErrorCode) {
-        self.errors.push(Error::new(pos, error))
+    pub fn push(&self, pos: Span, error: ErrorCode) {
+        self.errors
+            .write()
+            .expect("diagnostic lock poisoned")
+            .push(Error::new(pos, error))
     }
 
     pub fn display(&self, interner: &Interner, graph: &Graph) -> String {
         let mut string = String::new();
-        for err in &self.errors {
+        for err in self.errors.read().expect("diagnostic lock poisoned").iter() {
             string += &err.display(self.file, interner, graph);
             string += "\n"
         }
 
         string
+    }
+}
+
+impl PartialEq for Errors<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.file != other.file {
+            return false;
+        }
+        if Arc::ptr_eq(&self.errors, &other.errors) {
+            return true;
+        }
+        // Compare snapshots without holding two locks at once.
+        let errors = self
+            .errors
+            .read()
+            .expect("diagnostic lock poisoned")
+            .clone();
+        let other_errors = other.errors.read().expect("diagnostic lock poisoned");
+        errors == *other_errors
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{sync::Barrier, thread};
+
+    #[test]
+    fn clones_share_diagnostics_and_outlive_original() {
+        let errors = Errors::empty(Path::new("example.rx"));
+        let shared = errors.clone();
+        shared.push(Span::beginning(), ErrorCode::ExpectedIdent);
+        assert!(!errors.is_empty());
+        assert_eq!(errors, shared);
+        drop(errors);
+        assert_eq!(
+            shared,
+            Errors::new(
+                Path::new("example.rx"),
+                Span::beginning(),
+                ErrorCode::ExpectedIdent,
+            )
+        );
+    }
+
+    #[test]
+    fn collects_all_diagnostics_from_concurrent_writers() {
+        let errors = Errors::empty(Path::new("example.rx"));
+        let barrier = Barrier::new(8);
+        thread::scope(|scope| {
+            for worker in 0..8 {
+                let errors = errors.clone();
+                let barrier = &barrier;
+                scope.spawn(move || {
+                    barrier.wait();
+                    for _ in 0..256 {
+                        errors.push(
+                            Span::beginning(),
+                            ErrorCode::UnknownEscapeSequence {
+                                given: worker.to_string(),
+                            },
+                        );
+                        assert!(!errors.is_empty());
+                    }
+                });
+            }
+        });
+        let collected = errors.errors.read().unwrap();
+        assert_eq!(collected.len(), 8 * 256);
+        for worker in 0..8 {
+            let expected = ErrorCode::UnknownEscapeSequence {
+                given: worker.to_string(),
+            };
+            assert_eq!(
+                collected.iter().filter(|err| err.error == expected).count(),
+                256
+            );
+        }
     }
 }
 

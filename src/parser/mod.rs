@@ -2,7 +2,6 @@ use crate::{
     error::{ErrorCode, Errors},
     literal_parsing::Literal,
     parser::ast::DeclStmt,
-    ref_count::Rc,
     tokenizing::{
         TokenStream,
         span::Span,
@@ -31,7 +30,7 @@ pub struct ParserOutput {
 
 pub struct Parser<'tokens, 'errors, T> {
     tokens: &'tokens mut T,
-    errors: Rc<Errors<'errors>>,
+    errors: Errors<'errors>,
     graph: AstBuilder,
     interner: Interner,
     symbols: HashMap<Symbol, Item>,
@@ -46,7 +45,7 @@ pub struct IncompleteBinding {
 }
 
 impl<'tokens, 'errors, T: TokenStream> Parser<'tokens, 'errors, T> {
-    pub fn new(token_stream: &'tokens mut T, errors: Rc<Errors<'errors>>) -> Self {
+    pub fn new(token_stream: &'tokens mut T, errors: Errors<'errors>) -> Self {
         Self {
             tokens: token_stream,
             errors,
@@ -559,10 +558,10 @@ mod tests {
     use std::path::Path;
 
     use super::*;
-    use crate::{ref_count::Rc, tokenizing::Tokenizer};
+    use crate::tokenizing::Tokenizer;
 
-    fn parse(source: &'static str) -> (ParserOutput, Rc<Errors<'static>>) {
-        let errors = Rc::new(Errors::empty(Path::new("example.rx")));
+    fn parse(source: &'static str) -> (ParserOutput, Errors<'static>) {
+        let errors = Errors::empty(Path::new("example.rx"));
         let mut tokenizer = Tokenizer::new(source, errors.clone(), 64);
         let mut parser = Parser::new(&mut tokenizer, errors.clone());
         parser.parse_file();
@@ -575,7 +574,7 @@ mod tests {
         let main = output.interner.get("main");
 
         assert!(output.item_table.remove(&main).is_some());
-        assert_eq!(*errors, Errors::empty(Path::new("example.rx")));
+        assert_eq!(errors, Errors::empty(Path::new("example.rx")));
     }
 
     #[test]
@@ -584,7 +583,7 @@ mod tests {
         let main = output.interner.get("main");
 
         assert!(output.item_table.remove(&main).is_some());
-        assert_ne!(*errors, Errors::empty(Path::new("example.rx")));
+        assert_ne!(errors, Errors::empty(Path::new("example.rx")));
     }
 
     #[test]
@@ -593,6 +592,6 @@ mod tests {
         let main = output.interner.get("main");
 
         assert!(output.item_table.remove(&main).is_some());
-        assert_eq!(*errors, Errors::empty(Path::new("example.rx")));
+        assert_eq!(errors, Errors::empty(Path::new("example.rx")));
     }
 }
