@@ -107,8 +107,8 @@ impl Task {
                 let mut parser = parser::Parser::new(&mut tokenizer, errors.clone());
                 parser.parse_file();
                 let parser_output = parser.output();
-                let (graph_dump, interner) =
-                    grapher::build_graph_debug(parser_output, "main", errors.clone())
+                let (graph_dump, interner, graph) =
+                    grapher::build_graph_debug(parser_output, "main", errors.clone(), 64)
                         .expect("graph");
 
                 // Debug Print
@@ -117,7 +117,7 @@ impl Task {
                 if errors.is_empty() {
                     println!("{}", graph_dump);
                 } else {
-                    println!("{}", errors.display(&interner));
+                    println!("{}", errors.display(&interner, &graph));
                 }
             }
         }

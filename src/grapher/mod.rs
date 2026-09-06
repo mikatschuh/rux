@@ -5,7 +5,6 @@ use crate::{
     grapher::{
         binding::{Binding, SymbolTableStack},
         builder::{Cfg, CtrlCursor, DataCursor},
-        graph::{Data, Type},
         loops::JumpTableStack,
         type_check::require_type,
     },
@@ -16,6 +15,7 @@ use crate::{
     },
     ref_count::Rc,
     tokenizing::span::Span,
+    type_parsing::TypeSize,
 };
 
 mod binding;
@@ -26,26 +26,27 @@ mod item;
 mod loops;
 mod type_check;
 
-pub use graph::Graph;
+pub use graph::{Data, Graph, Type};
 
 pub fn build_graph_debug<'errors>(
     ParserOutput {
         ast,
         mut interner,
         mut item_table,
-        err_expr,
-        incomplete_bindings,
+        err_expr: _,
+        incomplete_bindings: _,
     }: ParserOutput,
     starting_point: &'static str,
     mut errors: Rc<Errors<'errors>>,
-) -> Option<(String, Interner)> {
+    target_ptr_size: TypeSize,
+) -> Option<(String, Interner, Graph)> {
     let starting_point_symbol = interner.get(starting_point);
 
     let Item::Constant {
-        ident,
+        ident: _,
         definition:
             Definition::Type {
-                ty: ty,
+                ty: _,
                 assignment: Some(Assignment { value, .. }),
             },
         ..
@@ -65,12 +66,13 @@ pub fn build_graph_debug<'errors>(
         todo!()
     };
 
-    let (mut builder, cursor) = GraphBuilder::new(ast, errors, item_table);
+    let (mut builder, cursor) = GraphBuilder::new(ast, errors, item_table, target_ptr_size);
     let cursor = builder.expr(value, cursor);
 
     Some((
         graph_dump::dump_text(&builder.graph, builder.symbol_dump, Some(cursor), &interner),
         interner,
+        builder.graph,
     ))
 }
 
@@ -93,8 +95,9 @@ impl<'errors> GraphBuilder<'errors> {
         ast: AstBuilder,
         errors: Rc<Errors<'errors>>,
         raw_item_table: HashMap<Symbol, Item>,
+        target_ptr_size: TypeSize,
     ) -> (Self, CtrlCursor) {
-        let graph = Graph::new();
+        let graph = Graph::new(target_ptr_size);
         let (cfg, start) = Cfg::new();
         let start = CtrlCursor {
             block: start,
@@ -166,7 +169,7 @@ impl<'errors> GraphBuilder<'errors> {
             StmtExprKind::Continue(JumpStruct {
                 keyword,
                 label,
-                value,
+                value: _,
             }) => {
                 self.continue_stmt(keyword, label, cursor);
                 None
@@ -180,9 +183,9 @@ impl<'errors> GraphBuilder<'errors> {
                 None
             }
             StmtExprKind::Return(JumpStruct {
-                keyword,
-                label,
-                value,
+                keyword: _,
+                label: _,
+                value: _,
             }) => todo!(),
             StmtExprKind::Unreachable => None,
             StmtExprKind::Expr(expr) => match self.ast[&expr].val.clone() {
@@ -627,7 +630,7 @@ impl<'errors> GraphBuilder<'errors> {
     }
 }
 
-#[cfg(never)]
+#[cfg(any())]
 #[cfg(test)]
 mod tests {
     use std::{collections::HashMap, path::Path};

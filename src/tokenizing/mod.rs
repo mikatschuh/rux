@@ -56,7 +56,7 @@ enum Data {
 }
 
 impl<'src> Tokenizer<'src> {
-    pub fn new(text: &'static str, errors: Rc<Errors<'src>>, target_ptr_size: u128) -> Self {
+    pub fn new(text: &'static str, errors: Rc<Errors<'src>>, target_ptr_size: TypeSize) -> Self {
         let quote_embedding_state = QuoteEmbeddingState::default();
         let text = text.as_bytes();
         let pos = Position::beginning();

@@ -2,8 +2,11 @@ use colored::*;
 use std::any::Any;
 use std::error;
 use std::fmt;
+use std::fmt::Debug;
 use std::path::Path;
 
+use crate::grapher::Graph;
+use crate::grapher::Type;
 use crate::parser::Interner;
 use crate::parser::Symbol;
 use crate::tokenizing::span::Span;
@@ -41,10 +44,10 @@ impl<'src> Errors<'src> {
         self.errors.push(Error::new(pos, error))
     }
 
-    pub fn display(&self, interner: &Interner) -> String {
+    pub fn display(&self, interner: &Interner, graph: &Graph) -> String {
         let mut string = String::new();
         for err in &self.errors {
-            string += &err.display(self.file, interner);
+            string += &err.display(self.file, interner, graph);
             string += "\n"
         }
 
@@ -103,7 +106,7 @@ pub enum ErrorCode {
 
     // type checking
     ExpectedType,
-    WrongType,
+    WrongType { expected: Type, got: Type },
 }
 impl Error {
     pub fn new(span: Span, error: ErrorCode) -> Self {
@@ -112,7 +115,7 @@ impl Error {
 }
 
 static ERROR: std::sync::LazyLock<String> =
-    std::sync::LazyLock::new(|| format!("{}{}", "ERROR".bold().red(), &":".bold()));
+    std::sync::LazyLock::new(|| format!("{}{}", "ERROR".bold().red(), ":".bold()));
 macro_rules! format_error {
     // version without tip
     ($pos:expr, $msg:expr, [$($arg:expr),*]) => {
@@ -220,7 +223,7 @@ macro_rules! format_error_arg {
 }
 
 impl Error {
-    fn display(&self, path: &Path, interner: &Interner) -> String {
+    fn display(&self, path: &Path, interner: &Interner, graph: &Graph) -> String {
         use ErrorCode::*;
         (match &self.error {
             InvalidUTF8 => {
@@ -357,10 +360,16 @@ impl Error {
             ),
 
             ExpectedType => format_error!(self.span.to_string(path), "expected a type expression"),
-            WrongType => format_error!(
-                self.span.to_string(path),
-                "expected a certain type got the wrong one"
-            ),
+            WrongType { expected, got } => {
+                format_error!(
+                    self.span.to_string(path),
+                    "expected {} got {}",
+                    [
+                        format!("{:?}", graph[expected]),
+                        format!("{:?}", graph[got])
+                    ]
+                )
+            }
         })
         .to_string()
     }

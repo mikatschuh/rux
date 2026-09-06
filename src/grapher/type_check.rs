@@ -11,7 +11,13 @@ pub fn require_type(graph: &Graph, span: Span, ty: Type, value: Data, errors: &m
     if graph[&value].ty == ty {
         value
     } else {
-        errors.push(span, ErrorCode::WrongType);
+        errors.push(
+            span,
+            ErrorCode::WrongType {
+                expected: ty,
+                got: graph[&value].ty.clone(),
+            },
+        );
         graph.err()
     }
 }

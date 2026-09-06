@@ -10,7 +10,7 @@ use crate::{
 mod error;
 pub use error::Error;
 
-pub type TypeSize = u128;
+pub type TypeSize = u16;
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Hash)]
 pub enum IntegerType {
@@ -71,10 +71,11 @@ pub fn parse_type(
     }
 }
 
-fn parse_size(input: &mut &[u8]) -> Option<TypeResult<u128>> {
+fn parse_size(input: &mut &[u8]) -> Option<TypeResult<TypeSize>> {
     match literal_parsing::parse_integer(input) {
         (_, Some(integer)) => Some(
-            <BigUint as TryInto<u128>>::try_into(integer).map_err(|_| Error::TooLargeIntegerSize),
+            <BigUint as TryInto<TypeSize>>::try_into(integer)
+                .map_err(|_| Error::TooLargeIntegerSize),
         ),
         _ => None,
     }

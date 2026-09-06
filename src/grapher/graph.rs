@@ -5,6 +5,7 @@ use crate::{
     literal_parsing::Literal,
     parser::BuiltinType,
     tokenizing::{binary_op::BinaryOp, unary_op::UnaryOp},
+    type_parsing::TypeSize,
 };
 
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
@@ -162,6 +163,8 @@ pub struct Graph {
     phis: Vec<Phi>,
     types: Vec<TypeKind>,
     type_cache: HashMap<TypeKey, Type>,
+
+    target_ptr_size: TypeSize,
 }
 
 impl Graph {
@@ -187,7 +190,7 @@ impl Graph {
     const ERR_TYPE: Type = Type(1);
     const ERR: Data = Data(1);
 
-    pub fn new() -> Self {
+    pub fn new(target_ptr_size: TypeSize) -> Self {
         let data_nodes = Vec::from(Self::DEFAULT_DATA);
         let ctrl_nodes = vec![CtrlKind::Start];
         let branches = vec![];
@@ -204,6 +207,8 @@ impl Graph {
             phis,
             types,
             type_cache,
+
+            target_ptr_size,
         }
     }
 
@@ -216,9 +221,10 @@ impl Graph {
         if let Some(existing) = self.type_cache.get(&key) {
             return existing.clone();
         }
-        let len = self.types.len();
+        let type_id = Type(self.types.len());
         self.types.push(ty);
-        Type(len)
+        self.type_cache.insert(key, type_id.clone());
+        type_id
     }
 
     fn push_data(&mut self, kind: DataKind, ty: Type) -> Data {
@@ -275,7 +281,9 @@ impl Graph {
     }
 
     pub fn add_literal(&mut self, literal: Literal) -> Data {
-        let ty = self.push_type(TypeKind::BuiltinType(BuiltinType::Complit));
+        let ty = self.push_type(TypeKind::BuiltinType(BuiltinType::Unsigned {
+            size: self.target_ptr_size,
+        }));
         self.push_data(DataKind::Literal { literal }, ty)
     }
 
