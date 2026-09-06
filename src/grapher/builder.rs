@@ -5,7 +5,7 @@ use crate::{
     grapher::{
         Graph,
         binding::BindingID,
-        graph::{CtrlID, CtrlKind, DataID, DataKind, MergeID, TypeID},
+        graph::{Ctrl, CtrlKind, Data, DataKind, MergeID, Type},
         loops::{LoopBackedges, OpenLoop},
     },
     parser::{AstBuilder, Expr},
@@ -18,14 +18,14 @@ pub struct BlockID(usize);
 #[derive(Clone, Debug)]
 pub struct Placeholder {
     var: BindingID,
-    data_placeholder: DataID,
+    data_placeholder: Data,
     /// this the AST-Node that read out the value of the incomplete phi for the first time
     reference: Expr,
 }
 
 #[derive(Clone, Debug)]
 pub struct Block {
-    definitions: HashMap<BindingID, DataID>,
+    definitions: HashMap<BindingID, Data>,
     cfg: CfgNode,
 }
 
@@ -47,7 +47,7 @@ enum CfgNode {
 pub struct Cfg {
     blocks: Vec<Block>,
     placeholders: Vec<Vec<Placeholder>>,
-    ctrl_placeholders: Vec<CtrlID>,
+    ctrl_placeholders: Vec<Ctrl>,
 }
 
 impl Cfg {
@@ -102,7 +102,7 @@ impl Cfg {
         &mut self,
         block: BlockID,
         predecessors: Vec<BlockID>,
-        ctrl_predecessors: Vec<CtrlID>,
+        ctrl_predecessors: Vec<Ctrl>,
         graph: &mut Graph,
         errors: &mut Errors,
         ast: &AstBuilder,
@@ -143,24 +143,19 @@ impl Cfg {
         }
     }
 
-    pub fn assign_variable(
-        &mut self,
-        block: BlockID,
-        var: BindingID,
-        value: DataID,
-    ) -> Option<DataID> {
+    pub fn assign_variable(&mut self, block: BlockID, var: BindingID, value: Data) -> Option<Data> {
         self.blocks[block.0].definitions.insert(var, value)
     }
 
     pub fn read_variable(
         &mut self,
-        ty: TypeID,
+        ty: Type,
 
         block: BlockID,
         var: BindingID,
         read: Expr,
         graph: &mut Graph,
-    ) -> Option<DataID> {
+    ) -> Option<Data> {
         self.get_definition(block, var, read, graph)
             .map(|mut data| {
                 data.ty = ty;
@@ -174,7 +169,7 @@ impl Cfg {
         var: BindingID,
         read: Expr,
         graph: &mut Graph,
-    ) -> Option<DataID> {
+    ) -> Option<Data> {
         let current_block = &mut self.blocks[block.0];
 
         if let Some(current_blocks_definition) = current_block.definitions.get(&var) {
@@ -240,11 +235,11 @@ impl Cfg {
 #[derive(Clone, Debug)]
 pub struct CtrlCursor {
     pub block: BlockID,
-    pub ctrl: CtrlID,
+    pub ctrl: Ctrl,
 }
 
 impl CtrlCursor {
-    pub fn with_data(self, data: DataID) -> DataCursor {
+    pub fn with_data(self, data: Data) -> DataCursor {
         DataCursor {
             block: self.block,
             ctrl: self.ctrl,
@@ -256,8 +251,8 @@ impl CtrlCursor {
 #[derive(Clone, Debug)]
 pub struct DataCursor {
     pub block: BlockID,
-    pub ctrl: CtrlID,
-    pub data: DataID,
+    pub ctrl: Ctrl,
+    pub data: Data,
 }
 
 impl DataCursor {
@@ -268,7 +263,7 @@ impl DataCursor {
         }
     }
 
-    pub fn split(self) -> (CtrlCursor, DataID) {
+    pub fn split(self) -> (CtrlCursor, Data) {
         (
             CtrlCursor {
                 block: self.block,
@@ -319,7 +314,7 @@ impl Graph {
             }
         }
 
-        let (mut entry_blocks, mut entry_ctrls): (Vec<BlockID>, Vec<CtrlID>) =
+        let (mut entry_blocks, mut entry_ctrls): (Vec<BlockID>, Vec<Ctrl>) =
             backedges.into_iter().map(|c| (c.block, c.ctrl)).unzip();
 
         entry_blocks.push(entry_block);
@@ -356,9 +351,9 @@ impl Graph {
             return Some(cursors.pop().unwrap());
         }
 
-        let (variants, ctrls): (Vec<DataID>, Vec<CtrlID>) = cursors
+        let (variants, ctrls): (Vec<Data>, Vec<Ctrl>) = cursors
             .iter()
-            .map(|c| -> (DataID, CtrlID) { (c.data.clone(), c.ctrl.clone()) })
+            .map(|c| -> (Data, Ctrl) { (c.data.clone(), c.ctrl.clone()) })
             .unzip();
         let cursors: Vec<BlockID> = cursors.into_iter().map(|c| c.block).collect();
 
@@ -372,7 +367,7 @@ impl Graph {
     }
 
     /// Variants.len() has to be greater 0
-    pub fn data_merge(&mut self, merge: MergeID, variants: Vec<DataID>) -> DataID {
+    pub fn data_merge(&mut self, merge: MergeID, variants: Vec<Data>) -> Data {
         let ty = variants[0].ty.clone();
         let phi = self.add_phi(merge, variants);
         self.add_data_phi(phi, ty)

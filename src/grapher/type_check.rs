@@ -2,22 +2,16 @@ use crate::{
     error::{ErrorCode, Errors},
     grapher::{
         Graph,
-        graph::{DataID, TypeID},
+        graph::{Data, Type},
     },
     tokenizing::span::Span,
 };
 
-pub fn require_type(
-    graph: &Graph,
-    span: Span,
-    ty: TypeID,
-    value: DataID,
-    errors: &mut Errors,
-) -> DataID {
+pub fn require_type(graph: &Graph, span: Span, ty: Type, value: Data, errors: &mut Errors) -> Data {
     if value.ty.ptr_cmp(&ty) {
         value
     } else {
         errors.push(span, ErrorCode::WrongType);
-        graph.error()
+        graph.err()
     }
 }

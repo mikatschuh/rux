@@ -5,9 +5,7 @@ use petgraph::{graph::NodeIndex, visit::EdgeRef};
 use crate::{
     grapher::{
         builder::DataCursor,
-        graph::{
-            BranchID, CtrlID, CtrlKind, DataID, DataKind, MergeID, TypeID, TypeKind, UniqueNodes,
-        },
+        graph::{Branch, Ctrl, CtrlKind, Data, DataKind, MergeID, Type, TypeKind, UniqueNodes},
     },
     parser::{Interner, Symbol},
     tokenizing,
@@ -37,7 +35,7 @@ type Visited = HashMap<usize, NodeIndex>;
 
 pub fn dump_text(
     UniqueNodes { types, .. }: UniqueNodes,
-    symbols: Vec<(Symbol, DataID)>,
+    symbols: Vec<(Symbol, Data)>,
     cursor: Option<DataCursor>,
     interner: &Interner,
 ) -> String {
@@ -85,7 +83,7 @@ pub fn dump_text(
     dump_cytoscape(&graph_dump)
 }
 
-pub fn process_data_node(graph: &mut GraphDump, visited: &mut Visited, node: DataID) -> NodeIndex {
+pub fn process_data_node(graph: &mut GraphDump, visited: &mut Visited, node: Data) -> NodeIndex {
     let node_addr = node.addr();
     if let Some(idx) = visited.get(&node_addr) {
         return *idx;
@@ -154,7 +152,7 @@ pub fn process_data_node(graph: &mut GraphDump, visited: &mut Visited, node: Dat
             idx
         }
 
-        Error => {
+        Err => {
             let idx = graph.add_node("error".to_string());
             visited.insert(node_addr, idx);
             idx
@@ -169,7 +167,7 @@ pub fn process_data_node(graph: &mut GraphDump, visited: &mut Visited, node: Dat
     data
 }
 
-pub fn process_type_node(graph: &mut GraphDump, visited: &mut Visited, node: TypeID) -> NodeIndex {
+pub fn process_type_node(graph: &mut GraphDump, visited: &mut Visited, node: Type) -> NodeIndex {
     let node_addr = node.addr();
     if let Some(idx) = visited.get(&node_addr) {
         return *idx;
@@ -187,8 +185,8 @@ pub fn process_type_node(graph: &mut GraphDump, visited: &mut Visited, node: Typ
             idx
         }
 
-        DataType { data } => process_data_node(graph, visited, data.clone()),
-        Error => {
+        TypeData { data } => process_data_node(graph, visited, data.clone()),
+        Err => {
             let idx = graph.add_node(ty!("error"));
             visited.insert(node_addr, idx);
             idx
@@ -225,7 +223,7 @@ pub fn process_merge_node(
 pub fn process_branch_node(
     graph: &mut GraphDump,
     visited: &mut Visited,
-    node: BranchID,
+    node: Branch,
 ) -> NodeIndex {
     let node_addr = node.addr();
     if let Some(idx) = visited.get(&node_addr) {
@@ -241,7 +239,7 @@ pub fn process_branch_node(
     branch
 }
 
-pub fn process_ctrl_node(graph: &mut GraphDump, visited: &mut Visited, node: CtrlID) -> NodeIndex {
+pub fn process_ctrl_node(graph: &mut GraphDump, visited: &mut Visited, node: Ctrl) -> NodeIndex {
     let node_addr = node.addr();
     if let Some(idx) = visited.get(&node_addr) {
         return *idx;

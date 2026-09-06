@@ -1,6 +1,5 @@
 use std::alloc::{Layout, alloc, dealloc};
 use std::hash::{Hash, Hasher};
-use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::ptr::{NonNull, null_mut};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -77,28 +76,6 @@ impl<T, A: CustomAllocator> Rc<T, A> {
         Self { ptr, allocator }
     }
 
-    pub fn new_in_bump(value: T, arena: &Bump) -> Rc<T, NoDealloc> {
-        let layout = Layout::new::<RcBoxInner<T>>();
-
-        let ptr = unsafe {
-            let mem = arena.alloc_layout(layout);
-
-            let ptr = mem::transmute::<NonNull<u8>, *mut RcBoxInner<T>>(mem);
-
-            ptr.write(RcBoxInner {
-                strong: AtomicUsize::new(1),
-                value,
-            });
-
-            NonNull::new_unchecked(ptr)
-        };
-
-        Rc {
-            ptr,
-            allocator: NoDealloc {},
-        }
-    }
-
     pub fn strong_count(&self) -> usize {
         unsafe { (*self.ptr.as_ptr()).strong.load(Ordering::SeqCst) }
     }
@@ -172,7 +149,6 @@ impl<T: Hash, A: CustomAllocator> Hash for Rc<T, A> {
 }
 use std::fmt;
 
-use bumpalo::Bump;
 impl<T: fmt::Debug, A: CustomAllocator> fmt::Debug for Rc<T, A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", unsafe { &self.ptr.as_ref().value })

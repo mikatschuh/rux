@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 
 use crate::{
-    grapher::graph::{DataID, TypeID},
+    grapher::graph::{Data, Type},
     parser::Symbol,
 };
 
 #[derive(Debug, Clone)]
 pub struct Binding {
     pub mutable: bool,
-    pub ty: TypeID,
+    pub ty: Type,
     pub id: BindingID,
 }
 
@@ -46,8 +46,8 @@ impl SymbolTableStack {
     pub fn close_scope(
         &mut self,
         _: OpenScope,
-        symbol_dump: &mut Vec<(Symbol, DataID)>,
-        mut read_var: impl FnMut(TypeID, BindingID) -> Option<DataID>,
+        symbol_dump: &mut Vec<(Symbol, Data)>,
+        mut read_var: impl FnMut(Type, BindingID) -> Option<Data>,
     ) {
         let symbols = self.scopes.pop().unwrap().bindings; // safe because of OpenScope
         symbols
@@ -60,7 +60,7 @@ impl SymbolTableStack {
         &mut self,
         mutable: bool,
         symbol: Symbol,
-        ty: TypeID,
+        ty: Type,
     ) -> Option<BindingID> {
         if let Some(scope) = self.scopes.last_mut() {
             let id = BindingID(self.state_id);

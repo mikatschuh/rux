@@ -5,7 +5,7 @@ use crate::{
     grapher::{
         binding::{Binding, SymbolTableStack},
         builder::{Cfg, CtrlCursor, DataCursor},
-        graph::{DataID, DataKind, TypeID},
+        graph::{Data, DataKind, Type},
         loops::JumpTableStack,
         type_check::require_type,
     },
@@ -26,7 +26,6 @@ mod item;
 mod loops;
 mod type_check;
 
-use bumpalo::Bump;
 pub use graph::Graph;
 
 pub fn build_graph_debug<'errors>(
@@ -88,7 +87,7 @@ pub struct GraphBuilder<'errors> {
 
     cfg: Cfg,
     symbol_table: SymbolTableStack,
-    symbol_dump: Vec<(Symbol, DataID)>,
+    symbol_dump: Vec<(Symbol, Data)>,
     jump_table: JumpTableStack,
 
     raw_item_table: HashMap<Symbol, Item>,
@@ -286,7 +285,7 @@ impl<'errors> GraphBuilder<'errors> {
                         &mut self.graph,
                     ) {
                         Some(mut value) => {
-                            if value.kind == DataKind::Error {
+                            if value.kind == DataKind::Err {
                                 // Placeholder because of Loop
                                 value.ty = ty.clone();
                             }
@@ -363,11 +362,11 @@ impl<'errors> GraphBuilder<'errors> {
                     None => self.divergent_control_flow(keyword, cursor),
                 }
             }
-            ExprKind::Err => cursor.with_data(self.graph.error()),
+            ExprKind::Err => cursor.with_data(self.graph.err()),
         }
     }
 
-    fn type_expr(&mut self, expr: Expr) -> TypeID {
+    fn type_expr(&mut self, expr: Expr) -> Type {
         let expression = self.ast.expr(expr);
         match expression.val.clone() {
             ExprKind::BuiltinType(builtin_type) => self.graph.add_builtin_type(builtin_type),
@@ -625,18 +624,18 @@ impl<'errors> GraphBuilder<'errors> {
 
     fn divergent_control_flow(&mut self, span: Span, cursor: CtrlCursor) -> DataCursor {
         self.errors.push(span, ErrorCode::DivergentControlFlow);
-        cursor.with_data(self.graph.error())
+        cursor.with_data(self.graph.err())
     }
 
     fn uninitialized_moved_variable(&mut self, span: Span, cursor: CtrlCursor) -> DataCursor {
         self.errors.push(span, ErrorCode::ReadUnitializedOrMoved);
-        cursor.with_data(self.graph.error())
+        cursor.with_data(self.graph.err())
     }
 
     fn unknown_identifier(&mut self, ident: Ident, cursor: CtrlCursor) -> DataCursor {
         self.errors
             .push(ident.span, ErrorCode::UnknownIdent { symbol: ident.val });
-        cursor.with_data(self.graph.error())
+        cursor.with_data(self.graph.err())
     }
 }
 
@@ -647,7 +646,7 @@ mod tests {
 
     use crate::{
         error::{Errors, Span},
-        grapher::graph::{DataID, DataKind},
+        grapher::graph::{Data, DataKind},
         literal_parsing::Literal,
         parser::{AstBuilder, BuiltinType, Expr, Interner, Label, Spanned, Symbol},
         ref_count::Rc,
@@ -666,7 +665,7 @@ mod tests {
         }
     }
 
-    fn with_built_expr<R>(expr: Expr, arena: bumpalo::Bump, f: impl FnOnce(&DataID) -> R) -> R {
+    fn with_built_expr<R>(expr: Expr, arena: bumpalo::Bump, f: impl FnOnce(&Data) -> R) -> R {
         let errors = Rc::new(Errors::empty(Path::new("grapher-test.rx")));
         let (mut builder, cursor) = GraphBuilder::new(errors, arena, HashMap::new());
         let data = builder.expr(cursor, expr).data;
@@ -674,14 +673,14 @@ mod tests {
         f(&data)
     }
 
-    fn literal_value(node: &DataID) -> Option<Literal> {
+    fn literal_value(node: &Data) -> Option<Literal> {
         match &node.kind {
             DataKind::Literal { literal } => Some(literal.clone()),
             _ => None,
         }
     }
 
-    fn kind_name(node: &DataID) -> &'static str {
+    fn kind_name(node: &Data) -> &'static str {
         match &node.kind {
             DataKind::Literal { .. } => "literal",
             DataKind::Quote { .. } => "quote",
@@ -692,7 +691,7 @@ mod tests {
             DataKind::Load { .. } => "load",
             DataKind::Phi { .. } => "phi",
             DataKind::Type { .. } => "type",
-            DataKind::Error => "error",
+            DataKind::Err => "error",
             DataKind::Placeholder => "placeholder",
         }
     }
