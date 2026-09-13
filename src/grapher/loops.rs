@@ -1,26 +1,26 @@
 use crate::{
-    grapher::builder::{CtrlCursor, DataCursor},
+    grapher::builder::{CtrlCursors, DataCursors},
     parser::Symbol,
 };
 
 #[must_use]
 pub struct LoopBackedges {
-    pub continues: Vec<CtrlCursor>,
-    pub breaks: Vec<DataCursor>,
+    pub continues: CtrlCursors,
+    pub breaks: DataCursors,
 }
 
 pub struct Loop {
     label: Option<Symbol>,
-    pub continue_jumps: Vec<CtrlCursor>,
-    pub break_jumps: Vec<DataCursor>,
+    pub continue_jumps: CtrlCursors,
+    pub break_jumps: DataCursors,
 }
 
 impl Loop {
     fn new(label: Option<Symbol>) -> Self {
         Self {
             label,
-            continue_jumps: vec![],
-            break_jumps: vec![],
+            continue_jumps: CtrlCursors::new(),
+            break_jumps: DataCursors::new(),
         }
     }
 }

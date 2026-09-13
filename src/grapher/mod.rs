@@ -117,14 +117,14 @@ impl<'errors> GraphBuilder<'errors> {
         )
     }
 
-    fn scope_stmt_pot_divergent(
+    fn scope_stmt_could_diverge(
         &mut self,
         stmt: ScopeStmt,
         cursor: CtrlCursor,
     ) -> Option<DataCursor> {
         match &self.ast[&stmt].val {
             ScopeStmtKind::StmtExpr(stmt_expr) => {
-                self.stmt_expr_pot_divergent(stmt_expr.clone(), cursor)
+                self.stmt_expr_could_diverge(stmt_expr.clone(), cursor)
             }
             _ => Some(self.scope_stmt(stmt, cursor)),
         }
@@ -159,7 +159,7 @@ impl<'errors> GraphBuilder<'errors> {
         }
     }
 
-    fn stmt_expr_pot_divergent(
+    fn stmt_expr_could_diverge(
         &mut self,
         stmt_expr: StmtExpr,
         cursor: CtrlCursor,
@@ -196,7 +196,7 @@ impl<'errors> GraphBuilder<'errors> {
                     loop {
                         let stmt = stmts.next().unwrap();
                         if stmts.peek().is_none() {
-                            match self.scope_stmt_pot_divergent(stmt.clone(), cursor.clone()) {
+                            match self.scope_stmt_could_diverge(stmt.clone(), cursor.clone()) {
                                 Some(value) => {
                                     self.symbol_table.close_scope(
                                         open_scope,
@@ -240,7 +240,7 @@ impl<'errors> GraphBuilder<'errors> {
                     condition,
                     when_body,
                     else_body,
-                } => self.if_stmt_pot_divergent(keyword, condition, when_body, else_body, cursor),
+                } => self.if_stmt_could_diverge(keyword, condition, when_body, else_body, cursor),
                 ExprKind::Label { label, body } => self.loop_stmt(Some(label), body, cursor),
                 ExprKind::Loop(ControlStruct { body, .. }) => self.loop_stmt(None, body, cursor),
                 _ => Some(self.expr(expr, cursor)),
@@ -510,7 +510,7 @@ impl<'errors> GraphBuilder<'errors> {
 
         let (false_branch, true_branch) = self.graph.branch(condition_cursor, &mut self.cfg);
 
-        let Some(cursor_when_true) = self.stmt_expr_pot_divergent(when_body, true_branch) else {
+        let Some(cursor_when_true) = self.stmt_expr_could_diverge(when_body, true_branch) else {
             return if let Some(ControlStruct {
                 body: else_body, ..
             }) = else_body
@@ -525,25 +525,27 @@ impl<'errors> GraphBuilder<'errors> {
             body: else_body, ..
         }) = else_body
         {
-            let Some(cursor_when_false) = self.stmt_expr_pot_divergent(else_body, false_branch)
+            let Some(cursor_when_false) = self.stmt_expr_could_diverge(else_body, false_branch)
             else {
                 return cursor_when_true;
             };
 
             self.graph
-                .merge(vec![cursor_when_false, cursor_when_true], &mut self.cfg)
+                .merge(cursor_when_false.and(cursor_when_true), &mut self.cfg)
                 .unwrap() // we dont put in an empty vec
         } else {
             self.graph
                 .merge(
-                    vec![false_branch.with_data(self.graph.unit()), cursor_when_true],
+                    false_branch
+                        .with_data(self.graph.unit())
+                        .and(cursor_when_true),
                     &mut self.cfg,
                 )
                 .unwrap()
         }
     }
 
-    fn if_stmt_pot_divergent(
+    fn if_stmt_could_diverge(
         &mut self,
         _keyword: Span,
         condition: Expr,
@@ -555,12 +557,12 @@ impl<'errors> GraphBuilder<'errors> {
 
         let (false_branch, true_branch) = self.graph.branch(condition_cursor, &mut self.cfg);
 
-        let Some(cursor_when_true) = self.stmt_expr_pot_divergent(when_body, true_branch) else {
+        let Some(cursor_when_true) = self.stmt_expr_could_diverge(when_body, true_branch) else {
             return if let Some(ControlStruct {
                 body: else_body, ..
             }) = else_body
             {
-                self.stmt_expr_pot_divergent(else_body, false_branch)
+                self.stmt_expr_could_diverge(else_body, false_branch)
             } else {
                 Some(false_branch.with_data(self.graph.unit()))
             };
@@ -570,16 +572,18 @@ impl<'errors> GraphBuilder<'errors> {
             body: else_body, ..
         }) = else_body
         {
-            let Some(cursor_when_false) = self.stmt_expr_pot_divergent(else_body, false_branch)
+            let Some(cursor_when_false) = self.stmt_expr_could_diverge(else_body, false_branch)
             else {
                 return Some(cursor_when_true);
             };
 
             self.graph
-                .merge(vec![cursor_when_false, cursor_when_true], &mut self.cfg)
+                .merge(cursor_when_false.and(cursor_when_true), &mut self.cfg)
         } else {
             self.graph.merge(
-                vec![false_branch.with_data(self.graph.unit()), cursor_when_true],
+                false_branch
+                    .with_data(self.graph.unit())
+                    .and(cursor_when_true),
                 &mut self.cfg,
             )
         }
@@ -595,15 +599,15 @@ impl<'errors> GraphBuilder<'errors> {
             .jump_table
             .open_loop(label.as_ref().map(|l| l.ident.val));
         let body_cursor = self.graph.open_loop(&tok, &mut self.cfg);
-        let header_block = body_cursor.block.clone();
+        let loop_block = body_cursor.block.clone();
 
-        let body = self.stmt_expr_pot_divergent(body, body_cursor); // parse the hole body
+        let body = self.stmt_expr_could_diverge(body, body_cursor); // parse the hole body
 
         let backedges = self.jump_table.close_loop(tok);
         self.graph.close_loop(
             cursor,
             body,
-            header_block,
+            loop_block,
             backedges,
             label.is_none(),
             &mut self.cfg,

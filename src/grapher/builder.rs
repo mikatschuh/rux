@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::{
     error::{ErrorCode, Errors},
     grapher::{
@@ -10,6 +8,7 @@ use crate::{
     },
     parser::{AstBuilder, Expr},
 };
+use std::collections::HashMap;
 
 /// This describes an **existing** block.
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
@@ -238,6 +237,29 @@ impl CtrlCursor {
     }
 }
 
+/// `Vec<CtrlCursor>` but as SoA
+#[derive(Clone, Debug)]
+pub struct CtrlCursors {
+    blocks: Vec<BlockID>,
+    ctrls: Vec<Ctrl>,
+}
+
+impl CtrlCursors {
+    pub fn new() -> Self {
+        Self {
+            blocks: vec![],
+            ctrls: vec![],
+        }
+    }
+
+    pub fn push(&mut self, cursor: CtrlCursor) {
+        let CtrlCursor { block, ctrl } = cursor;
+
+        self.blocks.push(block);
+        self.ctrls.push(ctrl);
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct DataCursor {
     pub block: BlockID,
@@ -253,6 +275,12 @@ impl DataCursor {
         }
     }
 
+    pub fn and(self, other: Self) -> DataCursors {
+        let mut cursors = DataCursors::from_cursor(self);
+        cursors.push(other);
+        cursors
+    }
+
     pub fn split(self) -> (CtrlCursor, Data) {
         (
             CtrlCursor {
@@ -261,6 +289,56 @@ impl DataCursor {
             },
             self.data,
         )
+    }
+}
+
+/// `Vec<DataCursor>` but as SoA
+#[derive(Clone, Debug)]
+pub struct DataCursors {
+    blocks: Vec<BlockID>,
+    ctrls: Vec<Ctrl>,
+    datas: Vec<Data>,
+}
+
+impl DataCursors {
+    pub fn new() -> Self {
+        Self {
+            blocks: vec![],
+            ctrls: vec![],
+            datas: vec![],
+        }
+    }
+
+    fn from_cursor(cursor: DataCursor) -> DataCursors {
+        let DataCursor { block, ctrl, data } = cursor;
+        DataCursors {
+            blocks: vec![block],
+            ctrls: vec![ctrl],
+            datas: vec![data],
+        }
+    }
+
+    pub fn push(&mut self, cursor: DataCursor) {
+        let DataCursor { block, ctrl, data } = cursor;
+
+        self.blocks.push(block);
+        self.ctrls.push(ctrl);
+        self.datas.push(data);
+    }
+
+    pub fn len(&self) -> usize {
+        self.blocks.len()
+    }
+
+    pub fn unwrap(mut self) -> DataCursor {
+        if let Some(block) = self.blocks.pop()
+            && let Some(ctrl) = self.ctrls.pop()
+            && let Some(data) = self.datas.pop()
+        {
+            DataCursor { block, ctrl, data }
+        } else {
+            panic!("expected atleast one full DataCursor")
+        }
     }
 }
 
@@ -283,7 +361,7 @@ impl Graph {
         }: CtrlCursor,
         body: Option<DataCursor>,
 
-        header: BlockID,
+        loop_block: BlockID,
 
         LoopBackedges {
             continues: mut backedges,
@@ -304,13 +382,15 @@ impl Graph {
             }
         }
 
-        let (mut entry_blocks, mut entry_ctrls): (Vec<BlockID>, Vec<Ctrl>) =
-            backedges.into_iter().map(|c| (c.block, c.ctrl)).unzip();
+        let CtrlCursors {
+            blocks: mut entry_blocks,
+            ctrls: mut entry_ctrls,
+        } = backedges;
 
         entry_blocks.push(entry_block);
         entry_ctrls.push(entry_ctrl);
 
-        cfg.seal_block(header, entry_blocks, entry_ctrls, self, errors, ast);
+        cfg.seal_block(loop_block, entry_blocks, entry_ctrls, self, errors, ast);
 
         self.merge(exits, cfg)
     }
@@ -332,27 +412,24 @@ impl Graph {
         )
     }
 
-    pub fn merge(&mut self, cursors: Vec<DataCursor>, cfg: &mut Cfg) -> Option<DataCursor> {
-        if cursors.is_empty() {
+    pub fn merge(&mut self, cursors: DataCursors, cfg: &mut Cfg) -> Option<DataCursor> {
+        if cursors.len() == 0 {
             return None;
-        }
-        if cursors.len() == 1 {
-            let mut cursors = cursors;
-            return Some(cursors.pop().unwrap());
+        } else if cursors.len() == 1 {
+            return Some(cursors.unwrap());
         }
 
-        let (variants, ctrls): (Vec<Data>, Vec<Ctrl>) = cursors
-            .iter()
-            .map(|c| -> (Data, Ctrl) { (c.data.clone(), c.ctrl.clone()) })
-            .unzip();
-        let cursors: Vec<BlockID> = cursors.into_iter().map(|c| c.block).collect();
+        let DataCursors {
+            blocks,
+            ctrls,
+            datas: variants,
+        } = cursors;
 
         let merge = self.add_merge(ctrls);
-
         Some(DataCursor {
             ctrl: self.add_ctrl_merge(merge.clone()),
             data: self.data_merge(merge.clone(), variants),
-            block: cfg.merge(cursors, merge),
+            block: cfg.merge(blocks, merge),
         })
     }
 
