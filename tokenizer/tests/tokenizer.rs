@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use num::BigUint;
 
 use tokenizer::{
-    Base, Diagnostics, Error, Literal as LiteralValue, Span, Token, TokenKind::*, TokenStream,
+    Base, Diagnostics, Error, Literal as LiteralValue, Span, Token2, Token::*, TokenStream,
     Tokenizer,
 };
 
@@ -18,7 +18,7 @@ impl Diagnostics for MockDiagnostics {
     }
 }
 
-fn collect_tokens_and_quotes(input: &'static str) -> (Vec<Token>, Vec<String>, MockDiagnostics) {
+fn collect_tokens_and_quotes(input: &'static str) -> (Vec<Token2>, Vec<String>, MockDiagnostics) {
     let errors = MockDiagnostics::default();
     let mut tokenizer = Tokenizer::new(input, errors.clone(), 64);
 
@@ -103,12 +103,12 @@ fn tokenizes_basic_sequences() {
         (
             "\n a \"Hallo\n\"+",
             vec![
-                Token {
+                Token2 {
                     span: Span::at(2, 2, 3, 2),
                     src: "a",
                     kind: Ident,
                 },
-                Token {
+                Token2 {
                     span: Span::at(4, 2, 2, 3),
                     src: "\"Hallo\n\"",
                     kind: Quote {
@@ -116,7 +116,7 @@ fn tokenizes_basic_sequences() {
                         opening_scope: false,
                     },
                 },
-                Token {
+                Token2 {
                     span: Span::at(2, 3, 3, 3),
                     src: "+",
                     kind: Plus,
@@ -126,12 +126,12 @@ fn tokenizes_basic_sequences() {
         (
             "a// b + a\nb//",
             vec![
-                Token {
+                Token2 {
                     span: Span::at(1, 1, 2, 1),
                     src: "a",
                     kind: Ident,
                 },
-                Token {
+                Token2 {
                     span: Span::at(1, 2, 2, 2),
                     src: "b",
                     kind: Ident,
@@ -156,7 +156,7 @@ fn tokenizes_literal_sequences() {
 
     assert_eq!(
         tokenizer.peek(),
-        Some(Token {
+        Some(Token2 {
             span: Span::at(1, 1, 2, 1),
             src: "-",
             kind: Dash
@@ -166,7 +166,7 @@ fn tokenizes_literal_sequences() {
 
     assert_eq!(
         tokenizer.peek(),
-        Some(Token {
+        Some(Token2 {
             span: Span::at(2, 1, 5, 1),
             src: "1.3",
             kind: Literal
@@ -188,7 +188,7 @@ fn tokenizes_literal_sequences() {
 
     assert_eq!(
         tokenizer.peek(),
-        Some(Token {
+        Some(Token2 {
             span: Span::at(6, 1, 7, 1),
             src: "+",
             kind: Plus
@@ -198,7 +198,7 @@ fn tokenizes_literal_sequences() {
 
     assert_eq!(
         tokenizer.peek(),
-        Some(Token {
+        Some(Token2 {
             span: Span::at(8, 1, 13, 1),
             src: "0x345",
             kind: Literal
@@ -229,7 +229,7 @@ fn decodes_quote_escape_sequences() {
 
     assert_eq!(
         tokens,
-        vec![Token {
+        vec![Token2 {
             span: Span::at(1, 1, input.len() + 1, 1),
             src: input,
             kind: Quote {
@@ -253,7 +253,7 @@ fn decodes_escaped_structural_quote_characters() {
 
     assert_eq!(
         tokens,
-        vec![Token {
+        vec![Token2 {
             span: Span::at(1, 1, input.len() + 1, 1),
             src: input,
             kind: Quote {
@@ -273,7 +273,7 @@ fn tokenizes_embedded_quotes_across_scopes() {
     assert_eq!(
         tokens,
         vec![
-            Token {
+            Token2 {
                 span: Span::at(1, 1, 4, 1),
                 src: "\"a{",
                 kind: Quote {
@@ -281,12 +281,12 @@ fn tokenizes_embedded_quotes_across_scopes() {
                     opening_scope: true,
                 },
             },
-            Token {
+            Token2 {
                 span: Span::at(4, 1, 5, 1),
                 src: "b",
                 kind: Ident,
             },
-            Token {
+            Token2 {
                 span: Span::at(5, 1, 8, 1),
                 src: "}c\"",
                 kind: Quote {
@@ -306,7 +306,7 @@ fn reports_unknown_escape_sequences() {
 
     assert_eq!(
         tokens,
-        vec![Token {
+        vec![Token2 {
             span: Span::at(1, 1, 5, 1),
             src: "\"\\q\"",
             kind: Quote {
@@ -332,7 +332,7 @@ fn reports_unterminated_quotes_and_keeps_trailing_backslash() {
 
     assert_eq!(
         tokens,
-        vec![Token {
+        vec![Token2 {
             span: Span::at(1, 1, 6, 1),
             src: "\"abc\\",
             kind: Quote {

@@ -1,6 +1,6 @@
 use std::fmt;
 
-use tokenizer::TokenKind;
+use tokenizer::Token;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum UnaryOp {
@@ -14,18 +14,18 @@ pub enum UnaryOp {
 }
 
 impl UnaryOp {
-    pub fn from_prefix(tok: TokenKind) -> Option<UnaryOp> {
+    pub fn from_prefix(tok: &Token) -> Option<UnaryOp> {
         Some(match tok {
-            TokenKind::Dash => UnaryOp::Neg,
-            TokenKind::Not => UnaryOp::Not,
-            TokenKind::RightArrow => UnaryOp::Ptr,
+            Token::Dash => UnaryOp::Neg,
+            Token::Not => UnaryOp::Not,
+            Token::RightArrow => UnaryOp::Ptr,
             _ => return None,
         })
     }
 
-    pub fn from_postfix(tok: TokenKind) -> Option<UnaryOp> {
+    pub fn from_postfix(tok: &Token) -> Option<UnaryOp> {
         Some(match tok {
-            TokenKind::LeftArrow => UnaryOp::Ptr,
+            Token::LeftArrow => UnaryOp::Ptr,
             _ => return None,
         })
     }

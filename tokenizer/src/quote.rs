@@ -1,8 +1,8 @@
 use crate::{
     Diagnostics, Error,
     byte_parsing::{TokenSlice, is_unicode_payload_byte},
-    span::{Position, Span},
-    token::{Token, TokenKind},
+    span::Span,
+    token::Quote,
 };
 
 #[derive(Clone, Default, Debug, PartialEq, Eq)]
@@ -11,7 +11,7 @@ pub struct QuoteEmbeddingState {
 }
 
 impl QuoteEmbeddingState {
-    pub fn open_scope(&mut self) {
+    fn open_scope(&mut self) {
         self.open_braces_after_embedding_quote.push(0)
     }
 
@@ -24,16 +24,16 @@ impl QuoteEmbeddingState {
     pub fn closing_brace(
         &mut self,
         text: &mut &'static [u8],
-        pos: Position,
+        span: &mut Span,
         errors: &mut impl Diagnostics,
-    ) -> Option<(Token, String)> {
+    ) -> Option<Quote> {
         if let Some(open_braces_after_embedding_quote) =
             self.open_braces_after_embedding_quote.last_mut()
         {
             if *open_braces_after_embedding_quote == 0 {
                 self.open_braces_after_embedding_quote.pop();
 
-                return Some(parse_quote(text, pos, self, true, errors));
+                return Some(parse_quote(text, span, self, true, errors));
             }
             *open_braces_after_embedding_quote -= 1;
         }
@@ -43,19 +43,18 @@ impl QuoteEmbeddingState {
 
 pub fn parse_quote(
     text: &mut &'static [u8],
-    pos: Position,
+    span: &mut Span,
     state: &mut QuoteEmbeddingState,
     closing_scope: bool,
 
     errors: &mut impl Diagnostics,
-) -> (Token, String) {
+) -> Quote {
     let mut quote = String::new();
     let quote_ptr = unsafe { quote.as_mut_vec() };
 
     let mut slice = TokenSlice::new(text, 0);
     slice.push_byte_over(); // add the opening quote
 
-    let mut span: Span = pos.into();
     span.end += 1; // add the opening quote
 
     loop {
@@ -81,31 +80,19 @@ pub fn parse_quote(
 
             state.open_scope();
 
-            return (
-                Token {
-                    span,
-                    src: slice.to_str(),
-                    kind: TokenKind::Quote {
-                        closing_scope,
-                        opening_scope: true,
-                    },
-                },
-                quote,
-            );
+            return Quote {
+                content: quote,
+                closing_scope,
+                opening_scope: true,
+            };
         } else if slice.current_byte() == b'\"' {
             slice.push_byte_over();
 
-            return (
-                Token {
-                    span,
-                    src: slice.to_str(),
-                    kind: TokenKind::Quote {
-                        closing_scope,
-                        opening_scope: false,
-                    },
-                },
-                quote,
-            );
+            return Quote {
+                content: quote,
+                closing_scope,
+                opening_scope: false,
+            };
         }
 
         if slice.current_byte() == b'\\' {
@@ -155,17 +142,11 @@ pub fn parse_quote(
         slice.push_byte_over();
     }
 
-    errors.add(span, Error::NoClosingQuotes);
+    errors.add(*span, Error::NoClosingQuotes);
 
-    (
-        Token {
-            span,
-            src: slice.to_str(),
-            kind: TokenKind::Quote {
-                closing_scope,
-                opening_scope: false,
-            },
-        },
-        quote,
-    )
+    Quote {
+        content: quote,
+        closing_scope,
+        opening_scope: false,
+    }
 }

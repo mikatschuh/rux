@@ -1,6 +1,6 @@
 use tokenizer::{
     Bracket,
-    TokenKind::{self, *},
+    Token::{self, *},
 };
 
 use crate::{BinaryOp, UnaryOp};
@@ -24,21 +24,16 @@ pub const UNARY_PREFIX: u8 = 130;
 
 pub const APPLICATION: u8 = 140;
 
-pub const fn binding_pow(tok: TokenKind) -> u8 {
+pub const fn binding_pow(tok: &Token) -> u8 {
     match tok {
         PipePipe | NotPipePipe | RightPipePipe | NotRightPipePipe | AndAnd | NotAndAnd => LOGICAL,
 
         EqualEqual | NotEqual | Left | NotLeft | LeftEqual | NotLeftEqual | Right | NotRight
         | RightEqual | NotRightEqual => COMPARISON,
 
-        LeftLeft
-        | RightRight
-        | Pipe
-        | NotPipe
-        | RightPipe
-        | NotRightPipe
-        | TokenKind::And
-        | NotAnd => BITWISE,
+        LeftLeft | RightRight | Pipe | NotPipe | RightPipe | NotRightPipe | Token::And | NotAnd => {
+            BITWISE
+        }
 
         Plus | Dash => ADDITIVE,
 

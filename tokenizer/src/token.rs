@@ -1,16 +1,7 @@
-use crate::{Symbol, span::Span};
-use colored::{ColoredString, Colorize};
-use std::fmt::Display;
+use crate::{IntegerType, Literal, Symbol};
 
-#[derive(PartialEq, Debug, Clone, Copy, Eq)]
-pub struct Token {
-    pub span: Span,
-    pub src: &'static str,
-    pub kind: TokenKind,
-}
-
-#[derive(PartialEq, Debug, Clone, Copy, Eq)]
-pub enum TokenKind {
+#[derive(Debug, PartialEq, Eq)]
+pub enum Token {
     Not, // !
 
     Dot,   // .
@@ -119,12 +110,16 @@ pub enum TokenKind {
     BoolType,
     FloatType(FloatPrecision),
     // =========
-    IntegerType, // u8, i8, i1, u0, u128, i32, u11818
-    Literal,     // 1001010101
-    Quote {
-        closing_scope: bool,
-        opening_scope: bool,
-    }, // "..." / }..." / "...{ / }...{
+    IntegerType(IntegerType), // u8, i8, i1, u0, u128, i32, u11818
+    Literal(Literal),         // 1001010101
+    Quote(Quote),             // "..." / }..." / "...{ / }...{
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Quote {
+    pub content: String,
+    pub closing_scope: bool,
+    pub opening_scope: bool,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Hash)]
@@ -135,9 +130,9 @@ pub enum FloatPrecision {
     DoubleDouble = 128,
 }
 
-use TokenKind::*;
+use Token::*;
 
-pub fn as_keyword(string: &str) -> Option<TokenKind> {
+pub fn as_keyword(string: &str) -> Option<Token> {
     Some(match string {
         "fn" => Fn,
         "enum" => Enum,
@@ -193,25 +188,8 @@ impl Bracket {
     }
 }
 
-impl Display for Token {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.src)
-    }
-}
-
 impl Token {
-    #[inline]
-    pub const fn new(span: Span, src: &'static str, kind: TokenKind) -> Self {
-        Self { span, src, kind }
-    }
-    #[inline]
-    pub fn bold(&self) -> ColoredString {
-        self.to_string().bold()
-    }
-}
-
-impl TokenKind {
-    pub const fn new(c: u8) -> Option<TokenKind> {
+    pub const fn new(c: u8) -> Option<Token> {
         Some(match c {
             b'!' => Not,
             b'.' => Dot,
@@ -238,7 +216,7 @@ impl TokenKind {
             _ => return None,
         })
     }
-    pub const fn add(self, c: u8) -> Option<TokenKind> {
+    pub fn add(&self, c: u8) -> Option<Token> {
         // transformation table to make tokens out of their char components
         Some(match self {
             Not if c == b'=' => NotEqual,
@@ -312,61 +290,5 @@ impl TokenKind {
 
             _ => return None,
         })
-    }
-    pub fn ends_with(self, c: char) -> bool {
-        match c {
-            '!' => matches!(self, Not),
-            '.' => matches!(self, Dot),
-            '=' => matches!(
-                self,
-                Equal
-                    | PlusEqual
-                    | DashEqual
-                    | StarEqual
-                    | SlashEqual
-                    | PercentEqual
-                    | CrossEqual
-                    | PipeEqual
-                    | NotPipeEqual
-                    | RightPipeEqual
-                    | NotRightPipeEqual
-                    | AndAnd
-                    | NotAndEqual
-                    | EqualEqual
-                    | NotEqual
-                    | LeftEqual
-                    | NotLeftEqual
-                    | RightEqual
-                    | NotRightEqual
-            ),
-            '>' => matches!(self, RightArrow | Right | RightRight | NotRight),
-            '+' => matches!(self, Plus | PlusPlus),
-            '-' => matches!(self, Dash | DashDash | LeftArrow),
-            '*' => self == Star,
-            '/' => self == Slash,
-            '%' => self == Percent,
-            '<' => matches!(self, Cross | Left | LeftLeft | NotLeft),
-            '|' => matches!(
-                self,
-                Pipe | NotPipe
-                    | PipePipe
-                    | NotPipePipe
-                    | RightPipe
-                    | NotRightPipe
-                    | RightPipePipe
-                    | NotRightPipePipe
-            ),
-            '&' => matches!(self, And | NotAnd | AndAnd | NotAndAnd),
-            ':' => matches!(self, Colon | ColonColon),
-            ';' => self == Semicolon,
-            ',' => self == Comma,
-            '(' => self == Open(Bracket::Round),
-            '[' => self == Open(Bracket::Squared),
-            '{' => self == Open(Bracket::Curly),
-            ')' => self == Closed(Bracket::Round),
-            ']' => self == Closed(Bracket::Squared),
-            '}' => self == Closed(Bracket::Curly),
-            _ => false,
-        }
     }
 }

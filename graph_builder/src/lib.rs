@@ -233,7 +233,7 @@ impl<D: Diagnostics> GraphBuilder<D> {
                     keyword,
                     condition,
                     when_body,
-                    else_body,
+                    else_clause: else_body,
                 } => self.if_stmt_could_diverge(keyword, condition, when_body, else_body, cursor),
                 ExprKind::Label { label, body } => self.loop_stmt(Some(label), body, cursor),
                 ExprKind::Loop(ControlStruct { body, .. }) => self.loop_stmt(None, body, cursor),
@@ -330,7 +330,7 @@ impl<D: Diagnostics> GraphBuilder<D> {
                 keyword,
                 condition,
                 when_body,
-                else_body,
+                else_clause: else_body,
             } => self.if_stmt(keyword, condition, when_body, else_body, cursor),
             ExprKind::Label { label, body } => {
                 let label_span = label.at_sign - label.ident.span;

@@ -1,8 +1,8 @@
 use crate::{
     byte_parsing::whitespace_at_start_or_empty, literal_parsing::Error as LiteralParsingError,
-    parse_tok::parse_token, quote::QuoteEmbeddingState, type_parsing::Error as TypeParsingError,
+    parse_tok::parse_token, quote::QuoteEmbeddingState, token::Quote,
+    type_parsing::Error as TypeParsingError,
 };
-use std::mem::{self};
 
 mod byte_parsing;
 mod error;
@@ -19,45 +19,65 @@ pub use error::Error;
 pub use interner::{Interner, Symbol};
 pub use literal_types::{Base, Literal};
 pub use span::{Position, Span};
-pub use token::{Bracket, FloatPrecision, Token, TokenKind};
+pub use token::{Bracket, FloatPrecision, Token};
 pub use type_parsing::{IntegerType, TypeSize};
 
 pub trait Diagnostics {
     fn add(&mut self, span: Span, err: Error);
 }
 
-pub trait TokenStream {
+pub trait TokenStream: Iterator<Item = Token> {
     type DiagnosticsStack: Diagnostics;
 
-    fn peek(&self) -> Option<Token>; // has to be free
+    fn peek(&self) -> Option<&Token>;
     fn pos(&self) -> Span;
-
-    fn get_literal(&mut self) -> Literal;
-    fn get_quote(&mut self) -> String;
-    fn get_type(&mut self) -> IntegerType;
-    fn consume(&mut self);
-
     fn into_parts(self) -> (Interner, Self::DiagnosticsStack);
+
+    fn try_get(&mut self, kind: &Token) -> Option<Span> {
+        self.next_if(|tok| tok == kind).map(|(_, span)| span)
+    }
+    fn consume(&mut self, tok: &Token) {
+        while self.try_get(tok).is_some() {}
+    }
+    fn next_if(&mut self, predicate: impl FnOnce(&Token) -> bool) -> Option<(Token, Span)> {
+        if predicate(self.peek()?) {
+            self.next().map(|tok| (tok, self.pos()))
+        } else {
+            None
+        }
+    }
+    fn advance(&mut self) -> Span {
+        let span = self.pos();
+        _ = self.next();
+        span
+    }
+    fn get_literal(&mut self) -> Option<(Literal, Span)> {
+        let span = self.pos();
+        if let Some(Token::Literal(literal)) = self.next() {
+            Some((literal, span))
+        } else {
+            None
+        }
+    }
+    fn get_quote(&mut self) -> Option<(Quote, Span)> {
+        let span = self.pos();
+        if let Some(Token::Quote(quote)) = self.next() {
+            Some((quote, span))
+        } else {
+            None
+        }
+    }
 }
 
 pub struct Tokenizer<D: Diagnostics> {
     text: &'static [u8],
-
-    tok: Result<Token, Position>,
-    data: Option<Data>,
-
+    span: Span,
+    tok: Option<Token>,
     quote_embedding_state: QuoteEmbeddingState,
 
     interner: Interner,
     errors: D,
     target_ptr_size: TypeSize, // necessary for type parsing
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum Data {
-    Lit(Literal),
-    Quote(String),
-    Type(IntegerType),
 }
 
 impl<D: Diagnostics> Tokenizer<D> {
@@ -66,70 +86,52 @@ impl<D: Diagnostics> Tokenizer<D> {
 
         let mut tokenizer = Self {
             text: text.as_bytes(),
-            tok: Err(pos),
-            data: None,
+            span: pos.into(),
+            tok: None,
             quote_embedding_state: QuoteEmbeddingState::default(),
             interner: Interner::new(),
             errors,
             target_ptr_size,
         };
-        tokenizer.advance(pos);
+        tokenizer.advance();
         tokenizer
     }
 
-    fn advance(&mut self, pos: Position) {
-        self.data = None;
+    fn advance(&mut self) {
+        self.span = self.span.end();
         self.tok = parse_token(
             &mut self.text,
-            pos,
-            &mut self.data,
+            &mut self.span,
             &mut self.quote_embedding_state,
             &mut self.interner,
             &mut self.errors,
             self.target_ptr_size,
-        )
-        .ok_or(pos);
+        );
+    }
+}
+
+impl<D: Diagnostics> Iterator for Tokenizer<D> {
+    type Item = Token;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(tok) = self.tok.take() {
+            self.advance();
+            Some(tok)
+        } else {
+            None
+        }
     }
 }
 
 impl<D: Diagnostics> TokenStream for Tokenizer<D> {
     type DiagnosticsStack = D;
 
-    fn peek(&self) -> Option<Token> {
-        self.tok.ok()
+    fn peek(&self) -> Option<&Token> {
+        self.tok.as_ref()
     }
 
     fn pos(&self) -> Span {
-        self.tok.map_or_else(|pos| pos.into(), |tok| tok.span)
-    }
-
-    fn get_literal(&mut self) -> Literal {
-        match mem::take(&mut self.data) {
-            Some(Data::Lit(lit)) => lit,
-            _ => unreachable!(),
-        }
-    }
-
-    fn get_quote(&mut self) -> String {
-        match mem::take(&mut self.data) {
-            Some(Data::Quote(quote)) => quote,
-            _ => unreachable!(),
-        }
-    }
-
-    fn get_type(&mut self) -> IntegerType {
-        match mem::take(&mut self.data) {
-            Some(Data::Type(ty)) => ty,
-            _ => unreachable!(),
-        }
-    }
-
-    fn consume(&mut self) {
-        let Ok(tok) = self.tok else {
-            return;
-        };
-
-        self.advance(tok.span.end);
+        self.span
     }
 
     fn into_parts(self) -> (Interner, D) {

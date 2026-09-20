@@ -1,6 +1,5 @@
 use crate::{
-    Data, Diagnostics, Error,
-    TokenKind::*,
+    Diagnostics, Error,
     byte_parsing::{
         TextState, TokenSlice, is_empty_after_spaces_consumed, is_unicode_payload_byte,
     },
@@ -8,7 +7,7 @@ use crate::{
     literal_parsing,
     quote::{QuoteEmbeddingState, parse_quote},
     span::{Position, Span},
-    token::{Bracket, Token, TokenKind, as_keyword},
+    token::{Bracket, Token, as_keyword},
     type_parsing::{self, TypeSize},
     whitespace_at_start_or_empty,
 };
@@ -17,7 +16,7 @@ pub fn starts_with_none_identifier_char(text: &[u8]) -> bool {
     text.is_empty()
         || text[0] == b'\"'
         || whitespace_at_start_or_empty(text)
-        || TokenKind::new(text[0]).is_some()
+        || Token::new(text[0]).is_some()
 }
 
 pub fn push_over_until_none_identifier_char<'a>(
@@ -41,88 +40,67 @@ pub fn push_over_until_none_identifier_char<'a>(
 
 pub(super) fn parse_token(
     text: &mut &'static [u8],
-    mut pos: Position,
-    data: &mut Option<Data>,
+    span: &mut Span,
     embedding_syntax_state: &mut QuoteEmbeddingState,
     interner: &mut Interner,
     errors: &mut impl Diagnostics,
     target_ptr_size: TypeSize,
 ) -> Option<Token> {
-    if consumed_spaces_and_empty(text, &mut pos, errors) {
+    if consumed_spaces_and_empty(text, &mut span.start, errors) {
         return None;
     }
 
     if text[0] == b'}'
-        && let Some((tok, quote)) = embedding_syntax_state.closing_brace(text, pos, errors)
+        && let Some(quote) = embedding_syntax_state.closing_brace(text, span, errors)
     {
-        *data = Some(Data::Quote(quote));
-        return Some(tok);
+        return Some(Token::Quote(quote));
+    } else if text[0] == b'{' {
+        *text = &text[1..];
+        span.end += 1;
+        embedding_syntax_state.open_brace();
+        return Some(Token::Open(Bracket::Curly));
     }
 
     if text[0] == b'"' {
-        let (tok, quote) = parse_quote(text, pos, embedding_syntax_state, false, errors);
-        *data = Some(Data::Quote(quote));
-        return Some(tok);
+        let quote = parse_quote(text, span, embedding_syntax_state, false, errors);
+        return Some(Token::Quote(quote));
     }
 
-    let mut span: Span = pos.into();
-
     let text_before = *text;
-    let literal = literal_parsing::parse_literal(text, &mut span);
+    let literal = literal_parsing::parse_literal(text, span);
     if let Err(Some((_, e))) = &literal {
-        errors.add(span, Error::Literal(e.clone()));
+        errors.add(*span, Error::Literal(e.clone()));
     }
     match literal {
         Ok(literal) | Err(Some((literal, _))) => {
-            *data = Some(Data::Lit(literal));
-            return Some(Token {
-                span,
-                src: unsafe {
-                    str::from_utf8_unchecked(&text_before[0..text_before.len() - text.len()])
-                },
-                kind: Literal,
-            });
+            return Some(Token::Literal(literal));
         }
         Err(None) => {
             *text = text_before;
         } // anything that we can parse as something else
     }
 
-    if let Some(tok_kind) = TokenKind::new(text[0]) {
-        return Some(parse_operator(
-            text,
-            &mut span,
-            embedding_syntax_state,
-            tok_kind,
-        ));
+    if let Some(tok_kind) = Token::new(text[0]) {
+        return Some(parse_operator(text, span, tok_kind));
     }
 
     // assumes that the next token is not a whitespace
-    let slice = push_over_until_none_identifier_char(text, &mut span);
+    let slice = push_over_until_none_identifier_char(text, span);
     let src = slice.to_str();
 
     // possibly reinterpret the identifier
-    let ty = type_parsing::parse_type(src.as_bytes(), target_ptr_size);
-    if let Err(Some((_, e))) = &ty {
-        errors.add(span, Error::Type(e.clone()));
+    let integer_type = type_parsing::parse_type(src.as_bytes(), target_ptr_size);
+    if let Err(Some((_, e))) = &integer_type {
+        errors.add(*span, Error::Type(e.clone()));
     }
-    if let Ok(ty) | Err(Some((ty, _))) = ty {
-        *data = Some(Data::Type(ty));
-        return Some(Token {
-            span,
-            src,
-            kind: IntegerType,
-        });
+    if let Ok(integer_type) | Err(Some((integer_type, _))) = integer_type {
+        return Some(Token::IntegerType(integer_type));
     }
-    Some(Token {
-        span,
-        src,
-        kind: match src {
-            "true" => Boolean(true),
-            "false" => Boolean(false),
-            _ if src.trim_start_matches('_').is_empty() => TokenKind::Underscore,
-            _ => as_keyword(src).unwrap_or(TokenKind::Ident(interner.get(src))),
-        },
+    Some(match src {
+        "true" => Token::Boolean(true),
+        "false" => Token::Boolean(false),
+        _ if src.trim_start_matches('_').is_empty() => Token::Underscore,
+        _ => as_keyword(src).unwrap_or(Token::Ident(interner.get(src))),
     })
 }
 
@@ -147,31 +125,18 @@ fn consumed_spaces_and_empty(
     }
 }
 
-fn parse_operator(
-    text: &mut &'static [u8],
-    span: &mut Span,
-    embedding_syntax_state: &mut QuoteEmbeddingState,
-
-    mut tok_kind: TokenKind,
-) -> Token {
+fn parse_operator(text: &mut &'static [u8], span: &mut Span, mut tok: Token) -> Token {
     let mut slice = TokenSlice::new(text, 0);
     slice.push_byte_over();
     span.end += 1;
 
     loop {
-        let next_state: Option<TokenKind>;
+        let next_state: Option<Token>;
         if slice.no_bytes_left() || {
-            next_state = tok_kind.add(slice.current_byte());
+            next_state = tok.add(slice.current_byte());
             next_state.is_none()
         } {
-            if tok_kind == Open(Bracket::Curly) {
-                embedding_syntax_state.open_brace();
-            }
-            return Token {
-                span: *span,
-                src: slice.to_str(),
-                kind: tok_kind,
-            };
+            return tok;
         }
         let next_state = next_state.unwrap();
 
@@ -180,6 +145,6 @@ fn parse_operator(
         }
         slice.push_byte_over();
 
-        tok_kind = next_state;
+        tok = next_state;
     }
 }

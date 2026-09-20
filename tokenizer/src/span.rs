@@ -109,10 +109,6 @@ impl Span {
         self.start.collum = self.end.collum;
         self
     }
-    #[inline]
-    pub fn end_mut(&mut self) -> &mut Position {
-        &mut self.end
-    }
 }
 impl Add<usize> for Span {
     type Output = Self;

@@ -164,7 +164,7 @@ pub enum ExprKind {
         keyword: Span,
         condition: Expr,
         when_body: StmtExpr,
-        else_body: Option<ControlStruct>,
+        else_clause: Option<ControlStruct>,
     },
     Loop(ControlStruct),
     Label {
@@ -429,9 +429,9 @@ impl AstBuilder {
         keyword: Span,
         condition: Expr,
         when_body: StmtExpr,
-        else_body: Option<ControlStruct>,
+        else_clause: Option<ControlStruct>,
     ) -> Expr {
-        let end = match &else_body {
+        let end = match &else_clause {
             Some(ControlStruct { body, .. }) => self[body].span.end,
             None => self[&when_body].span.end,
         };
@@ -442,7 +442,7 @@ impl AstBuilder {
                 keyword,
                 condition,
                 when_body,
-                else_body,
+                else_clause,
             },
         )
     }
