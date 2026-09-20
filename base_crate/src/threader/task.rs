@@ -1,6 +1,3 @@
-use parser::{self, Parser};
-use tokenizer::Tokenizer;
-
 use std::{
     ffi::OsString,
     fs::*,
@@ -97,28 +94,7 @@ impl Task {
                 let mut file = OpenOptions::new().read(true).open(path)?;
                 let mut content = String::new();
                 file.read_to_string(&mut content)?;
-                let content = content.leak();
-
-                // let now = Instant::now();
-                let tokenizer_errors = Error::new();
-
-                // lazy tokenizing
-                let mut tokenizer = Tokenizer::new(content, errors.clone(), 64);
-                let mut parser = Parser::new(&mut tokenizer, errors.clone());
-                parser.parse_file();
-                let parser_output = parser.output();
-                let (graph_dump, interner, graph) =
-                    graph_builder::build_graph_debug(parser_output, "main", errors.clone(), 64)
-                        .expect("graph");
-
-                // Debug Print
-                // let time = now.elapsed().as_nanos();
-
-                if errors.is_empty() {
-                    println!("{}", graph_dump);
-                } else {
-                    println!("{}", errors.display(&interner, &graph));
-                }
+                _ = content.leak();
             }
         }
         Ok(())
