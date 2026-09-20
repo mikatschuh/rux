@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use parser::{Diagnostics, Error, Parser, ParserOutput};
+use parser::{Diagnostics, Error, ParserOutput};
 use tokenizer::{Span, Tokenizer};
 
 #[derive(Clone, Default)]
@@ -21,32 +21,51 @@ impl tokenizer::Diagnostics for MockDiagnostics {
     }
 }
 
-fn parse(source: &'static str) -> (ParserOutput, MockDiagnostics) {
+fn parse(source: &'static str) -> ParserOutput<MockDiagnostics, MockDiagnostics> {
     let errors = MockDiagnostics::default();
     let tokenizer = Tokenizer::new(source, errors.clone(), 64);
-    let mut parser = Parser::new(tokenizer, errors.clone());
-    parser.parse_file();
-    (parser.output(), errors)
+    parser::parse(tokenizer, errors)
 }
 
 #[test]
 fn parses_top_level_let_item() {
-    let (mut output, errors) = parse("let main = 0");
+    let mut output = parse("let main = 0");
     let main = output.interner.get("main");
 
     assert!(output.item_table.remove(&main).is_some());
-    assert!(errors.parser_errors.lock().unwrap().is_empty());
-    assert!(errors.tokenizer_errors.lock().unwrap().is_empty());
+    assert!(
+        output
+            .parser_errors
+            .parser_errors
+            .lock()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        output
+            .tokenizer_errors
+            .tokenizer_errors
+            .lock()
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
 fn recovers_after_unexpected_top_level_token() {
-    let (mut output, errors) = parse("else\nlet main = 0");
+    let mut output = parse("else\nlet main = 0");
     let main = output.interner.get("main");
 
     assert!(output.item_table.remove(&main).is_some());
-    assert!(errors.tokenizer_errors.lock().unwrap().is_empty());
-    let errors = errors.parser_errors.lock().unwrap();
+    assert!(
+        output
+            .tokenizer_errors
+            .tokenizer_errors
+            .lock()
+            .unwrap()
+            .is_empty()
+    );
+    let errors = output.parser_errors.parser_errors.lock().unwrap();
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].0, Span::at(1, 1, 5, 1));
     assert!(matches!(&errors[0].1, Error::ExpectedItemDeclaration));
@@ -54,10 +73,24 @@ fn recovers_after_unexpected_top_level_token() {
 
 #[test]
 fn consumes_empty_statements_inside_blocks() {
-    let (mut output, errors) = parse("let main = {; 0}");
+    let mut output = parse("let main = {; 0}");
     let main = output.interner.get("main");
 
     assert!(output.item_table.remove(&main).is_some());
-    assert!(errors.parser_errors.lock().unwrap().is_empty());
-    assert!(errors.tokenizer_errors.lock().unwrap().is_empty());
+    assert!(
+        output
+            .parser_errors
+            .parser_errors
+            .lock()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        output
+            .tokenizer_errors
+            .tokenizer_errors
+            .lock()
+            .unwrap()
+            .is_empty()
+    );
 }
