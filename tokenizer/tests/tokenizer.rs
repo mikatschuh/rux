@@ -3,8 +3,7 @@ use std::sync::{Arc, Mutex};
 use num::BigUint;
 
 use tokenizer::{
-    Base, Diagnostics, Error, Literal as LiteralValue, Span, Token2, Token::*, TokenStream,
-    Tokenizer,
+    Base, Diagnostics, Error, Literal as LiteralValue, Span, Token::*, TokenStream, Tokenizer,
 };
 
 #[derive(Clone, Default)]
@@ -30,7 +29,7 @@ fn collect_tokens_and_quotes(input: &'static str) -> (Vec<Token2>, Vec<String>, 
         }
 
         tokens.push(tok);
-        tokenizer.consume();
+        tokenizer.consume_while_matching();
     }
 
     (tokens, quotes, errors)
@@ -162,7 +161,7 @@ fn tokenizes_literal_sequences() {
             kind: Dash
         })
     );
-    tokenizer.consume();
+    tokenizer.consume_while_matching();
 
     assert_eq!(
         tokenizer.peek(),
@@ -182,7 +181,7 @@ fn tokenizes_literal_sequences() {
             suffix: "",
         }
     );
-    tokenizer.consume();
+    tokenizer.consume_while_matching();
 
     // get_literal() panics unless the current token holds an unread literal.
 
@@ -194,7 +193,7 @@ fn tokenizes_literal_sequences() {
             kind: Plus
         })
     );
-    tokenizer.consume();
+    tokenizer.consume_while_matching();
 
     assert_eq!(
         tokenizer.peek(),
@@ -214,7 +213,7 @@ fn tokenizes_literal_sequences() {
             suffix: ""
         }
     );
-    tokenizer.consume();
+    tokenizer.consume_while_matching();
 
     assert_eq!(tokenizer.peek(), None);
     assert!(errors.errors.lock().unwrap().is_empty());

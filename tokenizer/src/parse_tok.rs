@@ -46,7 +46,9 @@ pub(super) fn parse_token(
     errors: &mut impl Diagnostics,
     target_ptr_size: TypeSize,
 ) -> Option<Token> {
-    if consumed_spaces_and_empty(text, &mut span.start, errors) {
+    let empty = consumed_spaces_and_empty(text, &mut span.start, errors);
+    span.end = span.start;
+    if empty {
         return None;
     }
 

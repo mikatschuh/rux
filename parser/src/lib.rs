@@ -130,7 +130,7 @@ impl<D: Diagnostics, T: TokenStream> Parser<D, T> {
 
     pub fn parse_file(&mut self) {
         while self.tokens.peek().is_some() {
-            self.tokens.consume(&Token::Semicolon);
+            self.tokens.consume_while_matching(&Token::Semicolon);
             self.parse_item();
         }
     }
@@ -460,7 +460,7 @@ impl<D: Diagnostics, T: TokenStream> Parser<D, T> {
     fn parse_block(&mut self, opener: Span) -> Expr {
         let mut stmts = vec![];
         let end = loop {
-            self.tokens.consume(&Token::Semicolon);
+            self.tokens.consume_while_matching(&Token::Semicolon);
             if let Some(closer) = self.tokens.try_get(&Token::Closed(Bracket::Curly)) {
                 break closer;
             }
@@ -533,7 +533,7 @@ impl<D: Diagnostics, T: TokenStream> Parser<D, T> {
         let mut parameters = HashMap::new();
         if self.tokens.try_get(&Token::Open(Bracket::Round)).is_some() {
             _ = loop {
-                self.tokens.consume(&Token::Comma);
+                self.tokens.consume_while_matching(&Token::Comma);
 
                 if let Some(closed) = self.tokens.try_get(&Token::Closed(Bracket::Round)) {
                     break closed;

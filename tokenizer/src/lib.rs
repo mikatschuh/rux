@@ -1,7 +1,6 @@
 use crate::{
     byte_parsing::whitespace_at_start_or_empty, literal_parsing::Error as LiteralParsingError,
-    parse_tok::parse_token, quote::QuoteEmbeddingState, token::Quote,
-    type_parsing::Error as TypeParsingError,
+    parse_tok::parse_token, quote::QuoteEmbeddingState, type_parsing::Error as TypeParsingError,
 };
 
 mod byte_parsing;
@@ -19,7 +18,7 @@ pub use error::Error;
 pub use interner::{Interner, Symbol};
 pub use literal_types::{Base, Literal};
 pub use span::{Position, Span};
-pub use token::{Bracket, FloatPrecision, Token};
+pub use token::{Bracket, FloatPrecision, Quote, Token};
 pub use type_parsing::{IntegerType, TypeSize};
 
 pub trait Diagnostics {
@@ -36,12 +35,13 @@ pub trait TokenStream: Iterator<Item = Token> {
     fn try_get(&mut self, kind: &Token) -> Option<Span> {
         self.next_if(|tok| tok == kind).map(|(_, span)| span)
     }
-    fn consume(&mut self, tok: &Token) {
+    fn consume_while_matching(&mut self, tok: &Token) {
         while self.try_get(tok).is_some() {}
     }
     fn next_if(&mut self, predicate: impl FnOnce(&Token) -> bool) -> Option<(Token, Span)> {
         if predicate(self.peek()?) {
-            self.next().map(|tok| (tok, self.pos()))
+            let span = self.pos();
+            self.next().map(|tok| (tok, span))
         } else {
             None
         }
@@ -53,7 +53,9 @@ pub trait TokenStream: Iterator<Item = Token> {
     }
     fn get_literal(&mut self) -> Option<(Literal, Span)> {
         let span = self.pos();
-        if let Some(Token::Literal(literal)) = self.next() {
+        if let Some(Token::Literal(_)) = self.peek()
+            && let Some(Token::Literal(literal)) = self.next()
+        {
             Some((literal, span))
         } else {
             None
@@ -61,7 +63,9 @@ pub trait TokenStream: Iterator<Item = Token> {
     }
     fn get_quote(&mut self) -> Option<(Quote, Span)> {
         let span = self.pos();
-        if let Some(Token::Quote(quote)) = self.next() {
+        if let Some(Token::Quote(_)) = self.peek()
+            && let Some(Token::Quote(quote)) = self.next()
+        {
             Some((quote, span))
         } else {
             None
