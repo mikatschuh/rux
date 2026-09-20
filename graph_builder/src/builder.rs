@@ -4,7 +4,6 @@ use crate::{
     Diagnostics, Error, Graph,
     binding::BindingID,
     graph::{Ctrl, CtrlKind, CtrlPlaceholder, Data, DataKind, DataPlaceholder, MergeID, Type},
-    loops::{LoopBackedges, OpenLoop},
 };
 use std::collections::HashMap;
 
@@ -85,17 +84,19 @@ impl Cfg {
         })
     }
 
-    fn add_unsealed(&mut self, graph: &mut Graph) -> BlockID {
-        let id = self.push_block(Block {
+    pub fn add_unsealed(&mut self, graph: &mut Graph) -> (BlockID, Ctrl) {
+        let unsealed_block = self.push_block(Block {
             definitions: HashMap::new(),
             cfg: CfgNode::IncompleteMerge,
         });
         self.placeholders.push(vec![]);
-        self.ctrl_placeholders.push(graph.add_ctrl_placeholder());
-        id
+        let placeholder = graph.add_ctrl_placeholder();
+        let ctrl = placeholder.ctrl();
+        self.ctrl_placeholders.push(placeholder);
+        (unsealed_block, ctrl)
     }
 
-    fn seal_block(
+    pub fn seal_block(
         &mut self,
         block: BlockID,
         predecessors: Vec<BlockID>,
@@ -238,8 +239,8 @@ impl CtrlCursor {
 /// `Vec<CtrlCursor>` but as SoA
 #[derive(Clone, Debug)]
 pub struct CtrlCursors {
-    blocks: Vec<BlockID>,
-    ctrls: Vec<Ctrl>,
+    pub blocks: Vec<BlockID>,
+    pub ctrls: Vec<Ctrl>,
 }
 
 impl CtrlCursors {
@@ -341,57 +342,6 @@ impl DataCursors {
 }
 
 impl Graph {
-    pub fn open_loop(&mut self, _: &OpenLoop, cfg: &mut Cfg) -> CtrlCursor {
-        // ctrl node structure setup
-        let header = cfg.add_unsealed(self);
-        CtrlCursor {
-            ctrl: cfg.ctrl_placeholders.last().unwrap().ctrl(),
-            block: header,
-        }
-    }
-
-    pub fn close_loop(
-        &mut self,
-        CtrlCursor {
-            block: entry_block,
-            ctrl: entry_ctrl,
-        }: CtrlCursor,
-        body: Option<DataCursor>,
-
-        loop_block: BlockID,
-
-        LoopBackedges {
-            continues: mut backedges,
-            breaks: mut exits,
-        }: LoopBackedges,
-
-        loop_backedge: bool,
-
-        cfg: &mut Cfg,
-        errors: &mut impl Diagnostics,
-        ast: &AstBuilder,
-    ) -> Option<DataCursor> {
-        if let Some(cursor) = body {
-            if loop_backedge {
-                backedges.push(cursor.without_data()); // add the regular backedge, ignoring the data returned by the body
-            } else {
-                exits.push(cursor);
-            }
-        }
-
-        let CtrlCursors {
-            blocks: mut entry_blocks,
-            ctrls: mut entry_ctrls,
-        } = backedges;
-
-        entry_blocks.push(entry_block);
-        entry_ctrls.push(entry_ctrl);
-
-        cfg.seal_block(loop_block, entry_blocks, entry_ctrls, self, errors, ast);
-
-        self.merge(exits, cfg)
-    }
-
     /// `(false_branch, true_branch)`
     pub fn branch(&mut self, cursor: DataCursor, cfg: &mut Cfg) -> (CtrlCursor, CtrlCursor) {
         let condition = cursor.data;

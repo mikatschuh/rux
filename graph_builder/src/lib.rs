@@ -8,8 +8,8 @@ use tokenizer::{Interner, Span, Symbol, TypeSize};
 
 use crate::{
     binding::{Binding, SymbolTableStack},
-    builder::{Cfg, CtrlCursor, DataCursor},
-    loops::JumpTableStack,
+    builder::{Cfg, CtrlCursor, CtrlCursors, DataCursor},
+    loops::{JumpTableStack, LoopBackedges},
     type_check::require_type,
 };
 
@@ -590,25 +590,51 @@ impl<D: Diagnostics> GraphBuilder<D> {
         body: StmtExpr,
         cursor: CtrlCursor,
     ) -> Option<DataCursor> {
+        // first create a location jumps can go to
         let tok = self
             .jump_table
             .open_loop(label.as_ref().map(|l| l.ident.val));
-        let body_cursor = self.graph.open_loop(&tok, &mut self.cfg);
-        let loop_block = body_cursor.block.clone();
+        let (unsealed_block, ctrl_placeholder) = self.cfg.add_unsealed(&mut self.graph);
 
-        let body = self.stmt_expr_could_diverge(body, body_cursor); // parse the hole body
-
-        let backedges = self.jump_table.close_loop(tok);
-        self.graph.close_loop(
-            cursor,
+        let end_of_body = self.stmt_expr_could_diverge(
             body,
-            loop_block,
-            backedges,
-            label.is_none(),
-            &mut self.cfg,
+            CtrlCursor {
+                block: unsealed_block.clone(),
+                ctrl: ctrl_placeholder,
+            },
+        ); // parse the body
+
+        let LoopBackedges {
+            continues: mut backedges,
+            breaks: mut exits,
+        } = self.jump_table.close_loop(tok); // get the jumps out
+
+        if let Some(end_of_body) = end_of_body {
+            if label.is_none() {
+                backedges.push(end_of_body.without_data());
+            } else {
+                exits.push(end_of_body);
+            }
+        }
+
+        let CtrlCursors {
+            blocks: mut entry_blocks,
+            ctrls: mut entry_ctrls,
+        } = backedges;
+
+        entry_blocks.push(cursor.block);
+        entry_ctrls.push(cursor.ctrl);
+
+        self.cfg.seal_block(
+            unsealed_block,
+            entry_blocks,
+            entry_ctrls,
+            &mut self.graph,
             &mut self.errors,
             &self.ast,
-        )
+        );
+
+        self.graph.merge(exits, &mut self.cfg)
     }
 
     fn divergent_control_flow(&mut self, span: Span, cursor: CtrlCursor) -> DataCursor {
