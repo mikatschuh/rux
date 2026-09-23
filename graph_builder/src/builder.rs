@@ -281,8 +281,8 @@ impl DataCursor {
 /// `Vec<CtrlCursor>` but as SoA
 #[derive(Debug, Default)]
 pub struct CtrlCursors {
-    pub blocks: Vec<BlockID>,
-    pub ctrls: Vec<Ctrl>,
+    blocks: Vec<BlockID>,
+    ctrls: Vec<Ctrl>,
 }
 
 impl CtrlCursors {

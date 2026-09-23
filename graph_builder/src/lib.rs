@@ -8,7 +8,7 @@ use tokenizer::{Interner, Span, Symbol, TypeSize};
 
 use crate::{
     binding::{Binding, SymbolTableStack},
-    builder::{Cfg, CtrlCursor, CtrlCursors, DataCursor},
+    builder::{Cfg, CtrlCursor, DataCursor},
     jumps::{Jumps, LoopBlockStack},
     type_check::require_type,
 };
