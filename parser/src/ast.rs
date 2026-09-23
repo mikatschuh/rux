@@ -1,6 +1,6 @@
 use std::{collections::HashMap, vec};
 
-use tokenizer::{FloatPrecision, IntegerType, Literal, Position, Span, Symbol, TypeSize};
+use tokenizer::{FloatPrecision, IntegerType, Literal, Span, Symbol, TypeSize};
 
 use crate::{BinaryOp, UnaryOp};
 
@@ -234,23 +234,21 @@ impl<'src> AstBuilder<'src> {
         }
     }
 
-    pub fn update_start(&mut self, expr: &mut Expr, start: Position) {
-        self.exprs[expr.0].span.start = start
-    }
-    pub fn update_end(&mut self, expr: &mut Expr, end: Position) {
-        self.exprs[expr.0].span.end = end
+    pub fn update_span(&mut self, expr: &mut Expr, other: Span) {
+        let span = &mut self.exprs[expr.0].span;
+        *span = *span - other
     }
 
     fn jump_span(&self, jump: &JumpStruct) -> Span {
         let end = match &jump.value {
-            Some(expr) => self[*expr].span.end,
+            Some(expr) => self[*expr].span,
             None => match &jump.label {
-                Some(label) => label.ident.span.end,
-                None => jump.keyword.end,
+                Some(label) => label.ident.span,
+                None => jump.keyword,
             },
         };
 
-        jump.keyword.start - end
+        jump.keyword - end
     }
 
     fn add_scope_stmt(&mut self, span: Span, kind: ScopeStmtKind) -> ScopeStmt {
@@ -308,11 +306,11 @@ impl<'src> AstBuilder<'src> {
             | Definition::Type {
                 assignment: Some(assignment),
                 ..
-            } => self[assignment.value].span.end,
+            } => self[assignment.value].span,
             Definition::Type {
                 ty,
                 assignment: None,
-            } => self[*ty].span.end,
+            } => self[*ty].span,
         };
 
         self.add_scope_stmt(
@@ -430,8 +428,8 @@ impl<'src> AstBuilder<'src> {
         else_clause: Option<ControlStruct>,
     ) -> Expr {
         let end = match &else_clause {
-            Some(ControlStruct { body, .. }) => self[*body].span.end,
-            None => self[when_body].span.end,
+            Some(ControlStruct { body, .. }) => self[*body].span,
+            None => self[when_body].span,
         };
 
         self.add_expr(

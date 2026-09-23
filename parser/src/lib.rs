@@ -311,13 +311,13 @@ impl<'src, D: Diagnostics, T: TokenStream<'src>> Parser<'src, D, T> {
                     .parse_optional_expr(0)
                     .unwrap_or_else(|| self.graph.add_unit(opener));
 
-                self.graph.update_start(&mut expr, opener.start);
+                self.graph.update_span(&mut expr, opener);
 
                 let closer_span = self.tokens.pos();
                 let closer_kind = self.tokens.next();
                 match closer_kind {
                     Some(Token::Closed(closed_kind)) if closed_kind == open_kind => {
-                        self.graph.update_end(&mut expr, closer_span.end);
+                        self.graph.update_span(&mut expr, closer_span);
                         Some(expr)
                     }
                     Some(Token::Closed(closed_kind)) => {

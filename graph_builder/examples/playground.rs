@@ -66,7 +66,8 @@ fn main() -> Result<(), io::Error> {
         starting_point,
         GraphBuilderDiagnostics { errors: vec![] },
         POINTER_SIZE,
-    );
+    )
+    .expect("The entry point is correctly set up");
 
     if !tokenizer_errors.errors.is_empty()
         || !parser_errors.errors.is_empty()

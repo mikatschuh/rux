@@ -17,11 +17,16 @@ impl Diagnostics for MockDiagnostics {
     }
 }
 
-fn collect_tokens(input: &str) -> (Vec<(Token<'_>, Span)>, Interner<'_>, MockDiagnostics) {
+type TokenCollection<'src> = (
+    Vec<(Token<'src>, (usize, usize, usize, usize))>,
+    Interner<'src>,
+    MockDiagnostics,
+);
+fn collect_tokens(input: &str) -> TokenCollection<'_> {
     let mut tokenizer = Tokenizer::new(input, MockDiagnostics::default(), 64);
     let mut tokens = vec![];
     while tokenizer.peek().is_some() {
-        let span = tokenizer.pos();
+        let span = tokenizer.pos().get();
         tokens.push((tokenizer.next().unwrap(), span));
     }
     let (interner, errors) = tokenizer.into_parts();
@@ -46,9 +51,9 @@ fn tokenizes_basic_sequences() {
     assert_eq!(
         tokens,
         vec![
-            (Token::Ident(interner.get("a")), Span::at(2, 2, 3, 2)),
-            (quote("Hallo\n", false, false), Span::at(4, 2, 2, 3)),
-            (Token::Plus, Span::at(2, 3, 3, 3)),
+            (Token::Ident(interner.get("a")), (2, 2, 3, 2)),
+            (quote("Hallo\n", false, false), (4, 2, 2, 3)),
+            (Token::Plus, (2, 3, 3, 3)),
         ]
     );
     assert!(errors.errors.lock().unwrap().is_empty());
@@ -57,8 +62,8 @@ fn tokenizes_basic_sequences() {
     assert_eq!(
         tokens,
         vec![
-            (Token::Ident(interner.get("a")), Span::at(1, 1, 2, 1)),
-            (Token::Ident(interner.get("b")), Span::at(1, 2, 2, 2)),
+            (Token::Ident(interner.get("a")), (1, 1, 2, 1)),
+            (Token::Ident(interner.get("b")), (1, 2, 2, 2)),
         ]
     );
     assert!(errors.errors.lock().unwrap().is_empty());
@@ -70,7 +75,7 @@ fn tokenizes_literal_sequences() {
     let mut tokenizer = Tokenizer::new("-1.3 + 0x345", errors.clone(), 64);
 
     assert_eq!(tokenizer.peek(), Some(&Token::Dash));
-    assert_eq!(tokenizer.pos(), Span::at(1, 1, 2, 1));
+    assert_eq!(tokenizer.pos().get(), (1, 1, 2, 1));
     // A mismatched getter leaves the current token untouched.
     assert_eq!(tokenizer.get_literal(), None);
     assert_eq!(tokenizer.next(), Some(Token::Dash));
@@ -83,15 +88,17 @@ fn tokenizes_literal_sequences() {
         suffix: "",
     };
     assert_eq!(tokenizer.peek(), Some(&Token::Literal(decimal.clone())));
-    assert_eq!(tokenizer.pos(), Span::at(2, 1, 5, 1));
+    assert_eq!(tokenizer.pos().get(), (2, 1, 5, 1));
     assert_eq!(
-        tokenizer.get_literal(),
-        Some((decimal, Span::at(2, 1, 5, 1)))
+        tokenizer
+            .get_literal()
+            .map(|(literal, span)| (literal, span.get())),
+        Some((decimal, (2, 1, 5, 1)))
     );
 
     // get_literal() consumes the literal, so the next token is already visible.
     assert_eq!(tokenizer.peek(), Some(&Token::Plus));
-    assert_eq!(tokenizer.pos(), Span::at(6, 1, 7, 1));
+    assert_eq!(tokenizer.pos().get(), (6, 1, 7, 1));
     assert_eq!(tokenizer.get_literal(), None);
     assert_eq!(tokenizer.next(), Some(Token::Plus));
 
@@ -103,10 +110,12 @@ fn tokenizes_literal_sequences() {
         suffix: "",
     };
     assert_eq!(tokenizer.peek(), Some(&Token::Literal(hexadecimal.clone())));
-    assert_eq!(tokenizer.pos(), Span::at(8, 1, 13, 1));
+    assert_eq!(tokenizer.pos().get(), (8, 1, 13, 1));
     assert_eq!(
-        tokenizer.get_literal(),
-        Some((hexadecimal, Span::at(8, 1, 13, 1)))
+        tokenizer
+            .get_literal()
+            .map(|(literal, span)| (literal, span.get())),
+        Some((hexadecimal, (8, 1, 13, 1)))
     );
     assert_eq!(tokenizer.peek(), None);
     assert_eq!(tokenizer.get_literal(), None);
@@ -123,7 +132,7 @@ fn decodes_quote_escape_sequences() {
         tokens,
         vec![(
             quote("\0\x07\x08\t\n\x0b\x0c\r\x1b", false, false),
-            Span::at(1, 1, input.len() + 1, 1),
+            (1, 1, input.len() + 1, 1),
         )]
     );
     assert!(errors.errors.lock().unwrap().is_empty());
@@ -137,7 +146,7 @@ fn decodes_escaped_structural_quote_characters() {
         tokens,
         vec![(
             quote("x\\y\"z'w{", false, false),
-            Span::at(1, 1, input.len() + 1, 1),
+            (1, 1, input.len() + 1, 1),
         )]
     );
     assert!(errors.errors.lock().unwrap().is_empty());
@@ -147,30 +156,34 @@ fn decodes_escaped_structural_quote_characters() {
 fn tokenizes_embedded_quotes_across_scopes() {
     let mut tokenizer = Tokenizer::new("\"a{b}c\"", MockDiagnostics::default(), 64);
     assert_eq!(
-        tokenizer.get_quote(),
+        tokenizer
+            .get_quote()
+            .map(|(quote, span)| (quote, span.get())),
         Some((
             Quote {
                 content: "a".to_owned(),
                 closing_scope: false,
                 opening_scope: true,
             },
-            Span::at(1, 1, 4, 1),
+            (1, 1, 4, 1),
         ))
     );
     assert_eq!(tokenizer.get_quote(), None);
-    assert_eq!(tokenizer.pos(), Span::at(4, 1, 5, 1));
+    assert_eq!(tokenizer.pos().get(), (4, 1, 5, 1));
     let Some(Token::Ident(symbol)) = tokenizer.next() else {
         panic!("expected the embedded identifier");
     };
     assert_eq!(
-        tokenizer.get_quote(),
+        tokenizer
+            .get_quote()
+            .map(|(quote, span)| (quote, span.get())),
         Some((
             Quote {
                 content: "c".to_owned(),
                 closing_scope: true,
                 opening_scope: false,
             },
-            Span::at(5, 1, 8, 1),
+            (5, 1, 8, 1),
         ))
     );
     assert_eq!(tokenizer.peek(), None);
@@ -183,13 +196,10 @@ fn tokenizes_embedded_quotes_across_scopes() {
 #[test]
 fn reports_unknown_escape_sequences() {
     let (tokens, _, errors) = collect_tokens("\"\\q\"");
-    assert_eq!(
-        tokens,
-        vec![(quote("\\q", false, false), Span::at(1, 1, 5, 1))]
-    );
+    assert_eq!(tokens, vec![(quote("\\q", false, false), (1, 1, 5, 1))]);
     let errors = errors.errors.lock().unwrap();
     assert_eq!(errors.len(), 1);
-    assert_eq!(errors[0].0, Span::at(2, 1, 4, 1));
+    assert_eq!(errors[0].0.get(), (2, 1, 4, 1));
     assert!(matches!(
         &errors[0].1,
         Error::UnknownEscapeSequence(given) if given == "\\q"
@@ -199,13 +209,10 @@ fn reports_unknown_escape_sequences() {
 #[test]
 fn reports_unterminated_quotes_and_keeps_trailing_backslash() {
     let (tokens, _, errors) = collect_tokens("\"abc\\");
-    assert_eq!(
-        tokens,
-        vec![(quote("abc\\", false, false), Span::at(1, 1, 6, 1))]
-    );
+    assert_eq!(tokens, vec![(quote("abc\\", false, false), (1, 1, 6, 1))]);
     let errors = errors.errors.lock().unwrap();
     assert_eq!(errors.len(), 1);
-    assert_eq!(errors[0].0, Span::at(1, 1, 6, 1));
+    assert_eq!(errors[0].0.get(), (1, 1, 6, 1));
     assert!(matches!(&errors[0].1, Error::NoClosingQuotes));
 }
 

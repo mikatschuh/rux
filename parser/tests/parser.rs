@@ -67,7 +67,7 @@ fn recovers_after_unexpected_top_level_token() {
     );
     let errors = output.parser_errors.parser_errors.lock().unwrap();
     assert_eq!(errors.len(), 1);
-    assert_eq!(errors[0].0, Span::at(1, 1, 5, 1));
+    assert_eq!(errors[0].0.get(), (1, 1, 5, 1));
     assert!(matches!(&errors[0].1, Error::ExpectedItemDeclaration));
 }
 

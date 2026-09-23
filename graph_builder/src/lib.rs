@@ -33,9 +33,9 @@ pub fn build_graph_debug<'src, D: Diagnostics>(
     mut item_table: HashMap<Symbol, Item>,
     interner: Interner<'src>,
     starting_point: Symbol,
-    mut errors: D,
+    errors: D,
     target_ptr_size: TypeSize,
-) -> (String, D) {
+) -> Option<(String, D)> {
     let Item::Constant {
         ident: _,
         definition:
@@ -47,13 +47,7 @@ pub fn build_graph_debug<'src, D: Diagnostics>(
     } = (match item_table.remove(&starting_point) {
         Some(item) => item,
         None => {
-            errors.add(
-                Span::beginning(),
-                Error::MissingEntryPoint {
-                    entry: starting_point,
-                },
-            );
-            return ("".to_string(), errors);
+            return None;
         }
     })
     else {
@@ -63,10 +57,10 @@ pub fn build_graph_debug<'src, D: Diagnostics>(
     let (mut builder, cursor) = GraphBuilder::new(ast, errors, item_table, target_ptr_size);
     let cursor = builder.expr(value, cursor);
 
-    (
+    Some((
         graph_dump::dump_text(&builder.graph, builder.symbol_dump, Some(cursor), &interner),
         builder.errors,
-    )
+    ))
 }
 
 struct GraphBuilder<'ast, 'src, D: Diagnostics> {
