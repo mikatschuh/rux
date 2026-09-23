@@ -25,20 +25,24 @@ pub trait Diagnostics {
     fn add(&mut self, span: Span, err: Error);
 }
 
-pub trait TokenStream: Iterator<Item = Token> {
+/// Tokens and interned names borrow the source, independently of the stream borrow.
+pub trait TokenStream<'src>: Iterator<Item = Token<'src>> {
     type DiagnosticsStack: Diagnostics;
 
-    fn peek(&self) -> Option<&Token>;
+    fn peek(&self) -> Option<&Token<'src>>;
     fn pos(&self) -> Span;
-    fn into_parts(self) -> (Interner, Self::DiagnosticsStack);
+    fn into_parts(self) -> (Interner<'src>, Self::DiagnosticsStack);
 
-    fn try_get(&mut self, kind: &Token) -> Option<Span> {
+    fn try_get(&mut self, kind: &Token<'src>) -> Option<Span> {
         self.next_if(|tok| tok == kind).map(|(_, span)| span)
     }
-    fn consume_while_matching(&mut self, tok: &Token) {
+    fn consume_while_matching(&mut self, tok: &Token<'src>) {
         while self.try_get(tok).is_some() {}
     }
-    fn next_if(&mut self, predicate: impl FnOnce(&Token) -> bool) -> Option<(Token, Span)> {
+    fn next_if(
+        &mut self,
+        predicate: impl FnOnce(&Token<'src>) -> bool,
+    ) -> Option<(Token<'src>, Span)> {
         if predicate(self.peek()?) {
             let span = self.pos();
             self.next().map(|tok| (tok, span))
@@ -51,7 +55,7 @@ pub trait TokenStream: Iterator<Item = Token> {
         _ = self.next();
         span
     }
-    fn get_literal(&mut self) -> Option<(Literal, Span)> {
+    fn get_literal(&mut self) -> Option<(Literal<'src>, Span)> {
         let span = self.pos();
         if let Some(Token::Literal(_)) = self.peek()
             && let Some(Token::Literal(literal)) = self.next()
@@ -73,19 +77,19 @@ pub trait TokenStream: Iterator<Item = Token> {
     }
 }
 
-pub struct Tokenizer<D: Diagnostics> {
-    text: &'static [u8],
+pub struct Tokenizer<'src, D: Diagnostics> {
+    text: &'src [u8],
     span: Span,
-    tok: Option<Token>,
+    tok: Option<Token<'src>>,
     quote_embedding_state: QuoteEmbeddingState,
 
-    interner: Interner,
+    interner: Interner<'src>,
     errors: D,
     target_ptr_size: TypeSize, // necessary for type parsing
 }
 
-impl<D: Diagnostics> Tokenizer<D> {
-    pub fn new(text: &'static str, errors: D, target_ptr_size: TypeSize) -> Self {
+impl<'src, D: Diagnostics> Tokenizer<'src, D> {
+    pub fn new(text: &'src str, errors: D, target_ptr_size: TypeSize) -> Self {
         let pos = Position::beginning();
 
         let mut tokenizer = Self {
@@ -114,8 +118,8 @@ impl<D: Diagnostics> Tokenizer<D> {
     }
 }
 
-impl<D: Diagnostics> Iterator for Tokenizer<D> {
-    type Item = Token;
+impl<'src, D: Diagnostics> Iterator for Tokenizer<'src, D> {
+    type Item = Token<'src>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(tok) = self.tok.take() {
@@ -127,10 +131,10 @@ impl<D: Diagnostics> Iterator for Tokenizer<D> {
     }
 }
 
-impl<D: Diagnostics> TokenStream for Tokenizer<D> {
+impl<'src, D: Diagnostics> TokenStream<'src> for Tokenizer<'src, D> {
     type DiagnosticsStack = D;
 
-    fn peek(&self) -> Option<&Token> {
+    fn peek(&self) -> Option<&Token<'src>> {
         self.tok.as_ref()
     }
 
@@ -138,7 +142,7 @@ impl<D: Diagnostics> TokenStream for Tokenizer<D> {
         self.span
     }
 
-    fn into_parts(self) -> (Interner, D) {
+    fn into_parts(self) -> (Interner<'src>, D) {
         (self.interner, self.errors)
     }
 }

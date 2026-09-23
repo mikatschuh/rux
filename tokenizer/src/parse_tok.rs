@@ -19,10 +19,10 @@ pub fn starts_with_none_identifier_char(text: &[u8]) -> bool {
         || Token::new(text[0]).is_some()
 }
 
-pub fn push_over_until_none_identifier_char<'a>(
-    text: &'a mut &'static [u8],
+pub fn push_over_until_none_identifier_char<'a, 'src>(
+    text: &'a mut &'src [u8],
     span: &mut Span,
-) -> TokenSlice<'a, 'static> {
+) -> TokenSlice<'a, 'src> {
     let mut slice = TokenSlice::new(text, 0);
     loop {
         if starts_with_none_identifier_char(slice.larger_slice()) {
@@ -38,14 +38,14 @@ pub fn push_over_until_none_identifier_char<'a>(
     slice
 }
 
-pub(super) fn parse_token(
-    text: &mut &'static [u8],
+pub(super) fn parse_token<'src>(
+    text: &mut &'src [u8],
     span: &mut Span,
     embedding_syntax_state: &mut QuoteEmbeddingState,
-    interner: &mut Interner,
+    interner: &mut Interner<'src>,
     errors: &mut impl Diagnostics,
     target_ptr_size: TypeSize,
-) -> Option<Token> {
+) -> Option<Token<'src>> {
     let empty = consumed_spaces_and_empty(text, &mut span.start, errors);
     span.end = span.start;
     if empty {
@@ -127,13 +127,13 @@ fn consumed_spaces_and_empty(
     }
 }
 
-fn parse_operator(text: &mut &'static [u8], span: &mut Span, mut tok: Token) -> Token {
+fn parse_operator<'src>(text: &mut &[u8], span: &mut Span, mut tok: Token<'src>) -> Token<'src> {
     let mut slice = TokenSlice::new(text, 0);
     slice.push_byte_over();
     span.end += 1;
 
     loop {
-        let next_state: Option<Token>;
+        let next_state: Option<Token<'src>>;
         if slice.no_bytes_left() || {
             next_state = tok.add(slice.current_byte());
             next_state.is_none()

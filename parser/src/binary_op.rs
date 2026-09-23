@@ -43,7 +43,7 @@ pub enum BinaryOp {
 }
 
 impl BinaryOp {
-    pub fn from_infix(tok: &Token) -> Option<BinaryOp> {
+    pub fn from_infix(tok: &Token<'_>) -> Option<BinaryOp> {
         Some(match tok {
             Token::EqualEqual => BinaryOp::Eq,
             Token::NotEqual => BinaryOp::Ne,
@@ -88,7 +88,7 @@ impl BinaryOp {
         })
     }
 
-    pub fn from_assign(tok: &Token) -> Option<BinaryOp> {
+    pub fn from_assign(tok: &Token<'_>) -> Option<BinaryOp> {
         Some(match tok {
             Token::PipePipeEqual => BinaryOp::Or,
             Token::NotPipePipeEqual => BinaryOp::Nor,
@@ -120,7 +120,7 @@ impl BinaryOp {
         })
     }
 
-    pub fn from_inc_or_dec(tok: &Token) -> Option<BinaryOp> {
+    pub fn from_inc_or_dec(tok: &Token<'_>) -> Option<BinaryOp> {
         Some(match tok {
             Token::PlusPlus => BinaryOp::Add,
             Token::DashDash => BinaryOp::Sub,

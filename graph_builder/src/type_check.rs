@@ -6,7 +6,7 @@ use crate::{
 };
 
 pub fn require_type(
-    graph: &Graph,
+    graph: &Graph<'_>,
     span: Span,
     ty: Type,
     value: Data,

@@ -21,7 +21,7 @@ impl tokenizer::Diagnostics for MockDiagnostics {
     }
 }
 
-fn parse(source: &'static str) -> ParserOutput<MockDiagnostics, MockDiagnostics> {
+fn parse(source: &str) -> ParserOutput<'_, MockDiagnostics, MockDiagnostics> {
     let errors = MockDiagnostics::default();
     let tokenizer = Tokenizer::new(source, errors.clone(), 64);
     parser::parse(tokenizer, errors)

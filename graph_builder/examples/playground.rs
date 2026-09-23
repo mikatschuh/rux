@@ -45,7 +45,7 @@ fn main() -> Result<(), io::Error> {
     file.read_to_string(&mut content)?;
 
     let tokenizer = Tokenizer::new(
-        content.leak(),
+        &content,
         TokenizerDiagnostics { errors: vec![] },
         POINTER_SIZE,
     );
@@ -60,7 +60,7 @@ fn main() -> Result<(), io::Error> {
 
     let starting_point = interner.get("main");
     let (graph_dump, graph_builder_errors) = build_graph_debug(
-        ast,
+        &ast,
         item_table,
         interner,
         starting_point,

@@ -84,7 +84,7 @@ impl Cfg {
         })
     }
 
-    pub fn add_unsealed(&mut self, graph: &mut Graph) -> (BlockID, Ctrl) {
+    pub fn add_unsealed(&mut self, graph: &mut Graph<'_>) -> (BlockID, Ctrl) {
         let unsealed_block = self.push_block(Block {
             definitions: HashMap::new(),
             cfg: CfgNode::IncompleteMerge,
@@ -101,7 +101,7 @@ impl Cfg {
         block: BlockID,
         predecessors: Vec<BlockID>,
         ctrl_predecessors: Vec<Ctrl>,
-        graph: &mut Graph,
+        graph: &mut Graph<'_>,
         errors: &mut impl Diagnostics,
         ast: &AstBuilder,
     ) {
@@ -131,12 +131,12 @@ impl Cfg {
                     var.clone(),
                     block.clone(),
                     graph[&placeholder].ty.clone(),
-                    reference.clone(),
+                    reference,
                     graph,
                 ) {
                     Some(variant) => variants.push(variant),
                     None => {
-                        errors.add(ast[&reference].span, Error::ReadUnitializedOrMoved);
+                        errors.add(ast[reference].span, Error::ReadUnitializedOrMoved);
                         continue 'outer;
                     }
                 }
@@ -157,7 +157,7 @@ impl Cfg {
         block: BlockID,
         ty: Type,
         read: Expr,
-        graph: &mut Graph,
+        graph: &mut Graph<'_>,
     ) -> Option<Data> {
         let current_block = &mut self.blocks[block.0];
 
@@ -183,7 +183,7 @@ impl Cfg {
                         var.clone(),
                         pred,
                         ty.clone(),
-                        read.clone(),
+                        read,
                         graph,
                     )?);
                 }
@@ -326,7 +326,7 @@ impl DataCursors {
     }
 }
 
-impl Graph {
+impl Graph<'_> {
     /// `(false_branch, true_branch)`
     pub fn branch(&mut self, cursor: DataCursor, cfg: &mut Cfg) -> (CtrlCursor, CtrlCursor) {
         let condition = cursor.data;

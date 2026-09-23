@@ -1,7 +1,7 @@
 use crate::{IntegerType, Literal, Symbol};
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Token {
+pub enum Token<'src> {
     Not, // !
 
     Dot,   // .
@@ -111,7 +111,7 @@ pub enum Token {
     FloatType(FloatPrecision),
     // =========
     IntegerType(IntegerType), // u8, i8, i1, u0, u128, i32, u11818
-    Literal(Literal),         // 1001010101
+    Literal(Literal<'src>),   // 1001010101
     Quote(Quote),             // "..." / }..." / "...{ / }...{
 }
 
@@ -132,7 +132,7 @@ pub enum FloatPrecision {
 
 use Token::*;
 
-pub fn as_keyword(string: &str) -> Option<Token> {
+pub fn as_keyword<'src>(string: &str) -> Option<Token<'src>> {
     Some(match string {
         "fn" => Fn,
         "enum" => Enum,
@@ -188,8 +188,8 @@ impl Bracket {
     }
 }
 
-impl Token {
-    pub const fn new(c: u8) -> Option<Token> {
+impl<'src> Token<'src> {
+    pub const fn new(c: u8) -> Option<Token<'src>> {
         Some(match c {
             b'!' => Not,
             b'.' => Dot,
@@ -216,7 +216,7 @@ impl Token {
             _ => return None,
         })
     }
-    pub fn add(&self, c: u8) -> Option<Token> {
+    pub fn add(&self, c: u8) -> Option<Token<'src>> {
         // transformation table to make tokens out of their char components
         Some(match self {
             Not if c == b'=' => NotEqual,

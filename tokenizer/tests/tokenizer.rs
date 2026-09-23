@@ -17,7 +17,7 @@ impl Diagnostics for MockDiagnostics {
     }
 }
 
-fn collect_tokens(input: &'static str) -> (Vec<(Token, Span)>, Interner, MockDiagnostics) {
+fn collect_tokens(input: &str) -> (Vec<(Token<'_>, Span)>, Interner<'_>, MockDiagnostics) {
     let mut tokenizer = Tokenizer::new(input, MockDiagnostics::default(), 64);
     let mut tokens = vec![];
     while tokenizer.peek().is_some() {
@@ -28,7 +28,7 @@ fn collect_tokens(input: &'static str) -> (Vec<(Token, Span)>, Interner, MockDia
     (tokens, interner, errors)
 }
 
-fn quote(content: &str, closing_scope: bool, opening_scope: bool) -> Token {
+fn quote<'src>(content: &str, closing_scope: bool, opening_scope: bool) -> Token<'src> {
     Token::Quote(Quote {
         content: content.to_owned(),
         closing_scope,
@@ -207,4 +207,21 @@ fn reports_unterminated_quotes_and_keeps_trailing_backslash() {
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].0, Span::at(1, 1, 6, 1));
     assert!(matches!(&errors[0].1, Error::NoClosingQuotes));
+}
+
+#[test]
+fn tokens_and_interner_borrow_owned_source_after_tokenizer_is_consumed() {
+    let source = String::from("123suffix name");
+    let mut tokenizer = Tokenizer::new(&source, MockDiagnostics::default(), 64);
+    let (literal, _) = tokenizer.get_literal().unwrap();
+    let Some(Token::Ident(symbol)) = tokenizer.next() else {
+        panic!("expected identifier");
+    };
+    let (interner, errors) = tokenizer.into_parts();
+
+    assert!(errors.errors.lock().unwrap().is_empty());
+    assert_eq!(literal.suffix, "suffix");
+    assert_eq!(literal.suffix.as_ptr(), source[3..9].as_ptr());
+    assert_eq!(interner.resolve(symbol), "name");
+    assert_eq!(interner.resolve(symbol).as_ptr(), source[10..].as_ptr());
 }

@@ -4,12 +4,12 @@ use std::collections::HashMap;
 pub struct Symbol(usize);
 
 #[derive(Debug)]
-pub struct Interner {
-    names: Vec<&'static str>,
-    hashmap: HashMap<&'static str, Symbol>,
+pub struct Interner<'src> {
+    names: Vec<&'src str>,
+    hashmap: HashMap<&'src str, Symbol>,
 }
 
-impl Interner {
+impl<'src> Interner<'src> {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
@@ -18,7 +18,7 @@ impl Interner {
         }
     }
 
-    pub fn get(&mut self, ident: &'static str) -> Symbol {
+    pub fn get(&mut self, ident: &'src str) -> Symbol {
         match self.hashmap.get(ident).cloned() {
             Some(symbol) => symbol,
             None => {
@@ -33,7 +33,7 @@ impl Interner {
     }
 
     #[allow(unused)]
-    pub fn resolve(&self, symbol: Symbol) -> &'static str {
+    pub fn resolve(&self, symbol: Symbol) -> &'src str {
         self.names[symbol.0]
     }
 }

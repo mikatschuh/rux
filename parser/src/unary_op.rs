@@ -14,7 +14,7 @@ pub enum UnaryOp {
 }
 
 impl UnaryOp {
-    pub fn from_prefix(tok: &Token) -> Option<UnaryOp> {
+    pub fn from_prefix(tok: &Token<'_>) -> Option<UnaryOp> {
         Some(match tok {
             Token::Dash => UnaryOp::Neg,
             Token::Not => UnaryOp::Not,
@@ -23,7 +23,7 @@ impl UnaryOp {
         })
     }
 
-    pub fn from_postfix(tok: &Token) -> Option<UnaryOp> {
+    pub fn from_postfix(tok: &Token<'_>) -> Option<UnaryOp> {
         Some(match tok {
             Token::LeftArrow => UnaryOp::Ptr,
             _ => return None,

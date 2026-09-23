@@ -18,19 +18,19 @@ impl Ident {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct ScopeStmt(usize);
 
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct DeclStmt(usize);
 
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct TypeDecl(usize);
 
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct StmtExpr(usize);
 
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct Expr(usize);
 
 #[derive(Clone, Debug)]
@@ -132,11 +132,11 @@ pub enum StmtExprKind {
 }
 
 #[derive(Clone, Debug)]
-pub enum ExprKind {
+pub enum ExprKind<'src> {
     Ident(Symbol),
 
     BuiltinType(BuiltinType),
-    Literal(Literal),
+    Literal(Literal<'src>),
     Quote(String),
     Boolean(bool),
     Unit,
@@ -216,15 +216,15 @@ impl From<IntegerType> for BuiltinType {
 
 /// This one is DAG
 #[derive(Debug)]
-pub struct AstBuilder {
+pub struct AstBuilder<'src> {
     scope_stmts: Vec<Spanned<ScopeStmtKind>>,
     decl_stmts: Vec<Spanned<DeclStmtKind>>,
     type_decls: Vec<Spanned<TypeDeclKind>>,
     stmt_exprs: Vec<Spanned<StmtExprKind>>,
-    exprs: Vec<Spanned<ExprKind>>,
+    exprs: Vec<Spanned<ExprKind<'src>>>,
 }
 
-impl AstBuilder {
+impl<'src> AstBuilder<'src> {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
@@ -245,7 +245,7 @@ impl AstBuilder {
 
     fn jump_span(&self, jump: &JumpStruct) -> Span {
         let end = match &jump.value {
-            Some(expr) => self[expr].span.end,
+            Some(expr) => self[*expr].span.end,
             None => match &jump.label {
                 Some(label) => label.ident.span.end,
                 None => jump.keyword.end,
@@ -273,24 +273,24 @@ impl AstBuilder {
         StmtExpr(id)
     }
 
-    fn add_expr(&mut self, span: Span, kind: ExprKind) -> Expr {
+    fn add_expr(&mut self, span: Span, kind: ExprKind<'src>) -> Expr {
         let id = self.exprs.len();
         self.exprs.push(Spanned { span, val: kind });
         Expr(id)
     }
 
     pub fn expr_as_stmt_expr(&mut self, expr: Expr) -> StmtExpr {
-        let span = self[&expr].span;
+        let span = self[expr].span;
         self.add_stmt_expr(span, StmtExprKind::Expr(expr))
     }
 
     pub fn stmt_expr_as_scope_stmt(&mut self, stmt_expr: StmtExpr) -> ScopeStmt {
-        let span = self[&stmt_expr].span;
+        let span = self[stmt_expr].span;
         self.add_scope_stmt(span, ScopeStmtKind::StmtExpr(stmt_expr))
     }
 
     pub fn decl_stmt_as_scope_stmt(&mut self, decl_stmt: DeclStmt) -> ScopeStmt {
-        let span = self[&decl_stmt].span;
+        let span = self[decl_stmt].span;
         self.add_scope_stmt(span, ScopeStmtKind::DeclStmt(decl_stmt))
     }
 
@@ -310,11 +310,11 @@ impl AstBuilder {
             | Definition::Type {
                 assignment: Some(assignment),
                 ..
-            } => self[&assignment.value].span.end,
+            } => self[assignment.value].span.end,
             Definition::Type {
                 ty,
                 assignment: None,
-            } => self[ty].span.end,
+            } => self[*ty].span.end,
         };
 
         self.add_scope_stmt(
@@ -334,7 +334,7 @@ impl AstBuilder {
 
     pub fn add_assignment(&mut self, ident: Ident, equal: Span, value: Expr) -> StmtExpr {
         self.add_stmt_expr(
-            ident.span - self[&value].span,
+            ident.span - self[value].span,
             StmtExprKind::Assignment {
                 ident,
                 assignment: Assignment { equal, value },
@@ -358,13 +358,13 @@ impl AstBuilder {
         self.add_stmt_expr(self.jump_span(&jump), StmtExprKind::Return(jump))
     }
 
-    pub fn add_literal(&mut self, span: Span, literal: Literal) -> Expr {
+    pub fn add_literal(&mut self, span: Span, literal: Literal<'src>) -> Expr {
         self.add_expr(span, ExprKind::Literal(literal))
     }
 
     pub fn add_unary(&mut self, op_span: Span, op: UnaryOp, value: Expr) -> Expr {
         self.add_expr(
-            op_span - self[&value].span,
+            op_span - self[value].span,
             ExprKind::Unary {
                 op: Spanned {
                     span: op_span,
@@ -377,7 +377,7 @@ impl AstBuilder {
 
     pub fn add_binary(&mut self, op_span: Span, op: BinaryOp, lhs: Expr, rhs: Expr) -> Expr {
         self.add_expr(
-            self[&lhs].span - self[&rhs].span,
+            self[lhs].span - self[rhs].span,
             ExprKind::Binary {
                 op: Spanned {
                     span: op_span,
@@ -391,7 +391,7 @@ impl AstBuilder {
 
     pub fn add_field_access(&mut self, dot_span: Span, lhs: Expr, accessor: Ident) -> Expr {
         self.add_expr(
-            self[&lhs].span - accessor.span,
+            self[lhs].span - accessor.span,
             ExprKind::FieldAccess {
                 lhs,
                 dot_span,
@@ -432,8 +432,8 @@ impl AstBuilder {
         else_clause: Option<ControlStruct>,
     ) -> Expr {
         let end = match &else_clause {
-            Some(ControlStruct { body, .. }) => self[body].span.end,
-            None => self[&when_body].span.end,
+            Some(ControlStruct { body, .. }) => self[*body].span.end,
+            None => self[when_body].span.end,
         };
 
         self.add_expr(
@@ -449,14 +449,14 @@ impl AstBuilder {
 
     pub fn add_loop(&mut self, keyword: Span, body: StmtExpr) -> Expr {
         self.add_expr(
-            keyword - self[&body].span,
+            keyword - self[body].span,
             ExprKind::Loop(ControlStruct { keyword, body }),
         )
     }
 
     pub fn add_label(&mut self, label: Label, body: StmtExpr) -> Expr {
         self.add_expr(
-            label.ident.span - self[&body].span,
+            label.ident.span - self[body].span,
             ExprKind::Label { label, body },
         )
     }
@@ -470,7 +470,7 @@ impl AstBuilder {
         body: StmtExpr,
     ) -> DeclStmt {
         self.add_decl_stmt(
-            keyword - self[&body].span,
+            keyword - self[body].span,
             DeclStmtKind::Function {
                 keyword,
                 ident,
@@ -494,37 +494,37 @@ mod graph_indexing {
         StmtExpr, StmtExprKind, TypeDecl, TypeDeclKind,
     };
 
-    impl Index<&ScopeStmt> for AstBuilder {
+    impl<'src> Index<ScopeStmt> for AstBuilder<'src> {
         type Output = Spanned<ScopeStmtKind>;
-        fn index(&self, index: &ScopeStmt) -> &Self::Output {
+        fn index(&self, index: ScopeStmt) -> &Self::Output {
             &self.scope_stmts[index.0]
         }
     }
 
-    impl Index<&DeclStmt> for AstBuilder {
+    impl<'src> Index<DeclStmt> for AstBuilder<'src> {
         type Output = Spanned<DeclStmtKind>;
-        fn index(&self, index: &DeclStmt) -> &Self::Output {
+        fn index(&self, index: DeclStmt) -> &Self::Output {
             &self.decl_stmts[index.0]
         }
     }
 
-    impl Index<&TypeDecl> for AstBuilder {
+    impl<'src> Index<TypeDecl> for AstBuilder<'src> {
         type Output = Spanned<TypeDeclKind>;
-        fn index(&self, index: &TypeDecl) -> &Self::Output {
+        fn index(&self, index: TypeDecl) -> &Self::Output {
             &self.type_decls[index.0]
         }
     }
 
-    impl Index<&StmtExpr> for AstBuilder {
+    impl<'src> Index<StmtExpr> for AstBuilder<'src> {
         type Output = Spanned<StmtExprKind>;
-        fn index(&self, index: &StmtExpr) -> &Self::Output {
+        fn index(&self, index: StmtExpr) -> &Self::Output {
             &self.stmt_exprs[index.0]
         }
     }
 
-    impl Index<&Expr> for AstBuilder {
-        type Output = Spanned<ExprKind>;
-        fn index(&self, index: &Expr) -> &Self::Output {
+    impl<'src> Index<Expr> for AstBuilder<'src> {
+        type Output = Spanned<ExprKind<'src>>;
+        fn index(&self, index: Expr) -> &Self::Output {
             &self.exprs[index.0]
         }
     }

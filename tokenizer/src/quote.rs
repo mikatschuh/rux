@@ -23,7 +23,7 @@ impl QuoteEmbeddingState {
 
     pub fn closing_brace(
         &mut self,
-        text: &mut &'static [u8],
+        text: &mut &[u8],
         span: &mut Span,
         errors: &mut impl Diagnostics,
     ) -> Option<Quote> {
@@ -42,7 +42,7 @@ impl QuoteEmbeddingState {
 }
 
 pub fn parse_quote(
-    text: &mut &'static [u8],
+    text: &mut &[u8],
     span: &mut Span,
     state: &mut QuoteEmbeddingState,
     closing_scope: bool,

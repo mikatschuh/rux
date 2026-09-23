@@ -25,29 +25,29 @@ pub trait Diagnostics {
     fn add(&mut self, span: Span, err: Error);
 }
 
-pub struct ParserOutput<DT: tokenizer::Diagnostics, DP: Diagnostics> {
-    pub ast: AstBuilder,
+pub struct ParserOutput<'src, DT: tokenizer::Diagnostics, DP: Diagnostics> {
+    pub ast: AstBuilder<'src>,
     pub item_table: HashMap<Symbol, Item>,
     pub err_expr: Vec<Expr>,
     pub incomplete_bindings: Vec<IncompleteBinding>,
-    pub interner: Interner,
+    pub interner: Interner<'src>,
 
     pub tokenizer_errors: DT,
     pub parser_errors: DP,
 }
 
-pub fn parse<T: TokenStream, DP: Diagnostics>(
+pub fn parse<'src, T: TokenStream<'src>, DP: Diagnostics>(
     token_stream: T,
     errors: DP,
-) -> ParserOutput<T::DiagnosticsStack, DP> {
+) -> ParserOutput<'src, T::DiagnosticsStack, DP> {
     let mut parser = Parser::new(token_stream, errors);
     parser.parse_file();
     parser.output()
 }
 
-struct Parser<D: Diagnostics, T: TokenStream> {
+struct Parser<'src, D: Diagnostics, T: TokenStream<'src>> {
     tokens: T,
-    graph: AstBuilder,
+    graph: AstBuilder<'src>,
     symbols: HashMap<Symbol, Item>,
     err_expr: Vec<Expr>,
     incomplete_bindings: Vec<IncompleteBinding>,
@@ -61,7 +61,7 @@ pub struct IncompleteBinding {
     pub definition: Definition,
 }
 
-impl<D: Diagnostics, T: TokenStream> Parser<D, T> {
+impl<'src, D: Diagnostics, T: TokenStream<'src>> Parser<'src, D, T> {
     pub fn new(token_stream: T, errors: D) -> Self {
         Self {
             tokens: token_stream,
@@ -73,7 +73,7 @@ impl<D: Diagnostics, T: TokenStream> Parser<D, T> {
         }
     }
 
-    pub fn output(self) -> ParserOutput<T::DiagnosticsStack, D> {
+    pub fn output(self) -> ParserOutput<'src, T::DiagnosticsStack, D> {
         let (interner, tokenizer_errors) = self.tokens.into_parts();
         ParserOutput {
             ast: self.graph,

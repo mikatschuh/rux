@@ -28,10 +28,10 @@ pub trait Diagnostics {
     fn add(&mut self, span: Span, err: Error);
 }
 
-pub fn build_graph_debug<D: Diagnostics>(
-    ast: AstBuilder,
+pub fn build_graph_debug<'src, D: Diagnostics>(
+    ast: &AstBuilder<'src>,
     mut item_table: HashMap<Symbol, Item>,
-    interner: Interner,
+    interner: Interner<'src>,
     starting_point: Symbol,
     mut errors: D,
     target_ptr_size: TypeSize,
@@ -69,11 +69,12 @@ pub fn build_graph_debug<D: Diagnostics>(
     )
 }
 
-struct GraphBuilder<D: Diagnostics> {
-    ast: AstBuilder,
+struct GraphBuilder<'ast, 'src, D: Diagnostics> {
+    // Keep AST borrows independent of mutable graph-building state.
+    ast: &'ast AstBuilder<'src>,
     errors: D,
 
-    graph: Graph,
+    graph: Graph<'src>,
 
     cfg: Cfg,
     symbol_table: SymbolTableStack,
@@ -83,9 +84,9 @@ struct GraphBuilder<D: Diagnostics> {
     raw_item_table: HashMap<Symbol, Item>,
 }
 
-impl<D: Diagnostics> GraphBuilder<D> {
+impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
     fn new(
-        ast: AstBuilder,
+        ast: &'ast AstBuilder<'src>,
         errors: D,
         raw_item_table: HashMap<Symbol, Item>,
         target_ptr_size: TypeSize,
@@ -116,16 +117,14 @@ impl<D: Diagnostics> GraphBuilder<D> {
         stmt: ScopeStmt,
         cursor: CtrlCursor,
     ) -> Option<DataCursor> {
-        match &self.ast[&stmt].val {
-            ScopeStmtKind::StmtExpr(stmt_expr) => {
-                self.stmt_expr_could_diverge(stmt_expr.clone(), cursor)
-            }
+        match &self.ast[stmt].val {
+            ScopeStmtKind::StmtExpr(stmt_expr) => self.stmt_expr_could_diverge(*stmt_expr, cursor),
             _ => Some(self.scope_stmt(stmt, cursor)),
         }
     }
 
     fn scope_stmt(&mut self, stmt: ScopeStmt, cursor: CtrlCursor) -> DataCursor {
-        match &self.ast[&stmt].val {
+        match &self.ast[stmt].val {
             ScopeStmtKind::Binding {
                 keyword,
                 mutable,
@@ -140,21 +139,21 @@ impl<D: Diagnostics> GraphBuilder<D> {
                     cursor,
                 )
                 .with_data(self.graph.unit()),
-            ScopeStmtKind::StmtExpr(stmt_expr) => self.stmt_expr(stmt_expr.clone(), cursor),
+            ScopeStmtKind::StmtExpr(stmt_expr) => self.stmt_expr(*stmt_expr, cursor),
             _ => todo!(),
         }
     }
 
     fn stmt_expr(&mut self, stmt_expr: StmtExpr, cursor: CtrlCursor) -> DataCursor {
-        let stmt_expr = &self.ast[&stmt_expr];
-        match stmt_expr.val.clone() {
+        let stmt_expr = &self.ast[stmt_expr];
+        match &stmt_expr.val {
             StmtExprKind::Assignment {
                 ident,
                 assignment: Assignment { equal, value },
             } => self
-                .assignment(ident, equal, value, cursor)
+                .assignment(ident.clone(), *equal, *value, cursor)
                 .with_data(self.graph.unit()),
-            StmtExprKind::Expr(expr) => self.expr(expr, cursor),
+            StmtExprKind::Expr(expr) => self.expr(*expr, cursor),
             _ => self.divergent_control_flow(stmt_expr.span, cursor),
         }
     }
@@ -164,13 +163,13 @@ impl<D: Diagnostics> GraphBuilder<D> {
         stmt_expr: StmtExpr,
         cursor: CtrlCursor,
     ) -> Option<DataCursor> {
-        match self.ast[&stmt_expr].val.clone() {
+        match &self.ast[stmt_expr].val {
             StmtExprKind::Continue(JumpStruct {
                 keyword,
                 label,
                 value: _,
             }) => {
-                self.continue_stmt(keyword, label, cursor);
+                self.continue_stmt(*keyword, label.clone(), cursor);
                 None
             }
             StmtExprKind::Break(JumpStruct {
@@ -178,7 +177,7 @@ impl<D: Diagnostics> GraphBuilder<D> {
                 label,
                 value,
             }) => {
-                self.break_stmt(keyword, label, value, cursor);
+                self.break_stmt(*keyword, label.clone(), *value, cursor);
                 None
             }
             StmtExprKind::Return(JumpStruct {
@@ -187,97 +186,106 @@ impl<D: Diagnostics> GraphBuilder<D> {
                 value: _,
             }) => todo!(),
             StmtExprKind::Unreachable => None,
-            StmtExprKind::Expr(expr) => match self.ast[&expr].val.clone() {
-                ExprKind::Block { stmts } => {
-                    let open_scope = self.symbol_table.open_scope();
-
-                    let mut stmts = stmts.into_iter().peekable();
-                    let mut cursor = cursor;
-                    loop {
-                        let stmt = stmts.next().unwrap();
-                        if stmts.peek().is_none() {
-                            let final_value =
-                                self.scope_stmt_could_diverge(stmt.clone(), cursor.clone());
-
-                            self.symbol_table.close_scope(
-                                open_scope,
-                                &mut self.symbol_dump,
-                                |ty, var| {
-                                    self.cfg.get_definition(
-                                        var,
-                                        final_value
-                                            .as_ref()
-                                            .map_or(cursor.block.clone(), |v| v.block.clone()),
-                                        ty,
-                                        expr.clone(),
-                                        &mut self.graph,
-                                    )
-                                },
-                            );
-                            return final_value;
-                        } else {
-                            cursor = self.scope_stmt(stmt.clone(), cursor).without_data();
-                        }
-                    }
-                }
-                ExprKind::If {
-                    keyword,
-                    condition,
-                    when_body,
-                    else_clause: else_body,
-                } => self.if_stmt_could_diverge(keyword, condition, when_body, else_body, cursor),
-                ExprKind::Label { label, body } => self.loop_stmt(Some(label), body, cursor),
-                ExprKind::Loop(ControlStruct { body, .. }) => self.loop_stmt(None, body, cursor),
-                _ => Some(self.expr(expr, cursor)),
-            },
+            StmtExprKind::Expr(expr) => self.expr_could_diverge(*expr, cursor),
             _ => Some(self.stmt_expr(stmt_expr, cursor)),
         }
     }
 
+    fn expr_could_diverge(&mut self, expr: Expr, cursor: CtrlCursor) -> Option<DataCursor> {
+        match &self.ast[expr].val {
+            ExprKind::Block { stmts } => {
+                let open_scope = self.symbol_table.open_scope();
+
+                let mut stmts = stmts.iter().cloned().peekable();
+                let mut cursor = cursor;
+                loop {
+                    let stmt = stmts.next().unwrap();
+                    if stmts.peek().is_none() {
+                        let final_value = self.scope_stmt_could_diverge(stmt, cursor.clone());
+
+                        self.symbol_table.close_scope(
+                            open_scope,
+                            &mut self.symbol_dump,
+                            |ty, var| {
+                                self.cfg.get_definition(
+                                    var,
+                                    final_value
+                                        .as_ref()
+                                        .map_or(cursor.block.clone(), |v| v.block.clone()),
+                                    ty,
+                                    expr,
+                                    &mut self.graph,
+                                )
+                            },
+                        );
+                        return final_value;
+                    } else {
+                        cursor = self.scope_stmt(stmt, cursor).without_data();
+                    }
+                }
+            }
+            ExprKind::If {
+                keyword,
+                condition,
+                when_body,
+                else_clause,
+            } => self.if_stmt_could_diverge(
+                *keyword,
+                *condition,
+                *when_body,
+                else_clause.clone(),
+                cursor,
+            ),
+            ExprKind::Label { label, body } => self.loop_stmt(Some(label.clone()), *body, cursor),
+            ExprKind::Loop(ControlStruct { body, .. }) => self.loop_stmt(None, *body, cursor),
+            _ => Some(self.expr(expr, cursor)),
+        }
+    }
+
     fn expr(&mut self, expr: Expr, cursor: CtrlCursor) -> DataCursor {
-        let expression = &self.ast[&expr];
-        match expression.val.clone() {
+        let expression = &self.ast[expr];
+        match &expression.val {
             ExprKind::BuiltinType(builtin_type) => {
-                let ty = self.graph.add_builtin_type(builtin_type);
+                let ty = self.graph.add_builtin_type(*builtin_type);
                 cursor.with_data(self.graph.type_as_data(ty))
             }
-            ExprKind::Literal(literal) => cursor.with_data(self.graph.add_literal(literal)),
-            ExprKind::Boolean(boolean) => cursor.with_data(self.graph.add_boolean(boolean)),
+            ExprKind::Literal(literal) => cursor.with_data(self.graph.add_literal(literal.clone())),
+            ExprKind::Boolean(boolean) => cursor.with_data(self.graph.add_boolean(*boolean)),
             ExprKind::Quote(..) => todo!("implement quotes"),
             ExprKind::Unit => cursor.with_data(self.graph.unit()),
 
             ExprKind::Unary { op, value: input } => {
-                let (cursor, value) = self.expr(input, cursor).split();
+                let (cursor, value) = self.expr(*input, cursor).split();
                 let ty = self.graph[&value].ty.clone();
                 cursor.with_data(self.graph.add_unary(op.val, value, ty))
             }
             ExprKind::Binary { lhs, op, rhs } => {
-                let (cursor, lhs) = self.expr(lhs, cursor).split();
-                let (cursor, rhs) = self.expr(rhs, cursor).split();
+                let (cursor, lhs) = self.expr(*lhs, cursor).split();
+                let (cursor, rhs) = self.expr(*rhs, cursor).split();
                 let ty = self.graph[&lhs].ty.clone();
                 cursor.with_data(self.graph.add_binary(op.val, lhs, rhs, ty))
             }
             ExprKind::FieldAccess { .. } => todo!("implement fields"),
 
-            ExprKind::Ident(symbol) => match self.symbol_table.get_binding(symbol) {
+            ExprKind::Ident(symbol) => match self.symbol_table.get_binding(*symbol) {
                 Some(Binding { id, ty, .. }) => {
                     match self.cfg.get_definition(
                         id.clone(),
                         cursor.block.clone(),
                         ty.clone(),
-                        expr.clone(),
+                        expr,
                         &mut self.graph,
                     ) {
                         Some(value) => cursor.with_data(value),
                         None => self.uninitialized_or_moved_variable(expression.span, cursor),
                     }
                 }
-                None => match self.raw_item_table.get(&symbol) {
+                None => match self.raw_item_table.get(symbol) {
                     Some(_) => todo!("implement item lookup"),
                     None => self.unknown_identifier(
                         Spanned {
                             span: expression.span,
-                            val: symbol,
+                            val: *symbol,
                         },
                         cursor,
                     ),
@@ -287,7 +295,7 @@ impl<D: Diagnostics> GraphBuilder<D> {
             ExprKind::Block { stmts: statements } => {
                 let open_scope = self.symbol_table.open_scope();
 
-                let mut statements = statements.into_iter().peekable();
+                let mut statements = statements.iter().copied().peekable();
                 let mut cursor = cursor;
                 loop {
                     let stmt = statements.next().unwrap();
@@ -301,7 +309,7 @@ impl<D: Diagnostics> GraphBuilder<D> {
                                     var,
                                     block.clone(),
                                     ty,
-                                    expr.clone(),
+                                    expr,
                                     &mut self.graph,
                                 )
                             },
@@ -322,18 +330,18 @@ impl<D: Diagnostics> GraphBuilder<D> {
                 condition,
                 when_body,
                 else_clause: else_body,
-            } => self.if_stmt(keyword, condition, when_body, else_body, cursor),
+            } => self.if_stmt(*keyword, *condition, *when_body, else_body.clone(), cursor),
             ExprKind::Label { label, body } => {
                 let label_span = label.at_sign - label.ident.span;
-                match self.loop_stmt(Some(label), body, cursor.clone()) {
+                match self.loop_stmt(Some(label.clone()), *body, cursor.clone()) {
                     Some(cursor) => cursor,
                     None => self.divergent_control_flow(label_span, cursor),
                 }
             }
             ExprKind::Loop(ControlStruct { keyword, body }) => {
-                match self.loop_stmt(None, body, cursor.clone()) {
+                match self.loop_stmt(None, *body, cursor.clone()) {
                     Some(cursor) => cursor,
-                    None => self.divergent_control_flow(keyword, cursor),
+                    None => self.divergent_control_flow(*keyword, cursor),
                 }
             }
             ExprKind::Err => cursor.with_data(self.graph.err()),
@@ -341,9 +349,9 @@ impl<D: Diagnostics> GraphBuilder<D> {
     }
 
     fn type_expr(&mut self, expr: Expr) -> Type {
-        let expression = &self.ast[&expr];
-        match expression.val.clone() {
-            ExprKind::BuiltinType(builtin_type) => self.graph.add_builtin_type(builtin_type),
+        let expression = &self.ast[expr];
+        match &expression.val {
+            ExprKind::BuiltinType(builtin_type) => self.graph.add_builtin_type(*builtin_type),
             _ => {
                 self.errors.add(expression.span, Error::ExpectedType);
                 self.graph.error_type()
@@ -369,8 +377,8 @@ impl<D: Diagnostics> GraphBuilder<D> {
                 {
                     match assignment {
                         Some(Assignment { value, .. }) => {
-                            let span = self.ast[&value].span;
-                            let DataCursor { block, ctrl, data } = self.expr(value.clone(), cursor);
+                            let span = self.ast[value].span;
+                            let DataCursor { block, ctrl, data } = self.expr(value, cursor);
                             let value = require_type(&self.graph, span, ty, data, &mut self.errors);
 
                             self.cfg.assign_variable(block.clone(), var, value.clone());
@@ -408,8 +416,8 @@ impl<D: Diagnostics> GraphBuilder<D> {
         value: Expr,
         cursor: CtrlCursor,
     ) -> CtrlCursor {
-        let span = self.ast[&value].span;
-        let DataCursor { block, ctrl, data } = self.expr(value.clone(), cursor);
+        let span = self.ast[value].span;
+        let DataCursor { block, ctrl, data } = self.expr(value, cursor);
         if let Some(binding) = self.symbol_table.get_binding(ident.val) {
             if binding.mutable {
                 let ty = binding.ty.clone();
@@ -489,7 +497,7 @@ impl<D: Diagnostics> GraphBuilder<D> {
         _keyword: Span,
         condition: Expr,
         when_body: StmtExpr,
-        else_body: Option<ControlStruct>,
+        else_clause: Option<ControlStruct>,
         cursor: CtrlCursor,
     ) -> DataCursor {
         let condition_cursor = self.expr(condition, cursor);
@@ -497,22 +505,15 @@ impl<D: Diagnostics> GraphBuilder<D> {
         let (false_branch, true_branch) = self.graph.branch(condition_cursor, &mut self.cfg);
 
         let Some(cursor_when_true) = self.stmt_expr_could_diverge(when_body, true_branch) else {
-            return if let Some(ControlStruct {
-                body: else_body, ..
-            }) = else_body
-            {
-                self.stmt_expr(else_body, false_branch)
+            return if let Some(ControlStruct { body, .. }) = else_clause {
+                self.stmt_expr(body, false_branch)
             } else {
                 false_branch.with_data(self.graph.unit())
             };
         };
 
-        if let Some(ControlStruct {
-            body: else_body, ..
-        }) = else_body
-        {
-            let Some(cursor_when_false) = self.stmt_expr_could_diverge(else_body, false_branch)
-            else {
+        if let Some(ControlStruct { body, .. }) = else_clause {
+            let Some(cursor_when_false) = self.stmt_expr_could_diverge(body, false_branch) else {
                 return cursor_when_true;
             };
 
@@ -536,7 +537,7 @@ impl<D: Diagnostics> GraphBuilder<D> {
         _keyword: Span,
         condition: Expr,
         when_body: StmtExpr,
-        else_body: Option<ControlStruct>,
+        else_clause: Option<ControlStruct>,
         cursor: CtrlCursor,
     ) -> Option<DataCursor> {
         let condition_cursor = self.expr(condition, cursor);
@@ -544,22 +545,15 @@ impl<D: Diagnostics> GraphBuilder<D> {
         let (false_branch, true_branch) = self.graph.branch(condition_cursor, &mut self.cfg);
 
         let Some(cursor_when_true) = self.stmt_expr_could_diverge(when_body, true_branch) else {
-            return if let Some(ControlStruct {
-                body: else_body, ..
-            }) = else_body
-            {
-                self.stmt_expr_could_diverge(else_body, false_branch)
+            return if let Some(ControlStruct { body, .. }) = else_clause {
+                self.stmt_expr_could_diverge(body, false_branch)
             } else {
                 Some(false_branch.with_data(self.graph.unit()))
             };
         };
 
-        if let Some(ControlStruct {
-            body: else_body, ..
-        }) = else_body
-        {
-            let Some(cursor_when_false) = self.stmt_expr_could_diverge(else_body, false_branch)
-            else {
+        if let Some(ControlStruct { body, .. }) = else_clause {
+            let Some(cursor_when_false) = self.stmt_expr_could_diverge(body, false_branch) else {
                 return Some(cursor_when_true);
             };
 
@@ -622,7 +616,7 @@ impl<D: Diagnostics> GraphBuilder<D> {
             entry_ctrls,
             &mut self.graph,
             &mut self.errors,
-            &self.ast,
+            self.ast,
         );
 
         self.graph.merge(exits, &mut self.cfg)
@@ -839,5 +833,63 @@ mod tests {
         with_built_expr(expr, arena, |value| {
             assert!(matches!(&value.kind, DataKind::Phi { .. }));
         });
+    }
+}
+
+#[cfg(test)]
+mod lifetime_tests {
+    use super::*;
+
+    struct NoErrors;
+
+    impl tokenizer::Diagnostics for NoErrors {
+        fn add(&mut self, span: Span, err: tokenizer::Error) {
+            panic!("unexpected tokenizer error at {span:?}: {err:?}");
+        }
+    }
+
+    impl parser::Diagnostics for NoErrors {
+        fn add(&mut self, span: Span, err: parser::Error) {
+            panic!("unexpected parser error at {span:?}: {err:?}");
+        }
+    }
+
+    impl Diagnostics for NoErrors {
+        fn add(&mut self, span: Span, err: Error) {
+            panic!("unexpected graph error at {span:?}: {err:?}");
+        }
+    }
+
+    #[test]
+    fn graph_borrows_source_independently_of_ast() {
+        let source = String::from("let main u64 = { 123suffix }");
+        let (graph, data) = {
+            let tokens = tokenizer::Tokenizer::new(&source, NoErrors, 64);
+            let mut parsed = parser::parse(tokens, NoErrors);
+            let main = parsed.interner.get("main");
+            let Item::Constant {
+                definition:
+                    Definition::Type {
+                        assignment: Some(Assignment { value, .. }),
+                        ..
+                    },
+                ..
+            } = parsed.item_table.remove(&main).unwrap()
+            else {
+                panic!("expected initialized constant");
+            };
+            let (mut builder, cursor) =
+                GraphBuilder::new(&parsed.ast, NoErrors, parsed.item_table, 64);
+            let data = builder.expr(value, cursor).data;
+            (builder.graph, data)
+        };
+
+        // The parser output and AST are gone; the source still owns the suffix bytes.
+        let graph::DataKind::Literal { literal } = &graph[&data].kind else {
+            panic!("expected literal");
+        };
+        assert_eq!(literal.suffix, "suffix");
+        let suffix_offset = source.find("suffix").unwrap();
+        assert_eq!(literal.suffix.as_ptr(), source[suffix_offset..].as_ptr());
     }
 }

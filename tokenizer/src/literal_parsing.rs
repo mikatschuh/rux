@@ -24,10 +24,10 @@ pub enum Error {
 /// ```
 /// If instead of a base specifier, a digit is given, its assumed that the leading zero
 /// was just a typo. The number will be continued regulary.
-pub fn parse_literal(
-    text: &mut &'static [u8],
+pub fn parse_literal<'src>(
+    text: &mut &'src [u8],
     span: &mut Span,
-) -> Result<Literal, Option<(Literal, Error)>> {
+) -> Result<Literal<'src>, Option<(Literal<'src>, Error)>> {
     let original_len = text.len();
 
     let (base, mut digits) = parse_integer(text);

@@ -41,10 +41,10 @@ enum NodeID {
 type Visited = HashMap<NodeID, NodeIndex>;
 
 pub fn dump_text(
-    source: &Graph,
+    source: &Graph<'_>,
     symbols: Vec<(Symbol, Data)>,
     cursor: Option<DataCursor>,
-    interner: &Interner,
+    interner: &Interner<'_>,
 ) -> String {
     let mut visited = Visited::new();
 
@@ -74,7 +74,7 @@ pub fn dump_text(
 }
 
 fn process_data_node(
-    source: &Graph,
+    source: &Graph<'_>,
     graph: &mut GraphDump,
     visited: &mut Visited,
     node: Data,
@@ -163,7 +163,7 @@ fn process_data_node(
 }
 
 fn process_type_node(
-    source: &Graph,
+    source: &Graph<'_>,
     graph: &mut GraphDump,
     visited: &mut Visited,
     node: Type,
@@ -195,7 +195,7 @@ fn process_type_node(
 }
 
 fn process_merge_node(
-    source: &Graph,
+    source: &Graph<'_>,
     graph: &mut GraphDump,
     visited: &mut Visited,
     node: MergeID,
@@ -226,7 +226,7 @@ fn process_merge_node(
 }
 
 fn process_branch_node(
-    source: &Graph,
+    source: &Graph<'_>,
     graph: &mut GraphDump,
     visited: &mut Visited,
     node: BranchID,
@@ -246,7 +246,7 @@ fn process_branch_node(
 }
 
 fn process_ctrl_node(
-    source: &Graph,
+    source: &Graph<'_>,
     graph: &mut GraphDump,
     visited: &mut Visited,
     node: Ctrl,
