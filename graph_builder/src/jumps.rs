@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    Diagnostics, Error, Symbol,
+    Symbol,
     builder::{CtrlCursors, DataCursors},
 };
 
@@ -33,25 +33,22 @@ impl LoopBlockStack {
         }
     }
 
-    pub fn open_loop_block(
-        &mut self,
-        label: Option<parser::Ident>,
-        errors: &mut impl Diagnostics,
-    ) -> LoopIsOpen {
-        if let Some(parser::Spanned { val: label, span }) = label {
-            let id = self.loop_blocks.len();
-            self.loop_blocks.push((Some(label), Jumps::default()));
-
-            #[allow(clippy::map_entry)]
-            if !self.label_to_loop_block.contains_key(&label) {
-                self.label_to_loop_block.insert(label, id);
-            } else {
-                errors.add(span, Error::LabelOverwrite { label });
-            }
-        } else {
-            self.loop_blocks.push((None, Jumps::default()));
-        }
+    pub fn open_loop_block(&mut self) -> LoopIsOpen {
+        self.loop_blocks.push((None, Jumps::default()));
         LoopIsOpen(())
+    }
+
+    pub fn open_loop_block_labeled(&mut self, label: Symbol) -> Option<LoopIsOpen> {
+        let id = self.loop_blocks.len();
+        self.loop_blocks.push((Some(label), Jumps::default()));
+
+        #[allow(clippy::map_entry)]
+        if !self.label_to_loop_block.contains_key(&label) {
+            self.label_to_loop_block.insert(label, id);
+            Some(LoopIsOpen(()))
+        } else {
+            None
+        }
     }
 
     pub fn close_loop_block(&mut self, _: LoopIsOpen) -> Jumps {

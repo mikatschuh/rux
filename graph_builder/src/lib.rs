@@ -439,7 +439,7 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
     }
 
     fn continue_stmt(&mut self, keyword: Span, label: Option<Label>, cursor: CtrlCursor) {
-        let Some(block) = self.jump_table.get(label.as_ref().map(|l| l.ident.val)) else {
+        let Some(jumps) = self.jump_table.get(label.as_ref().map(|l| l.ident.val)) else {
             self.errors.add(
                 keyword,
                 label.map_or(Error::ContinueOutsideLoop, |l| {
@@ -449,14 +449,7 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
             return;
         };
 
-        let CtrlCursor {
-            block: cursor,
-            ctrl,
-        } = cursor;
-        block.continues.push(CtrlCursor {
-            block: cursor,
-            ctrl,
-        });
+        jumps.continues.push(cursor);
     }
 
     fn break_stmt(
@@ -466,15 +459,11 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
         value: Option<Expr>,
         cursor: CtrlCursor,
     ) {
-        let DataCursor {
-            block: cursor,
-            ctrl,
-            data,
-        } = match value {
+        let value = match value {
             Some(value) => self.expr(value, cursor),
             None => cursor.with_data(self.graph.unit()),
         };
-        let Some(block) = self.jump_table.get(label.as_ref().map(|l| l.ident.val)) else {
+        let Some(jumps) = self.jump_table.get(label.as_ref().map(|l| l.ident.val)) else {
             self.errors.add(
                 keyword,
                 label.map_or(Error::BreakOutsideLoop, |l| Error::BreakWithUnknownLabel {
@@ -484,11 +473,7 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
             return;
         };
 
-        block.breaks.push(DataCursor {
-            block: cursor,
-            ctrl,
-            data,
-        });
+        jumps.breaks.push(value);
     }
 
     fn if_stmt(
@@ -572,9 +557,21 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
         cursor: CtrlCursor,
     ) -> Option<DataCursor> {
         // first create a location jumps can go to
-        let tok = self
-            .jump_table
-            .open_loop_block(label.as_ref().map(|l| l.ident.clone()), &mut self.errors);
+        let (tok, default_backedge) = match label {
+            Some(label) => {
+                let Some(tok) = self.jump_table.open_loop_block_labeled(label.ident.val) else {
+                    self.errors.add(
+                        label.at_sign - label.ident.span,
+                        Error::LabelOverwrite {
+                            label: label.ident.val,
+                        },
+                    );
+                    return self.stmt_expr_could_diverge(body, cursor);
+                };
+                (tok, false)
+            }
+            None => (self.jump_table.open_loop_block(), true),
+        };
         let (unsealed_block, ctrl_placeholder) = self.cfg.add_unsealed(&mut self.graph);
 
         let end_of_body = self.stmt_expr_could_diverge(
@@ -591,7 +588,7 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
         } = self.jump_table.close_loop_block(tok); // get the jumps out
 
         if let Some(end_of_body) = end_of_body {
-            if label.is_none() {
+            if default_backedge {
                 entrys.push(end_of_body.without_data());
             } else {
                 exits.push(end_of_body);
