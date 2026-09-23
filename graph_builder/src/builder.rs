@@ -236,29 +236,6 @@ impl CtrlCursor {
     }
 }
 
-/// `Vec<CtrlCursor>` but as SoA
-#[derive(Clone, Debug)]
-pub struct CtrlCursors {
-    pub blocks: Vec<BlockID>,
-    pub ctrls: Vec<Ctrl>,
-}
-
-impl CtrlCursors {
-    pub fn new() -> Self {
-        Self {
-            blocks: vec![],
-            ctrls: vec![],
-        }
-    }
-
-    pub fn push(&mut self, cursor: CtrlCursor) {
-        let CtrlCursor { block, ctrl } = cursor;
-
-        self.blocks.push(block);
-        self.ctrls.push(ctrl);
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct DataCursor {
     pub block: BlockID,
@@ -291,8 +268,24 @@ impl DataCursor {
     }
 }
 
+/// `Vec<CtrlCursor>` but as SoA
+#[derive(Debug, Default)]
+pub struct CtrlCursors {
+    pub blocks: Vec<BlockID>,
+    pub ctrls: Vec<Ctrl>,
+}
+
+impl CtrlCursors {
+    pub fn push(&mut self, cursor: CtrlCursor) {
+        let CtrlCursor { block, ctrl } = cursor;
+
+        self.blocks.push(block);
+        self.ctrls.push(ctrl);
+    }
+}
+
 /// `Vec<DataCursor>` but as SoA
-#[derive(Clone, Debug)]
+#[derive(Debug, Default)]
 pub struct DataCursors {
     blocks: Vec<BlockID>,
     ctrls: Vec<Ctrl>,
@@ -300,14 +293,6 @@ pub struct DataCursors {
 }
 
 impl DataCursors {
-    pub fn new() -> Self {
-        Self {
-            blocks: vec![],
-            ctrls: vec![],
-            datas: vec![],
-        }
-    }
-
     fn from_cursor(cursor: DataCursor) -> DataCursors {
         let DataCursor { block, ctrl, data } = cursor;
         DataCursors {

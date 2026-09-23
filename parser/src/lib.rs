@@ -502,14 +502,14 @@ impl<D: Diagnostics, T: TokenStream> Parser<D, T> {
         // assignments:
         if let Some(op) = BinaryOp::from_assign(tok) {
             let op_span = self.tokens.advance();
-            let lhs = self.graph.add_ident(ident);
+            let lhs = self.graph.add_ident(ident.clone());
             let rhs = self.parse_expr(0);
             let value = self.graph.add_binary(op_span, op, lhs, rhs);
 
             return self.graph.add_assignment(ident, op_span, value);
         } else if let Some(op) = BinaryOp::from_inc_or_dec(tok) {
             let op_span = self.tokens.advance();
-            let lhs = self.graph.add_ident(ident);
+            let lhs = self.graph.add_ident(ident.clone());
             let rhs = self.graph.add_literal(op_span, Literal::from(1));
             let value = self.graph.add_binary(op_span, op, lhs, rhs);
 

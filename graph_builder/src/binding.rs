@@ -4,17 +4,19 @@ use tokenizer::Symbol;
 
 use crate::graph::{Data, Type};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Binding {
     pub mutable: bool,
     pub ty: Type,
     pub id: BindingID,
 }
 
+#[derive(Debug, Default)]
 pub struct Scope {
     bindings: HashMap<Symbol, Binding>,
 }
 
+#[derive(Debug)]
 pub struct SymbolTableStack {
     state_id: usize, // monotonic increasing
     scopes: Vec<Scope>,
@@ -25,7 +27,7 @@ pub struct SymbolTableStack {
 pub struct BindingID(usize);
 
 #[must_use]
-pub struct OpenScope(());
+pub struct ScopeIsOpen(());
 
 impl SymbolTableStack {
     pub fn new() -> Self {
@@ -35,16 +37,14 @@ impl SymbolTableStack {
         }
     }
 
-    pub fn open_scope(&mut self) -> OpenScope {
-        self.scopes.push(Scope {
-            bindings: HashMap::new(),
-        });
-        OpenScope(())
+    pub fn open_scope(&mut self) -> ScopeIsOpen {
+        self.scopes.push(Scope::default());
+        ScopeIsOpen(())
     }
 
     pub fn close_scope(
         &mut self,
-        _: OpenScope,
+        _: ScopeIsOpen,
         symbol_dump: &mut Vec<(Symbol, Data)>,
         mut read_var: impl FnMut(Type, BindingID) -> Option<Data>,
     ) {

@@ -9,7 +9,7 @@ use tokenizer::{Interner, Span, Symbol, TypeSize};
 use crate::{
     binding::{Binding, SymbolTableStack},
     builder::{Cfg, CtrlCursor, CtrlCursors, DataCursor},
-    loops::{JumpTableStack, LoopBackedges},
+    jumps::{Jumps, LoopBlockStack},
     type_check::require_type,
 };
 
@@ -18,7 +18,7 @@ mod builder;
 mod error;
 mod graph;
 pub mod graph_dump;
-mod loops;
+mod jumps;
 mod type_check;
 
 pub use error::Error;
@@ -78,7 +78,7 @@ struct GraphBuilder<D: Diagnostics> {
     cfg: Cfg,
     symbol_table: SymbolTableStack,
     symbol_dump: Vec<(Symbol, Data)>,
-    jump_table: JumpTableStack,
+    jump_table: LoopBlockStack,
 
     raw_item_table: HashMap<Symbol, Item>,
 }
@@ -104,7 +104,7 @@ impl<D: Diagnostics> GraphBuilder<D> {
                 cfg,
                 symbol_table: SymbolTableStack::new(),
                 symbol_dump: vec![],
-                jump_table: JumpTableStack::new(),
+                jump_table: LoopBlockStack::new(),
                 raw_item_table,
             },
             start,
@@ -125,14 +125,20 @@ impl<D: Diagnostics> GraphBuilder<D> {
     }
 
     fn scope_stmt(&mut self, stmt: ScopeStmt, cursor: CtrlCursor) -> DataCursor {
-        match self.ast[&stmt].val.clone() {
+        match &self.ast[&stmt].val {
             ScopeStmtKind::Binding {
                 keyword,
                 mutable,
                 ident,
                 definition,
             } => self
-                .binding(keyword, mutable, ident, definition.clone(), cursor)
+                .binding(
+                    *keyword,
+                    *mutable,
+                    ident.clone(),
+                    definition.clone(),
+                    cursor,
+                )
                 .with_data(self.graph.unit()),
             ScopeStmtKind::StmtExpr(stmt_expr) => self.stmt_expr(stmt_expr.clone(), cursor),
             _ => todo!(),
@@ -190,40 +196,25 @@ impl<D: Diagnostics> GraphBuilder<D> {
                     loop {
                         let stmt = stmts.next().unwrap();
                         if stmts.peek().is_none() {
-                            match self.scope_stmt_could_diverge(stmt.clone(), cursor.clone()) {
-                                Some(value) => {
-                                    self.symbol_table.close_scope(
-                                        open_scope,
-                                        &mut self.symbol_dump,
-                                        |ty, var| {
-                                            self.cfg.get_definition(
-                                                var,
-                                                cursor.block.clone(),
-                                                ty,
-                                                expr.clone(),
-                                                &mut self.graph,
-                                            )
-                                        },
-                                    );
-                                    return Some(value);
-                                }
-                                None => {
-                                    self.symbol_table.close_scope(
-                                        open_scope,
-                                        &mut self.symbol_dump,
-                                        |ty, var| {
-                                            self.cfg.get_definition(
-                                                var,
-                                                cursor.block.clone(),
-                                                ty,
-                                                expr.clone(),
-                                                &mut self.graph,
-                                            )
-                                        },
-                                    );
-                                    return None;
-                                }
-                            }
+                            let final_value =
+                                self.scope_stmt_could_diverge(stmt.clone(), cursor.clone());
+
+                            self.symbol_table.close_scope(
+                                open_scope,
+                                &mut self.symbol_dump,
+                                |ty, var| {
+                                    self.cfg.get_definition(
+                                        var,
+                                        final_value
+                                            .as_ref()
+                                            .map_or(cursor.block.clone(), |v| v.block.clone()),
+                                        ty,
+                                        expr.clone(),
+                                        &mut self.graph,
+                                    )
+                                },
+                            );
+                            return final_value;
                         } else {
                             cursor = self.scope_stmt(stmt.clone(), cursor).without_data();
                         }
@@ -455,7 +446,7 @@ impl<D: Diagnostics> GraphBuilder<D> {
             block: cursor,
             ctrl,
         } = cursor;
-        block.continue_jumps.push(CtrlCursor {
+        block.continues.push(CtrlCursor {
             block: cursor,
             ctrl,
         });
@@ -486,7 +477,7 @@ impl<D: Diagnostics> GraphBuilder<D> {
             return;
         };
 
-        block.break_jumps.push(DataCursor {
+        block.breaks.push(DataCursor {
             block: cursor,
             ctrl,
             data,
@@ -593,7 +584,7 @@ impl<D: Diagnostics> GraphBuilder<D> {
         // first create a location jumps can go to
         let tok = self
             .jump_table
-            .open_loop(label.as_ref().map(|l| l.ident.val));
+            .open_loop_block(label.as_ref().map(|l| l.ident.clone()), &mut self.errors);
         let (unsealed_block, ctrl_placeholder) = self.cfg.add_unsealed(&mut self.graph);
 
         let end_of_body = self.stmt_expr_could_diverge(
@@ -604,10 +595,10 @@ impl<D: Diagnostics> GraphBuilder<D> {
             },
         ); // parse the body
 
-        let LoopBackedges {
+        let Jumps {
             continues: mut backedges,
             breaks: mut exits,
-        } = self.jump_table.close_loop(tok); // get the jumps out
+        } = self.jump_table.close_loop_block(tok); // get the jumps out
 
         if let Some(end_of_body) = end_of_body {
             if label.is_none() {

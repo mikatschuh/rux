@@ -14,6 +14,7 @@ pub enum Error {
     ReadUnitializedOrMoved,
 
     // control flow
+    LabelOverwrite { label: Symbol },
     ContinueOutsideLoop,
     ContinueWithUnknownLabel { label: Symbol },
     BreakOutsideLoop,

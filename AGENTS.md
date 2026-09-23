@@ -29,6 +29,7 @@
 ## Coding Style & Naming Conventions
 - Follow `rustfmt` defaults (4-space indents, 100-character lines); no tabs.
 - Modules and files stay `snake_case`; structs/enums use `CamelCase`; constants use `SCREAMING_SNAKE_CASE`.
+- Compile time tokens have the logical information as their name that they represent: `ScopeIsOpen` 
 - Prefer explicit lifetimes and `Arc`/`Mutex` wrappers over `unsafe` blocks unless reviewing with another maintainer.
 
 ## Testing Guidelines

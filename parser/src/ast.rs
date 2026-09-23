@@ -6,7 +6,7 @@ use tokenizer::{FloatPrecision, IntegerType, Literal, Position, Span, Symbol, Ty
 
 use crate::{BinaryOp, UnaryOp};
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct Spanned<T> {
     pub span: Span,
     pub val: T,

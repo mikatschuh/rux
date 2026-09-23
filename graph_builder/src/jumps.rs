@@ -1,68 +1,74 @@
+//! This module handles jumps statement and lables.
+//!
+//! `@label { }` and `loop {}` is referred to here as loop block.
+
+use std::collections::HashMap;
+
 use crate::{
-    Symbol,
+    Diagnostics, Error, Symbol,
     builder::{CtrlCursors, DataCursors},
 };
 
+/// Two SoA datastructures one for storing `continue`-jumps and one for `breaks`-jumps.
 #[must_use]
-pub struct LoopBackedges {
+#[derive(Debug, Default)]
+pub struct Jumps {
     pub continues: CtrlCursors,
     pub breaks: DataCursors,
 }
 
-pub struct Loop {
-    label: Option<Symbol>,
-    pub continue_jumps: CtrlCursors,
-    pub break_jumps: DataCursors,
-}
-
-impl Loop {
-    fn new(label: Option<Symbol>) -> Self {
-        Self {
-            label,
-            continue_jumps: CtrlCursors::new(),
-            break_jumps: DataCursors::new(),
-        }
-    }
-}
-
-pub struct JumpTableStack {
-    loops: Vec<Loop>,
+pub struct LoopBlockStack {
+    label_to_loop_block: HashMap<Symbol, usize>,
+    loop_blocks: Vec<(Option<Symbol>, Jumps)>,
 }
 
 #[must_use]
-pub struct OpenLoop(());
+pub struct LoopIsOpen(());
 
-impl JumpTableStack {
+impl LoopBlockStack {
     pub fn new() -> Self {
-        Self { loops: vec![] }
-    }
-
-    pub fn open_loop(&mut self, label: Option<Symbol>) -> OpenLoop {
-        self.loops.push(Loop::new(label));
-        OpenLoop(())
-    }
-
-    pub fn close_loop(&mut self, _: OpenLoop) -> LoopBackedges {
-        let Loop {
-            continue_jumps,
-            break_jumps,
-            ..
-        } = self.loops.pop().unwrap(); // This is safe because of the OpenLoop token
-
-        LoopBackedges {
-            continues: continue_jumps,
-            breaks: break_jumps,
+        Self {
+            label_to_loop_block: HashMap::new(),
+            loop_blocks: vec![],
         }
     }
 
-    pub fn get(&mut self, label: Option<Symbol>) -> Option<&mut Loop> {
+    pub fn open_loop_block(
+        &mut self,
+        label: Option<parser::Ident>,
+        errors: &mut impl Diagnostics,
+    ) -> LoopIsOpen {
+        if let Some(parser::Spanned { val: label, span }) = label {
+            let id = self.loop_blocks.len();
+            self.loop_blocks.push((Some(label), Jumps::default()));
+
+            #[allow(clippy::map_entry)]
+            if !self.label_to_loop_block.contains_key(&label) {
+                self.label_to_loop_block.insert(label, id);
+            } else {
+                errors.add(span, Error::LabelOverwrite { label });
+            }
+        } else {
+            self.loop_blocks.push((None, Jumps::default()));
+        }
+        LoopIsOpen(())
+    }
+
+    pub fn close_loop_block(&mut self, _: LoopIsOpen) -> Jumps {
+        let (label, jumps) = self.loop_blocks.pop().unwrap();
+        if let Some(label) = label {
+            self.label_to_loop_block.remove(&label);
+        };
+        jumps
+    }
+
+    pub fn get(&mut self, label: Option<Symbol>) -> Option<&mut Jumps> {
         match label {
-            Some(label) => self
-                .loops
-                .iter_mut()
-                .rev()
-                .find(|b| b.label.is_some_and(|l| l == label)),
-            None => self.loops.last_mut(),
+            Some(label) => {
+                let id = self.label_to_loop_block.get(&label)?;
+                Some(&mut self.loop_blocks[*id].1)
+            }
+            None => self.loop_blocks.last_mut().map(|(_, jumps)| jumps),
         }
     }
 }
@@ -70,9 +76,7 @@ impl JumpTableStack {
 #[cfg(any())]
 #[cfg(test)]
 mod tests {
-    use bumpalo::Bump;
-
-    use super::JumpTableStack;
+    use super::LoopBlockStack;
     use crate::{
         grapher::{Graph, builder::CtrlCursor},
         literal_parsing::Literal,
@@ -85,7 +89,7 @@ mod tests {
 
     #[test]
     fn empty_stack_has_no_current_or_labelled_block() {
-        let mut blocks = JumpTableStack::new();
+        let mut blocks = LoopBlockStack::new();
         let mut interner = Interner::new();
 
         assert!(blocks.get(None).is_none());
@@ -94,7 +98,7 @@ mod tests {
 
     #[test]
     fn unlabelled_lookup_returns_innermost_block() {
-        let mut blocks = JumpTableStack::new();
+        let mut blocks = LoopBlockStack::new();
         let outer = blocks.open_loop(None, 1);
         let inner = blocks.open_loop(None, 3);
 
@@ -111,7 +115,7 @@ mod tests {
 
     #[test]
     fn labelled_lookup_uses_nearest_matching_label() {
-        let mut blocks = JumpTableStack::new();
+        let mut blocks = LoopBlockStack::new();
         let mut interner = Interner::new();
         let label = interner.get("target");
         let outer = blocks.open_loop(Some(label), 1);
@@ -131,7 +135,7 @@ mod tests {
     #[test]
     fn close_block_exports_recorded_continue_and_break_cursors() {
         let mut graph = graph();
-        let mut blocks = JumpTableStack::new();
+        let mut blocks = LoopBlockStack::new();
         let tok = blocks.open_loop(None, 1);
         let state_value = graph.add_literal(Literal::from(1));
         let break_value = graph.add_literal(Literal::from(2));
