@@ -500,15 +500,15 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
         else_clause: Option<ControlStruct>,
         cursor: CtrlCursor,
     ) -> DataCursor {
-        let condition_cursor = self.expr(condition, cursor);
-
-        let (false_branch, true_branch) = self.graph.branch(condition_cursor, &mut self.cfg);
+        let (false_branch, true_branch) = self
+            .expr(condition, cursor)
+            .branch(&mut self.graph, &mut self.cfg);
 
         let Some(cursor_when_true) = self.stmt_expr_could_diverge(when_body, true_branch) else {
-            return if let Some(ControlStruct { body, .. }) = else_clause {
-                self.stmt_expr(body, false_branch)
+            if let Some(ControlStruct { body, .. }) = else_clause {
+                return self.stmt_expr(body, false_branch);
             } else {
-                false_branch.with_data(self.graph.unit())
+                return false_branch.with_data(self.graph.unit());
             };
         };
 
@@ -517,18 +517,14 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
                 return cursor_when_true;
             };
 
-            self.graph
-                .merge(cursor_when_false.and(cursor_when_true), &mut self.cfg)
-                .unwrap() // we dont put in an empty vec
+            cursor_when_false
+                .and(cursor_when_true)
+                .merge(&mut self.graph, &mut self.cfg)
         } else {
-            self.graph
-                .merge(
-                    false_branch
-                        .with_data(self.graph.unit())
-                        .and(cursor_when_true),
-                    &mut self.cfg,
-                )
-                .unwrap()
+            false_branch
+                .with_data(self.graph.unit())
+                .and(cursor_when_true)
+                .merge(&mut self.graph, &mut self.cfg)
         }
     }
 
@@ -540,9 +536,9 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
         else_clause: Option<ControlStruct>,
         cursor: CtrlCursor,
     ) -> Option<DataCursor> {
-        let condition_cursor = self.expr(condition, cursor);
-
-        let (false_branch, true_branch) = self.graph.branch(condition_cursor, &mut self.cfg);
+        let (false_branch, true_branch) = self
+            .expr(condition, cursor)
+            .branch(&mut self.graph, &mut self.cfg);
 
         let Some(cursor_when_true) = self.stmt_expr_could_diverge(when_body, true_branch) else {
             return if let Some(ControlStruct { body, .. }) = else_clause {
@@ -557,15 +553,16 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
                 return Some(cursor_when_true);
             };
 
-            self.graph
-                .merge(cursor_when_false.and(cursor_when_true), &mut self.cfg)
+            let merged = cursor_when_false
+                .and(cursor_when_true)
+                .merge(&mut self.graph, &mut self.cfg);
+            Some(merged)
         } else {
-            self.graph.merge(
-                false_branch
-                    .with_data(self.graph.unit())
-                    .and(cursor_when_true),
-                &mut self.cfg,
-            )
+            let merged = false_branch
+                .with_data(self.graph.unit())
+                .and(cursor_when_true)
+                .merge(&mut self.graph, &mut self.cfg);
+            Some(merged)
         }
     }
 
@@ -619,7 +616,7 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
             self.ast,
         );
 
-        self.graph.merge(exits, &mut self.cfg)
+        exits.merge(&mut self.graph, &mut self.cfg)
     }
 
     fn divergent_control_flow(&mut self, span: Span, cursor: CtrlCursor) -> DataCursor {

@@ -1,4 +1,3 @@
-use nonempty::NonEmpty;
 use tokenizer::{
     Bracket, IntegerType, Interner, Literal, Span, Symbol,
     Token::{self},
@@ -476,10 +475,10 @@ impl<'src, D: Diagnostics, T: TokenStream<'src>> Parser<'src, D, T> {
                 }
             }
         };
-        if let Some(stmts) = NonEmpty::from_vec(stmts) {
-            self.graph.add_block(opener - end, stmts)
-        } else {
+        if stmts.is_empty() {
             self.graph.add_unit(opener - end)
+        } else {
+            self.graph.add_block(opener - end, stmts.into_boxed_slice())
         }
     }
 

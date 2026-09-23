@@ -5,4 +5,3 @@ edition = "2024"
 
 [dependencies]
 tokenizer = { path = "../tokenizer" }
-nonempty = "0.12.0"

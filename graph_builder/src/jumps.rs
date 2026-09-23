@@ -14,7 +14,7 @@ use crate::{
 #[derive(Debug, Default)]
 pub struct Jumps {
     pub continues: CtrlCursors,
-    pub breaks: DataCursors,
+    pub breaks: DataCursors<false>,
 }
 
 pub struct LoopBlockStack {

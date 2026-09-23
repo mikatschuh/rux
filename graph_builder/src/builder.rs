@@ -251,8 +251,8 @@ impl DataCursor {
         }
     }
 
-    pub fn and(self, other: Self) -> DataCursors {
-        let mut cursors = DataCursors::from_cursor(self);
+    pub fn and(self, other: Self) -> DataCursors<true> {
+        let mut cursors = DataCursors::<true>::from_cursor(self);
         cursors.push(other);
         cursors
     }
@@ -264,6 +264,23 @@ impl DataCursor {
                 ctrl: self.ctrl,
             },
             self.data,
+        )
+    }
+
+    /// `(false_branch, true_branch)`
+    pub fn branch(self, graph: &mut Graph, cfg: &mut Cfg) -> (CtrlCursor, CtrlCursor) {
+        let condition = self.data;
+        let (false_branch, true_branch) = graph.add_branch(self.ctrl.clone(), condition.clone());
+
+        (
+            CtrlCursor {
+                block: cfg.branch(self.block.clone()),
+                ctrl: false_branch,
+            },
+            CtrlCursor {
+                block: cfg.branch(self.block),
+                ctrl: true_branch,
+            },
         )
     }
 }
@@ -285,15 +302,25 @@ impl CtrlCursors {
 }
 
 /// `Vec<DataCursor>` but as SoA
-#[derive(Debug, Default)]
-pub struct DataCursors {
+#[derive(Debug)]
+pub struct DataCursors<const NON_EMPTY: bool> {
     blocks: Vec<BlockID>,
     ctrls: Vec<Ctrl>,
     datas: Vec<Data>,
 }
 
-impl DataCursors {
-    fn from_cursor(cursor: DataCursor) -> DataCursors {
+impl Default for DataCursors<false> {
+    fn default() -> Self {
+        Self {
+            blocks: vec![],
+            ctrls: vec![],
+            datas: vec![],
+        }
+    }
+}
+
+impl<const NON_EMPTY: bool> DataCursors<NON_EMPTY> {
+    fn from_cursor(cursor: DataCursor) -> DataCursors<true> {
         let DataCursor { block, ctrl, data } = cursor;
         DataCursors {
             blocks: vec![block],
@@ -326,47 +353,53 @@ impl DataCursors {
     }
 }
 
-impl Graph<'_> {
-    /// `(false_branch, true_branch)`
-    pub fn branch(&mut self, cursor: DataCursor, cfg: &mut Cfg) -> (CtrlCursor, CtrlCursor) {
-        let condition = cursor.data;
-        let (false_branch, true_branch) = self.add_branch(cursor.ctrl.clone(), condition.clone());
-
-        (
-            CtrlCursor {
-                block: cfg.branch(cursor.block.clone()),
-                ctrl: false_branch,
-            },
-            CtrlCursor {
-                block: cfg.branch(cursor.block),
-                ctrl: true_branch,
-            },
-        )
-    }
-
-    pub fn merge(&mut self, cursors: DataCursors, cfg: &mut Cfg) -> Option<DataCursor> {
-        if cursors.len() == 0 {
+impl DataCursors<false> {
+    pub fn merge(self, graph: &mut Graph, cfg: &mut Cfg) -> Option<DataCursor> {
+        if self.len() == 0 {
             return None;
-        } else if cursors.len() == 1 {
-            return Some(cursors.unwrap());
+        } else if self.len() == 1 {
+            return Some(self.unwrap());
         }
 
         let DataCursors {
             blocks,
             ctrls,
             datas: variants,
-        } = cursors;
+        } = self;
 
-        let merge = self.add_merge(ctrls);
+        let merge = graph.add_merge(ctrls);
         Some(DataCursor {
-            ctrl: self.add_ctrl_merge(merge.clone()),
-            data: self.data_merge(merge.clone(), variants),
+            ctrl: graph.add_ctrl_merge(merge.clone()),
+            data: graph.merge_data(merge.clone(), variants),
             block: cfg.merge(blocks, merge),
         })
     }
+}
 
+impl DataCursors<true> {
+    pub fn merge(self, graph: &mut Graph, cfg: &mut Cfg) -> DataCursor {
+        if self.len() == 1 {
+            return self.unwrap();
+        }
+
+        let DataCursors {
+            blocks,
+            ctrls,
+            datas: variants,
+        } = self;
+
+        let merge = graph.add_merge(ctrls);
+        DataCursor {
+            ctrl: graph.add_ctrl_merge(merge.clone()),
+            data: graph.merge_data(merge.clone(), variants),
+            block: cfg.merge(blocks, merge),
+        }
+    }
+}
+
+impl Graph<'_> {
     /// Variants.len() has to be greater 0
-    pub fn data_merge(&mut self, merge: MergeID, variants: Vec<Data>) -> Data {
+    pub fn merge_data(&mut self, merge: MergeID, variants: Vec<Data>) -> Data {
         let ty = self[&variants[0]].ty.clone();
         let phi = self.add_phi(merge, variants);
         self.add_data_phi(phi, ty)

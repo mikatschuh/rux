@@ -1,5 +1,3 @@
-use nonempty::NonEmpty;
-
 use std::{collections::HashMap, vec};
 
 use tokenizer::{FloatPrecision, IntegerType, Literal, Position, Span, Symbol, TypeSize};
@@ -157,7 +155,7 @@ pub enum ExprKind<'src> {
     }, // Field Projection
 
     Block {
-        stmts: NonEmpty<ScopeStmt>,
+        stmts: Box<[ScopeStmt]>,
     },
 
     If {
@@ -420,7 +418,7 @@ impl<'src> AstBuilder<'src> {
         self.add_expr(span, ExprKind::Unit)
     }
 
-    pub fn add_block(&mut self, span: Span, stmts: NonEmpty<ScopeStmt>) -> Expr {
+    pub fn add_block(&mut self, span: Span, stmts: Box<[ScopeStmt]>) -> Expr {
         self.add_expr(span, ExprKind::Block { stmts })
     }
 
