@@ -5,10 +5,20 @@ use tokenizer::Symbol;
 use crate::graph::{Data, Type};
 
 #[derive(Debug)]
+pub enum Mutability {
+    /// Can always be overwritten
+    Mutable,
+    /// Can be written once
+    ImmutableUninitialized,
+    /// Can never be overwritten
+    ImmutableInitialized,
+}
+
+#[derive(Debug)]
 pub struct Binding {
-    pub mutable: bool,
+    pub mutability: Mutability,
     pub ty: Type,
-    pub id: BindingID,
+    pub var: BindingID,
 }
 
 #[derive(Debug, Default)]
@@ -18,12 +28,13 @@ pub struct Scope {
 
 #[derive(Debug)]
 pub struct SymbolTableStack {
-    state_id: usize, // monotonic increasing
+    /// Used to assign IDs to variables
+    var_count: usize,
     scopes: Vec<Scope>,
 }
 
 /// This is an **existing** variable
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct BindingID(usize);
 
 #[must_use]
@@ -32,7 +43,7 @@ pub struct ScopeIsOpen(());
 impl SymbolTableStack {
     pub fn new() -> Self {
         Self {
-            state_id: 0,
+            var_count: 0,
             scopes: vec![],
         }
     }
@@ -51,7 +62,7 @@ impl SymbolTableStack {
         let symbols = self.scopes.pop().unwrap().bindings; // safe because of OpenScope
         symbols
             .into_iter()
-            .filter_map(|(symbol, binding)| read_var(binding.ty, binding.id).map(|d| (symbol, d)))
+            .filter_map(|(symbol, binding)| read_var(binding.ty, binding.var).map(|d| (symbol, d)))
             .for_each(|var| symbol_dump.push(var));
     }
 
@@ -62,25 +73,36 @@ impl SymbolTableStack {
         ty: Type,
     ) -> Option<BindingID> {
         if let Some(scope) = self.scopes.last_mut() {
-            let id = BindingID(self.state_id);
-            scope.bindings.insert(
-                symbol,
-                Binding {
-                    mutable,
-                    ty,
-                    id: id.clone(),
-                },
-            );
-            self.state_id += 1;
-            Some(id)
+            let var = BindingID(self.var_count);
+            let mutability = match mutable {
+                true => Mutability::Mutable,
+                false => Mutability::ImmutableUninitialized,
+            };
+            let binding = Binding {
+                mutability,
+                ty,
+                var,
+            };
+            scope.bindings.insert(symbol, binding);
+            self.var_count += 1;
+            Some(var)
         } else {
             None
         }
     }
 
-    pub fn get_binding(&mut self, symbol: Symbol) -> Option<&Binding> {
-        for scope in self.scopes.iter_mut().rev() {
+    pub fn get_binding(&self, symbol: Symbol) -> Option<&Binding> {
+        for scope in self.scopes.iter().rev() {
             if let Some(binding) = scope.bindings.get(&symbol) {
+                return Some(binding);
+            }
+        }
+        None
+    }
+
+    pub fn get_binding_mut(&mut self, symbol: Symbol) -> Option<&mut Binding> {
+        for scope in self.scopes.iter_mut().rev() {
+            if let Some(binding) = scope.bindings.get_mut(&symbol) {
                 return Some(binding);
             }
         }

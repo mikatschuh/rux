@@ -8,13 +8,13 @@ use crate::{
 use std::collections::HashMap;
 
 /// This describes an **existing** block.
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct BlockID(usize);
 
 #[derive(Debug)]
 pub struct Placeholder {
     var: BindingID,
-    data_placeholder: DataPlaceholder,
+    placeholder: DataPlaceholder,
     /// this the AST-Node that read out the value of the incomplete phi for the first time
     reference: Expr,
 }
@@ -67,7 +67,7 @@ impl Cfg {
         BlockID(id)
     }
 
-    fn branch(&mut self, predecessor: BlockID) -> BlockID {
+    fn branch_off(&mut self, predecessor: BlockID) -> BlockID {
         self.push_block(Block {
             definitions: HashMap::new(),
             cfg: CfgNode::Branch { predecessor },
@@ -114,19 +114,13 @@ impl Cfg {
         // add thoses backedges to the phi nodes of mutable variables declared outside the loop but used inside
         'outer: for Placeholder {
             var,
-            data_placeholder: placeholder,
+            placeholder,
             reference,
         } in placeholders
         {
             let mut variants = vec![];
             for block in &blocks {
-                match self.get_definition(
-                    var.clone(),
-                    block.clone(),
-                    graph[placeholder].ty,
-                    reference,
-                    graph,
-                ) {
+                match self.get_definition(*block, var, graph[placeholder].ty, reference, graph) {
                     Some(variant) => variants.push(variant),
                     None => {
                         errors.add(ast[reference].span, Error::ReadEitherUnitializedOrMoved);
@@ -152,8 +146,8 @@ impl Cfg {
 
     pub fn get_definition(
         &mut self,
-        var: BindingID,
         block: BlockID,
+        var: BindingID,
         ty: Type,
         read: Expr,
         graph: &mut Graph<'_>,
@@ -167,8 +161,8 @@ impl Cfg {
         match &current_block.cfg {
             CfgNode::Start => None,
             CfgNode::Branch { predecessor: pred } => {
-                let block = pred.clone();
-                self.get_definition(var.clone(), block.clone(), ty, read, graph)
+                let block = *pred;
+                self.get_definition(block, var, ty, read, graph)
             }
             CfgNode::Merge {
                 merge,
@@ -178,7 +172,7 @@ impl Cfg {
 
                 let mut variants = vec![];
                 for pred in pred.clone() {
-                    variants.push(self.get_definition(var.clone(), pred, ty, read, graph)?);
+                    variants.push(self.get_definition(pred, var, ty, read, graph)?);
                 }
                 let first = variants.first().unwrap();
                 let value = if variants.iter().all(|v| v == first) {
@@ -199,8 +193,8 @@ impl Cfg {
                 self.placeholders.last_mut().unwrap().push(
                     // an incomplete merge can only exist when there are placeholders
                     Placeholder {
-                        var: var.clone(),
-                        data_placeholder: placeholder,
+                        var,
+                        placeholder,
                         reference: read,
                     },
                 );
@@ -267,11 +261,11 @@ impl DataCursor {
 
         (
             CtrlCursor {
-                block: cfg.branch(self.block.clone()),
+                block: cfg.branch_off(self.block),
                 ctrl: false_branch,
             },
             CtrlCursor {
-                block: cfg.branch(self.block),
+                block: cfg.branch_off(self.block),
                 ctrl: true_branch,
             },
         )

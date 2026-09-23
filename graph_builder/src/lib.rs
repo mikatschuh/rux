@@ -7,7 +7,7 @@ use parser::{
 use tokenizer::{Interner, Span, Symbol, TypeSize};
 
 use crate::{
-    binding::{Binding, SymbolTableStack},
+    binding::{Binding, Mutability, SymbolTableStack},
     builder::{Cfg, CtrlCursor, DataCursor},
     jumps::{Jumps, LoopBlockStack},
     type_check::require_type,
@@ -199,26 +199,26 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
                 let mut stmts = stmts.iter().cloned().peekable();
                 let mut cursor = cursor;
                 loop {
-                    let stmt = stmts.next().unwrap();
+                    let stmt = stmts.next().unwrap(); // starts always nonempty
                     if stmts.peek().is_none() {
-                        let final_value = self.scope_stmt_could_diverge(stmt, cursor.clone());
+                        let current_block = cursor.block;
+                        let last_stmt = self.scope_stmt_could_diverge(stmt, cursor);
+                        let current_block = last_stmt.as_ref().map_or(current_block, |v| v.block);
 
                         self.symbol_table.close_scope(
                             open_scope,
                             &mut self.symbol_dump,
                             |ty, var| {
                                 self.cfg.get_definition(
+                                    current_block,
                                     var,
-                                    final_value
-                                        .as_ref()
-                                        .map_or(cursor.block.clone(), |v| v.block.clone()),
                                     ty,
                                     expr,
                                     &mut self.graph,
                                 )
                             },
                         );
-                        return final_value;
+                        return last_stmt;
                     } else {
                         cursor = self.scope_stmt(stmt, cursor).without_data();
                     }
@@ -262,20 +262,17 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
             ExprKind::Binary { lhs, op, rhs } => {
                 let (cursor, lhs) = self.expr(*lhs, cursor).split();
                 let (cursor, rhs) = self.expr(*rhs, cursor).split();
-                let ty = self.graph[lhs].ty;
+                let ty = self.graph[lhs].ty; // todo
                 cursor.with_data(self.graph.add_binary(op.val, lhs, rhs, ty))
             }
             ExprKind::FieldAccess { .. } => todo!("implement fields"),
 
             ExprKind::Ident(symbol) => match self.symbol_table.get_binding(*symbol) {
-                Some(Binding { id, ty, .. }) => {
-                    match self.cfg.get_definition(
-                        id.clone(),
-                        cursor.block.clone(),
-                        *ty,
-                        expr,
-                        &mut self.graph,
-                    ) {
+                Some(Binding { var, ty, .. }) => {
+                    match self
+                        .cfg
+                        .get_definition(cursor.block, *var, *ty, expr, &mut self.graph)
+                    {
                         Some(value) => cursor.with_data(value),
                         None => self.uninitialized_or_moved_variable(expression.span, cursor),
                     }
@@ -300,14 +297,14 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
                 loop {
                     let stmt = statements.next().unwrap();
                     if statements.peek().is_none() {
-                        let DataCursor { block, ctrl, data } = self.scope_stmt(stmt, cursor);
+                        let last_stmt = self.scope_stmt(stmt, cursor);
                         self.symbol_table.close_scope(
                             open_scope,
                             &mut self.symbol_dump,
                             |ty, var| {
                                 self.cfg.get_definition(
+                                    last_stmt.block,
                                     var,
-                                    block.clone(),
                                     ty,
                                     expr,
                                     &mut self.graph,
@@ -315,11 +312,7 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
                             },
                         );
 
-                        return DataCursor {
-                            block: block.clone(),
-                            ctrl,
-                            data,
-                        };
+                        return last_stmt;
                     } else {
                         cursor = self.scope_stmt(stmt, cursor).without_data();
                     }
@@ -329,13 +322,18 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
                 keyword,
                 condition,
                 when_body,
-                else_clause: else_body,
-            } => self.if_stmt(*keyword, *condition, *when_body, else_body.clone(), cursor),
+                else_clause,
+            } => self.if_stmt(
+                *keyword,
+                *condition,
+                *when_body,
+                else_clause.clone(),
+                cursor,
+            ),
             ExprKind::Label { label, body } => {
-                let label_span = label.at_sign - label.ident.span;
                 match self.loop_stmt(Some(label.clone()), *body, cursor.clone()) {
                     Some(cursor) => cursor,
-                    None => self.divergent_control_flow(label_span, cursor),
+                    None => self.divergent_control_flow(label.at_sign - label.ident.span, cursor),
                 }
             }
             ExprKind::Loop(ControlStruct { keyword, body }) => {
@@ -375,35 +373,32 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
                     .symbol_table
                     .add_symbol_to_scope(mutable, ident.val, ty)
                 {
-                    match assignment {
-                        Some(Assignment { value, .. }) => {
-                            let span = self.ast[value].span;
-                            let DataCursor { block, ctrl, data } = self.expr(value, cursor);
-                            let value = require_type(&self.graph, span, ty, data, &mut self.errors);
+                    if let Some(Assignment { value: expr, .. }) = assignment {
+                        let (cursor, value) = self.expr(expr, cursor).split();
 
-                            self.cfg.assign_variable(block.clone(), var, value);
-                            CtrlCursor { block, ctrl }
-                        }
-                        None => cursor,
+                        let span = self.ast[expr].span;
+                        let value = require_type(&self.graph, span, ty, value, &mut self.errors);
+                        self.cfg.assign_variable(cursor.block, var, value);
+
+                        return cursor;
                     }
                 } else {
                     self.errors.add(keyword, Error::BindingOutsideScope);
-                    cursor
                 }
+                cursor
             }
-            Definition::Assignment(Assignment { value, .. }) => {
-                let DataCursor { block, ctrl, data } = self.expr(value, cursor);
+            Definition::Assignment(Assignment { value: expr, .. }) => {
+                let (cursor, value) = self.expr(expr, cursor).split();
 
                 if let Some(var) =
                     self.symbol_table
-                        .add_symbol_to_scope(mutable, ident.val, self.graph[data].ty)
+                        .add_symbol_to_scope(mutable, ident.val, self.graph[value].ty)
                 {
-                    self.cfg.assign_variable(block.clone(), var, data);
-                    CtrlCursor { block, ctrl }
+                    self.cfg.assign_variable(cursor.block, var, value);
                 } else {
                     self.errors.add(keyword, Error::BindingOutsideScope);
-                    CtrlCursor { block, ctrl }
                 }
+                cursor
             }
         }
     }
@@ -412,22 +407,27 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
         &mut self,
         ident: Ident,
         equal: Span,
-        value: Expr,
+        expr: Expr,
         cursor: CtrlCursor,
     ) -> CtrlCursor {
-        let span = self.ast[value].span;
-        let DataCursor { block, ctrl, data } = self.expr(value, cursor);
-        if let Some(binding) = self.symbol_table.get_binding(ident.val) {
-            if binding.mutable {
-                let ty = binding.ty;
-                let value = require_type(&self.graph, span, ty, data, &mut self.errors);
-                self.cfg
-                    .assign_variable(block.clone(), binding.id.clone(), value);
-            } else {
-                self.errors.add(
+        let (cursor, value) = self.expr(expr, cursor).split();
+
+        if let Some(binding) = self.symbol_table.get_binding_mut(ident.val) {
+            let span = self.ast[expr].span;
+            let value = require_type(&self.graph, span, binding.ty, value, &mut self.errors);
+
+            match binding.mutability {
+                Mutability::Mutable => {
+                    self.cfg.assign_variable(cursor.block, binding.var, value);
+                }
+                Mutability::ImmutableUninitialized => {
+                    self.cfg.assign_variable(cursor.block, binding.var, value);
+                    binding.mutability = Mutability::ImmutableInitialized; // lock the assignment in place
+                }
+                Mutability::ImmutableInitialized => self.errors.add(
                     equal,
                     Error::AssignmentToImmutableIdent { symbol: ident.val },
-                )
+                ),
             }
         } else {
             self.errors.add(
@@ -435,7 +435,7 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
                 Error::AssignmentToUnknownIdent { symbol: ident.val },
             );
         }
-        CtrlCursor { block, ctrl }
+        cursor
     }
 
     fn continue_stmt(&mut self, keyword: Span, label: Option<Label>, cursor: CtrlCursor) {
@@ -580,7 +580,7 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
         let end_of_body = self.stmt_expr_could_diverge(
             body,
             CtrlCursor {
-                block: unsealed_block.clone(),
+                block: unsealed_block,
                 ctrl: ctrl_placeholder,
             },
         ); // parse the body
