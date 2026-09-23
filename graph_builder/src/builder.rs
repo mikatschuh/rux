@@ -99,24 +99,17 @@ impl Cfg {
     pub fn seal_block(
         &mut self,
         block: BlockID,
-        predecessors: Vec<BlockID>,
-        ctrl_predecessors: Vec<Ctrl>,
+        predecessors: CtrlCursors,
         graph: &mut Graph<'_>,
         errors: &mut impl Diagnostics,
         ast: &AstBuilder,
     ) {
-        let merge = graph.add_merge(ctrl_predecessors);
+        let CtrlCursors { blocks, ctrls } = predecessors;
+        let merge = graph.add_merge(ctrls.into_boxed_slice());
         let ctrl_placeholder = self.ctrl_placeholders.pop().unwrap();
-        graph[&ctrl_placeholder] = CtrlKind::Merge {
-            merge: merge.clone(),
-        };
+        graph[ctrl_placeholder] = CtrlKind::Merge { merge };
 
-        let unsealed = &mut self.blocks[block.0];
-        unsealed.cfg = CfgNode::Merge {
-            merge: merge.clone(),
-            predecessors: predecessors.clone(),
-        };
-        let placeholders = self.placeholders.pop().unwrap(); // caller side guaranties
+        let placeholders = self.placeholders.pop().unwrap();
 
         // add thoses backedges to the phi nodes of mutable variables declared outside the loop but used inside
         'outer: for Placeholder {
@@ -126,25 +119,31 @@ impl Cfg {
         } in placeholders
         {
             let mut variants = vec![];
-            for block in &predecessors {
+            for block in &blocks {
                 match self.get_definition(
                     var.clone(),
                     block.clone(),
-                    graph[&placeholder].ty.clone(),
+                    graph[placeholder].ty,
                     reference,
                     graph,
                 ) {
                     Some(variant) => variants.push(variant),
                     None => {
-                        errors.add(ast[reference].span, Error::ReadUnitializedOrMoved);
+                        errors.add(ast[reference].span, Error::ReadEitherUnitializedOrMoved);
                         continue 'outer;
                     }
                 }
             }
 
-            let phi = graph.add_phi(merge.clone(), variants);
-            graph[&placeholder].kind = DataKind::Phi { phi };
+            let phi = graph.add_phi(merge, variants.into_boxed_slice());
+            graph[placeholder].kind = DataKind::Phi { phi };
         }
+
+        let unsealed = &mut self.blocks[block.0];
+        unsealed.cfg = CfgNode::Merge {
+            merge,
+            predecessors: blocks,
+        };
     }
 
     pub fn assign_variable(&mut self, block: BlockID, var: BindingID, value: Data) -> Option<Data> {
@@ -162,7 +161,7 @@ impl Cfg {
         let current_block = &mut self.blocks[block.0];
 
         if let Some(current_blocks_definition) = current_block.definitions.get(&var) {
-            return Some(current_blocks_definition.clone());
+            return Some(*current_blocks_definition);
         }
 
         match &current_block.cfg {
@@ -175,24 +174,18 @@ impl Cfg {
                 merge,
                 predecessors: pred,
             } => {
-                let merge = merge.clone();
+                let merge = *merge;
 
                 let mut variants = vec![];
                 for pred in pred.clone() {
-                    variants.push(self.get_definition(
-                        var.clone(),
-                        pred,
-                        ty.clone(),
-                        read,
-                        graph,
-                    )?);
+                    variants.push(self.get_definition(var.clone(), pred, ty, read, graph)?);
                 }
                 let first = variants.first().unwrap();
                 let value = if variants.iter().all(|v| v == first) {
                     variants.pop().unwrap()
                 } else {
-                    let ty = graph[&variants[0]].ty.clone();
-                    let phi = graph.add_phi(merge, variants);
+                    let ty = graph[variants[0]].ty;
+                    let phi = graph.add_phi(merge, variants.into_boxed_slice());
 
                     graph.add_data_phi(phi, ty)
                 };
@@ -215,7 +208,7 @@ impl Cfg {
             }
         }
         .inspect(|data| {
-            self.blocks[block.0].definitions.insert(var, data.clone()); // insert for the next lookup
+            self.blocks[block.0].definitions.insert(var, *data); // insert for the next lookup
         })
     }
 }
@@ -270,7 +263,7 @@ impl DataCursor {
     /// `(false_branch, true_branch)`
     pub fn branch(self, graph: &mut Graph, cfg: &mut Cfg) -> (CtrlCursor, CtrlCursor) {
         let condition = self.data;
-        let (false_branch, true_branch) = graph.add_branch(self.ctrl.clone(), condition.clone());
+        let (false_branch, true_branch) = graph.add_branch(self.ctrl, condition);
 
         (
             CtrlCursor {
@@ -367,10 +360,10 @@ impl DataCursors<false> {
             datas: variants,
         } = self;
 
-        let merge = graph.add_merge(ctrls);
+        let merge = graph.add_merge(ctrls.into_boxed_slice());
         Some(DataCursor {
-            ctrl: graph.add_ctrl_merge(merge.clone()),
-            data: graph.merge_data(merge.clone(), variants),
+            ctrl: graph.add_ctrl_merge(merge),
+            data: graph.merge_data(merge, variants),
             block: cfg.merge(blocks, merge),
         })
     }
@@ -388,10 +381,10 @@ impl DataCursors<true> {
             datas: variants,
         } = self;
 
-        let merge = graph.add_merge(ctrls);
+        let merge = graph.add_merge(ctrls.into_boxed_slice());
         DataCursor {
-            ctrl: graph.add_ctrl_merge(merge.clone()),
-            data: graph.merge_data(merge.clone(), variants),
+            ctrl: graph.add_ctrl_merge(merge),
+            data: graph.merge_data(merge, variants),
             block: cfg.merge(blocks, merge),
         }
     }
@@ -400,8 +393,8 @@ impl DataCursors<true> {
 impl Graph<'_> {
     /// Variants.len() has to be greater 0
     pub fn merge_data(&mut self, merge: MergeID, variants: Vec<Data>) -> Data {
-        let ty = self[&variants[0]].ty.clone();
-        let phi = self.add_phi(merge, variants);
+        let ty = self[variants[0]].ty;
+        let phi = self.add_phi(merge, variants.into_boxed_slice());
         self.add_data_phi(phi, ty)
     }
 }

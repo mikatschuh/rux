@@ -256,13 +256,13 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
 
             ExprKind::Unary { op, value: input } => {
                 let (cursor, value) = self.expr(*input, cursor).split();
-                let ty = self.graph[&value].ty.clone();
+                let ty = self.graph[value].ty;
                 cursor.with_data(self.graph.add_unary(op.val, value, ty))
             }
             ExprKind::Binary { lhs, op, rhs } => {
                 let (cursor, lhs) = self.expr(*lhs, cursor).split();
                 let (cursor, rhs) = self.expr(*rhs, cursor).split();
-                let ty = self.graph[&lhs].ty.clone();
+                let ty = self.graph[lhs].ty;
                 cursor.with_data(self.graph.add_binary(op.val, lhs, rhs, ty))
             }
             ExprKind::FieldAccess { .. } => todo!("implement fields"),
@@ -272,7 +272,7 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
                     match self.cfg.get_definition(
                         id.clone(),
                         cursor.block.clone(),
-                        ty.clone(),
+                        *ty,
                         expr,
                         &mut self.graph,
                     ) {
@@ -371,9 +371,9 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
         match definition {
             Definition::Type { ty, assignment } => {
                 let ty = self.type_expr(ty);
-                if let Some(var) =
-                    self.symbol_table
-                        .add_symbol_to_scope(mutable, ident.val, ty.clone())
+                if let Some(var) = self
+                    .symbol_table
+                    .add_symbol_to_scope(mutable, ident.val, ty)
                 {
                     match assignment {
                         Some(Assignment { value, .. }) => {
@@ -381,7 +381,7 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
                             let DataCursor { block, ctrl, data } = self.expr(value, cursor);
                             let value = require_type(&self.graph, span, ty, data, &mut self.errors);
 
-                            self.cfg.assign_variable(block.clone(), var, value.clone());
+                            self.cfg.assign_variable(block.clone(), var, value);
                             CtrlCursor { block, ctrl }
                         }
                         None => cursor,
@@ -394,11 +394,10 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
             Definition::Assignment(Assignment { value, .. }) => {
                 let DataCursor { block, ctrl, data } = self.expr(value, cursor);
 
-                if let Some(var) = self.symbol_table.add_symbol_to_scope(
-                    mutable,
-                    ident.val,
-                    self.graph[&data].ty.clone(),
-                ) {
+                if let Some(var) =
+                    self.symbol_table
+                        .add_symbol_to_scope(mutable, ident.val, self.graph[data].ty)
+                {
                     self.cfg.assign_variable(block.clone(), var, data);
                     CtrlCursor { block, ctrl }
                 } else {
@@ -420,10 +419,10 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
         let DataCursor { block, ctrl, data } = self.expr(value, cursor);
         if let Some(binding) = self.symbol_table.get_binding(ident.val) {
             if binding.mutable {
-                let ty = binding.ty.clone();
+                let ty = binding.ty;
                 let value = require_type(&self.graph, span, ty, data, &mut self.errors);
                 self.cfg
-                    .assign_variable(block.clone(), binding.id.clone(), value.clone());
+                    .assign_variable(block.clone(), binding.id.clone(), value);
             } else {
                 self.errors.add(
                     equal,
@@ -587,30 +586,23 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
         ); // parse the body
 
         let Jumps {
-            continues: mut backedges,
+            continues: mut entrys,
             breaks: mut exits,
         } = self.jump_table.close_loop_block(tok); // get the jumps out
 
         if let Some(end_of_body) = end_of_body {
             if label.is_none() {
-                backedges.push(end_of_body.without_data());
+                entrys.push(end_of_body.without_data());
             } else {
                 exits.push(end_of_body);
             }
         }
 
-        let CtrlCursors {
-            blocks: mut entry_blocks,
-            ctrls: mut entry_ctrls,
-        } = backedges;
-
-        entry_blocks.push(cursor.block);
-        entry_ctrls.push(cursor.ctrl);
+        entrys.push(cursor);
 
         self.cfg.seal_block(
             unsealed_block,
-            entry_blocks,
-            entry_ctrls,
+            entrys,
             &mut self.graph,
             &mut self.errors,
             self.ast,
@@ -625,7 +617,7 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
     }
 
     fn uninitialized_or_moved_variable(&mut self, span: Span, cursor: CtrlCursor) -> DataCursor {
-        self.errors.add(span, Error::ReadUnitializedOrMoved);
+        self.errors.add(span, Error::ReadEitherUnitializedOrMoved);
         cursor.with_data(self.graph.err())
     }
 
@@ -882,7 +874,7 @@ mod lifetime_tests {
         };
 
         // The parser output and AST are gone; the source still owns the suffix bytes.
-        let graph::DataKind::Literal { literal } = &graph[&data].kind else {
+        let graph::DataKind::Literal { literal } = &graph[data].kind else {
             panic!("expected literal");
         };
         assert_eq!(literal.suffix, "suffix");

@@ -11,7 +11,7 @@ pub enum Error {
     UnknownIdent { symbol: Symbol },
     AssignmentToUnknownIdent { symbol: Symbol },
     AssignmentToImmutableIdent { symbol: Symbol },
-    ReadUnitializedOrMoved,
+    ReadEitherUnitializedOrMoved,
 
     // control flow
     LabelOverwrite { label: Symbol },
