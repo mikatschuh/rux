@@ -12,14 +12,14 @@ pub fn require_type(
     value: Data,
     errors: &mut impl Diagnostics,
 ) -> Data {
-    if graph[value].ty == ty {
+    if graph.get_type(value) == ty {
         value
     } else {
         errors.add(
             span,
             Error::WrongType {
                 expected: ty,
-                got: graph[value].ty,
+                got: graph.get_type(value),
             },
         );
         graph.err()

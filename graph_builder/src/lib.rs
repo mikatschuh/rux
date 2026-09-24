@@ -23,7 +23,6 @@ mod type_check;
 
 pub use error::Error;
 pub use graph::{Data, Graph, Type};
-
 pub trait Diagnostics {
     fn add(&mut self, span: Span, err: Error);
 }
@@ -239,10 +238,7 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
     fn expr(&mut self, expr: Expr, cursor: CtrlCursor) -> DataCursor {
         let expression = &self.ast[expr];
         match &expression.val {
-            ExprKind::BuiltinType(builtin_type) => {
-                let ty = self.graph.add_builtin_type(*builtin_type);
-                cursor.with_data(self.graph.type_as_data(ty))
-            }
+            ExprKind::BuiltinType(_) => todo!(),
             ExprKind::Literal(literal) => cursor.with_data(self.graph.add_literal(literal.clone())),
             ExprKind::Boolean(boolean) => cursor.with_data(self.graph.add_boolean(*boolean)),
             ExprKind::Quote(..) => todo!("implement quotes"),
@@ -250,13 +246,13 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
 
             ExprKind::Unary { op, value: input } => {
                 let (cursor, value) = self.expr(*input, cursor).split();
-                let ty = self.graph[value].ty;
+                let ty = self.graph.get_type(value);
                 cursor.with_data(self.graph.add_unary(op.val, value, ty))
             }
             ExprKind::Binary { lhs, op, rhs } => {
                 let (cursor, lhs) = self.expr(*lhs, cursor).split();
                 let (cursor, rhs) = self.expr(*rhs, cursor).split();
-                let ty = self.graph[lhs].ty; // todo
+                let ty = self.graph.get_type(lhs); // todo
                 cursor.with_data(self.graph.add_binary(op.val, lhs, rhs, ty))
             }
             ExprKind::FieldAccess { .. } => todo!("implement fields"),
@@ -384,10 +380,11 @@ impl<'ast, 'src, D: Diagnostics> GraphBuilder<'ast, 'src, D> {
             Definition::Assignment(Assignment { value: expr, .. }) => {
                 let (cursor, value) = self.expr(expr, cursor).split();
 
-                if let Some(var) =
-                    self.symbol_table
-                        .add_symbol_to_scope(mutable, ident.val, self.graph[value].ty)
-                {
+                if let Some(var) = self.symbol_table.add_symbol_to_scope(
+                    mutable,
+                    ident.val,
+                    self.graph.get_type(value),
+                ) {
                     self.cfg.assign_variable(cursor.block, var, value);
                 } else {
                     self.errors.add(keyword, Error::BindingOutsideScope);
@@ -865,7 +862,7 @@ mod lifetime_tests {
         };
 
         // The parser output and AST are gone; the source still owns the suffix bytes.
-        let graph::DataKind::Literal { literal } = &graph[data].kind else {
+        let graph::DataKind::Literal { literal } = &graph[data] else {
             panic!("expected literal");
         };
         assert_eq!(literal.suffix, "suffix");

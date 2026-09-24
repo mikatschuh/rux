@@ -85,7 +85,7 @@ fn process_data_node(
     }
     use DataKind::*;
     // let ty = process_type_node(source, graph, visited, source[node].ty.clone());
-    let data = match source[node].kind.clone() {
+    let data = match source[node].clone() {
         Literal { literal } => {
             let idx = graph.add_node(format!("lit {}", literal));
             visited.insert(node_id, idx);

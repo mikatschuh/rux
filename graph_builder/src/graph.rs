@@ -40,12 +40,6 @@ pub struct PhiID(usize);
 pub struct Type(usize);
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct DataNode<'src> {
-    pub ty: Type,
-    pub kind: DataKind<'src>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Branch {
     pub ctrl: Ctrl,
     pub condition: Data,
@@ -110,45 +104,11 @@ pub enum DataKind<'src> {
     Err,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
-enum DataKey<'src> {
-    Literal {
-        literal: Literal<'src>,
-    },
-    Quote {
-        quote: String,
-    },
-    Boolean(bool),
-    Unit,
-    Unary {
-        op: UnaryOp,
-        input: usize,
-    },
-    Binary {
-        op: BinaryOp,
-        lhs: usize,
-        rhs: usize,
-    },
-    Load {
-        mem: usize,
-        addr: usize,
-    },
-    Phi {
-        merge: usize,
-        variants: Box<[usize]>,
-    },
-
-    Type {
-        ty: usize,
-    },
-
-    Error,
-}
-
 #[derive(Debug)]
 pub struct Graph<'src> {
-    data_nodes: Vec<DataNode<'src>>,
-    ctrl_nodes: Vec<CtrlKind>,
+    datas: Vec<DataKind<'src>>,
+    typed: Vec<Type>,
+    ctrls: Vec<CtrlKind>,
     branches: Vec<Branch>,
     merges: Vec<Merge>,
     phis: Vec<Phi>,
@@ -164,16 +124,8 @@ impl<'src> Graph<'src> {
         (TypeKey::BuiltinType(BuiltinType::Unit), Self::UNIT_TYPE),
         (TypeKey::Err, Self::ERR_TYPE),
     ];
-    const DEFAULT_DATA: [DataNode<'src>; 2] = [
-        DataNode {
-            ty: Self::UNIT_TYPE,
-            kind: DataKind::Unit,
-        },
-        DataNode {
-            ty: Self::ERR_TYPE,
-            kind: DataKind::Err,
-        },
-    ];
+    const DEFAULT_DATA: [DataKind<'src>; 2] = [DataKind::Unit, DataKind::Err];
+    const DEFAULT_TYPED: [Type; 2] = [Self::UNIT_TYPE, Self::ERR_TYPE];
 
     const START: Ctrl = Ctrl(0);
     const UNIT_TYPE: Type = Type(0);
@@ -182,25 +134,22 @@ impl<'src> Graph<'src> {
     const ERR: Data = Data(1);
 
     pub fn new(target_ptr_size: TypeSize) -> Self {
-        let data_nodes = Vec::from(Self::DEFAULT_DATA);
-        let ctrl_nodes = vec![CtrlKind::Start];
-        let branches = vec![];
-        let merges = vec![];
-        let phis = vec![];
-        let types = Vec::from(Self::DEFAULT_TYPES);
-        let type_cache = HashMap::from(Self::DEFALT_TYPE_CACHE);
-
         Self {
-            data_nodes,
-            ctrl_nodes,
-            branches,
-            merges,
-            phis,
-            types,
-            type_cache,
+            datas: Vec::from(Self::DEFAULT_DATA),
+            typed: Vec::from(Self::DEFAULT_TYPED),
+            ctrls: vec![CtrlKind::Start],
+            branches: vec![],
+            merges: vec![],
+            phis: vec![],
+            types: Vec::from(Self::DEFAULT_TYPES),
+            type_cache: HashMap::from(Self::DEFALT_TYPE_CACHE),
 
             target_ptr_size,
         }
+    }
+
+    pub fn get_type(&self, data: Data) -> Type {
+        self.typed[data.0]
     }
 
     pub(super) fn type_ids(&self) -> impl Iterator<Item = Type> + '_ {
@@ -219,14 +168,15 @@ impl<'src> Graph<'src> {
     }
 
     fn push_data(&mut self, kind: DataKind<'src>, ty: Type) -> Data {
-        let len = self.data_nodes.len();
-        self.data_nodes.push(DataNode { kind, ty });
+        let len = self.datas.len();
+        self.datas.push(kind);
+        self.typed.push(ty);
         Data(len)
     }
 
-    fn push_ctrl_node(&mut self, node: CtrlKind) -> Ctrl {
-        let len = self.ctrl_nodes.len();
-        self.ctrl_nodes.push(node);
+    fn push_ctrl_node(&mut self, ctrl: CtrlKind) -> Ctrl {
+        let len = self.ctrls.len();
+        self.ctrls.push(ctrl);
         Ctrl(len)
     }
 
@@ -246,11 +196,6 @@ impl<'src> Graph<'src> {
         let len = self.phis.len();
         self.phis.push(Phi { merge, variants });
         PhiID(len)
-    }
-
-    pub fn type_as_data(&mut self, ty: Type) -> Data {
-        let types_type = self.push_type(TypeKind::Type);
-        self.push_data(DataKind::Type { ty }, types_type)
     }
 
     pub fn add_ctrl_merge(&mut self, merge: MergeID) -> Ctrl {
@@ -330,92 +275,53 @@ impl TypeKind {
     }
 }
 
-impl<'src> DataKind<'src> {
-    fn key(&self, graph: Graph<'src>) -> DataKey<'src> {
-        match self {
-            DataKind::Literal { literal } => DataKey::Literal {
-                literal: literal.clone(),
-            },
-            DataKind::Quote { quote } => DataKey::Quote {
-                quote: quote.clone(),
-            },
-            DataKind::Boolean(boolean) => DataKey::Boolean(*boolean),
-            DataKind::Unit => DataKey::Unit,
-            DataKind::Unary { op, value: input } => DataKey::Unary {
-                op: *op,
-                input: input.0,
-            },
-            DataKind::Binary { op, lhs, rhs } => DataKey::Binary {
-                op: *op,
-                lhs: lhs.0,
-                rhs: rhs.0,
-            },
-            DataKind::Load { ctrl: mem, addr } => DataKey::Load {
-                mem: mem.0,
-                addr: addr.0,
-            },
-            DataKind::Phi { phi } => DataKey::Phi {
-                merge: graph[*phi].merge.0,
-                variants: graph[*phi]
-                    .variants
-                    .iter()
-                    .map(|variant| variant.0)
-                    .collect(),
-            },
-            DataKind::Type { ty } => DataKey::Type { ty: ty.0 },
-            DataKind::Err => DataKey::Error,
-            Self::Placeholder => todo!(),
-        }
-    }
-}
-
 mod graph_indexing {
     use std::ops::{Index, IndexMut};
 
     use crate::graph::{CtrlPlaceholder, DataPlaceholder};
 
     use super::{
-        Branch, BranchID, Ctrl, CtrlKind, Data, DataNode, Graph, Merge, MergeID, Phi, PhiID, Type,
+        Branch, BranchID, Ctrl, CtrlKind, Data, DataKind, Graph, Merge, MergeID, Phi, PhiID, Type,
         TypeKind,
     };
 
     impl<'src> Index<Data> for Graph<'src> {
-        type Output = DataNode<'src>;
+        type Output = DataKind<'src>;
         fn index(&self, index: Data) -> &Self::Output {
-            &self.data_nodes[index.0]
+            &self.datas[index.0]
         }
     }
 
     impl<'src> Index<DataPlaceholder> for Graph<'src> {
-        type Output = DataNode<'src>;
+        type Output = DataKind<'src>;
         fn index(&self, index: DataPlaceholder) -> &Self::Output {
-            &self.data_nodes[index.0]
+            &self.datas[index.0]
         }
     }
 
     impl<'src> IndexMut<DataPlaceholder> for Graph<'src> {
         fn index_mut(&mut self, index: DataPlaceholder) -> &mut Self::Output {
-            &mut self.data_nodes[index.0]
+            &mut self.datas[index.0]
         }
     }
 
     impl<'src> Index<Ctrl> for Graph<'src> {
         type Output = CtrlKind;
         fn index(&self, index: Ctrl) -> &Self::Output {
-            &self.ctrl_nodes[index.0]
+            &self.ctrls[index.0]
         }
     }
 
     impl<'src> Index<CtrlPlaceholder> for Graph<'src> {
         type Output = CtrlKind;
         fn index(&self, index: CtrlPlaceholder) -> &Self::Output {
-            &self.ctrl_nodes[index.0]
+            &self.ctrls[index.0]
         }
     }
 
     impl<'src> IndexMut<CtrlPlaceholder> for Graph<'src> {
         fn index_mut(&mut self, index: CtrlPlaceholder) -> &mut Self::Output {
-            &mut self.ctrl_nodes[index.0]
+            &mut self.ctrls[index.0]
         }
     }
 

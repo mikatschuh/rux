@@ -120,7 +120,13 @@ impl Cfg {
         {
             let mut variants = vec![];
             for block in &blocks {
-                match self.get_definition(*block, var, graph[placeholder].ty, reference, graph) {
+                match self.get_definition(
+                    *block,
+                    var,
+                    graph.get_type(placeholder.data()),
+                    reference,
+                    graph,
+                ) {
                     Some(variant) => variants.push(variant),
                     None => {
                         errors.add(ast[reference].span, Error::ReadEitherUnitializedOrMoved);
@@ -130,7 +136,7 @@ impl Cfg {
             }
 
             let phi = graph.add_phi(merge, variants.into_boxed_slice());
-            graph[placeholder].kind = DataKind::Phi { phi };
+            graph[placeholder] = DataKind::Phi { phi };
         }
 
         let unsealed = &mut self.blocks[block.0];
@@ -178,7 +184,7 @@ impl Cfg {
                 let value = if variants.iter().all(|v| v == first) {
                     variants.pop().unwrap()
                 } else {
-                    let ty = graph[variants[0]].ty;
+                    let ty = graph.get_type(variants[0]);
                     let phi = graph.add_phi(merge, variants.into_boxed_slice());
 
                     graph.add_data_phi(phi, ty)
@@ -387,7 +393,7 @@ impl DataCursors<true> {
 impl Graph<'_> {
     /// Variants.len() has to be greater 0
     pub fn merge_data(&mut self, merge: MergeID, variants: Vec<Data>) -> Data {
-        let ty = self[variants[0]].ty;
+        let ty = self.get_type(variants[0]);
         let phi = self.add_phi(merge, variants.into_boxed_slice());
         self.add_data_phi(phi, ty)
     }
