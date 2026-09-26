@@ -207,14 +207,14 @@ fn process_merge_node(
 
     let merge = graph.add_node(mem!(
         "{}",
-        if source[node].branches.is_empty() {
+        if source[node].prev.is_empty() {
             "never"
         } else {
             "merge"
         }
     ));
     visited.insert(node_id, merge);
-    source[node].branches.iter().enumerate().for_each(|(i, b)| {
+    source[node].prev.iter().enumerate().for_each(|(i, b)| {
         let branch = process_ctrl_node(source, graph, visited, *b);
         graph.add_edge(merge, branch, mem!("{}", i));
     });

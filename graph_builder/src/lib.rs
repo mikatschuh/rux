@@ -22,7 +22,11 @@ mod jumps;
 mod type_check;
 
 pub use error::Error;
-pub use graph::{Data, Graph, Type};
+pub use graph::{
+    Branch, BranchID, Ctrl, CtrlKind, CtrlPlaceholder, Data, DataKind, DataPlaceholder, Graph,
+    Merge, MergeID, Phi, PhiID, Type, TypeKey, TypeKind,
+};
+
 pub trait Diagnostics {
     fn add(&mut self, span: Span, err: Error);
 }

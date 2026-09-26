@@ -1,0 +1,9 @@
+[package]
+name = "canonicalizer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokenizer = { path = "../tokenizer" }
+parser = { path = "../parser" }
+graph_builder = { path = "../graph_builder" }

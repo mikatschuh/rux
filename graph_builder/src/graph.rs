@@ -47,7 +47,7 @@ pub struct Branch {
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Merge {
-    pub branches: Box<[Ctrl]>,
+    pub prev: Box<[Ctrl]>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -188,7 +188,7 @@ impl<'src> Graph<'src> {
 
     pub fn add_merge(&mut self, branches: Box<[Ctrl]>) -> MergeID {
         let len = self.merges.len();
-        self.merges.push(Merge { branches });
+        self.merges.push(Merge { prev: branches });
         MergeID(len)
     }
 
