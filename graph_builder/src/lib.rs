@@ -866,7 +866,7 @@ mod lifetime_tests {
         };
 
         // The parser output and AST are gone; the source still owns the suffix bytes.
-        let graph::DataKind::Literal { literal } = &graph[data] else {
+        let graph::DataKind::Literal(literal) = &graph[data] else {
             panic!("expected literal");
         };
         assert_eq!(literal.suffix, "suffix");

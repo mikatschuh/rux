@@ -38,14 +38,10 @@ pub struct Type(usize);
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum DataKind<'src> {
-    Literal {
-        literal: Literal<'src>,
-    },
-    Quote {
-        quote: String,
-    },
-    Boolean(bool),
     Unit,
+    Literal(Literal<'src>),
+    Quote(String),
+    Boolean(bool),
 
     Unary {
         op: UnaryOp,
@@ -83,7 +79,7 @@ pub enum CtrlKind {
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct BranchKind {
-    pub ctrl: Ctrl,
+    pub parent: Ctrl,
     pub condition: Data,
 }
 
@@ -207,7 +203,10 @@ impl<'src> Graph<'src> {
     }
 
     pub fn add_branch(&mut self, ctrl: Ctrl, condition: Data) -> (Ctrl, Ctrl) {
-        let branch = self.push_branch(BranchKind { ctrl, condition });
+        let branch = self.push_branch(BranchKind {
+            parent: ctrl,
+            condition,
+        });
         (
             self.push_ctrl_node(CtrlKind::Branch { branch, idx: 0 }),
             self.push_ctrl_node(CtrlKind::Branch { branch, idx: 1 }),
@@ -222,7 +221,7 @@ impl<'src> Graph<'src> {
         let ty = self.push_type(TypeKind::BuiltinType(BuiltinType::Unsigned {
             size: self.target_ptr_size,
         }));
-        self.push_data(DataKind::Literal { literal }, ty)
+        self.push_data(DataKind::Literal(literal), ty)
     }
 
     pub fn add_unary(&mut self, op: UnaryOp, value: Data, ty: Type) -> Data {

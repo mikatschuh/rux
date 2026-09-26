@@ -86,12 +86,12 @@ fn process_data_node(
     use DataKind::*;
     // let ty = process_type_node(source, graph, visited, source[node].ty.clone());
     let data = match source[node].clone() {
-        Literal { literal } => {
+        Literal(literal) => {
             let idx = graph.add_node(format!("lit {}", literal));
             visited.insert(node_id, idx);
             idx
         }
-        Quote { quote } => {
+        Quote(quote) => {
             let idx = graph.add_node(format!(
                 "lit \"{}\"",
                 tokenizer::with_written_out_escape_sequences(&quote)
@@ -237,7 +237,7 @@ fn process_branch_node(
 
     let branch = graph.add_node(mem!("branch"));
     visited.insert(node_id, branch);
-    let ctrl = process_ctrl_node(source, graph, visited, source[node].ctrl);
+    let ctrl = process_ctrl_node(source, graph, visited, source[node].parent);
     let condition = process_data_node(source, graph, visited, source[node].condition);
     graph.add_edge(branch, ctrl, mem!("ctrl"));
     graph.add_edge(branch, condition, "condition".to_string());
