@@ -6,7 +6,7 @@ use tokenizer::{Interner, Symbol};
 
 use crate::{
     builder::DataCursor,
-    graph::{BranchID, Ctrl, CtrlKind, Data, DataKind, Graph, MergeID, Type, TypeKind},
+    graph::{Branch, Ctrl, CtrlKind, Data, DataKind, Graph, Merge, Type, TypeKind},
 };
 
 macro_rules! mem {
@@ -33,8 +33,8 @@ type GraphDump = petgraph::Graph<String, String>;
 enum NodeID {
     Data(Data),
     Type(Type),
-    Merge(MergeID),
-    Branch(BranchID),
+    Merge(Merge),
+    Branch(Branch),
     Ctrl(Ctrl),
 }
 
@@ -117,7 +117,10 @@ fn process_data_node(
             graph.add_edge(op, input, "".to_string());
             op
         }
-        Binary { op, lhs, rhs } => {
+        Binary {
+            op,
+            ops: [lhs, rhs],
+        } => {
             let op = graph.add_node(format!("operator {}", op));
             visited.insert(node_id, op);
             let lhs = process_data_node(source, graph, visited, lhs);
@@ -128,12 +131,12 @@ fn process_data_node(
         }
         Load { .. } => todo!(),
 
-        Phi { phi } => {
+        Phi { merge, variants } => {
             let phi_node = graph.add_node("phi".to_string());
             visited.insert(node_id, phi_node);
-            let merge = process_merge_node(source, graph, visited, source[phi].merge);
+            let merge = process_merge_node(source, graph, visited, merge);
 
-            source[phi].variants.iter().enumerate().for_each(|(i, v)| {
+            variants.iter().enumerate().for_each(|(i, v)| {
                 let variant = process_data_node(source, graph, visited, *v);
                 graph.add_edge(phi_node, variant, format!("{}", i));
             });
@@ -198,7 +201,7 @@ fn process_merge_node(
     source: &Graph<'_>,
     graph: &mut GraphDump,
     visited: &mut Visited,
-    node: MergeID,
+    node: Merge,
 ) -> NodeIndex {
     let node_id = NodeID::Merge(node);
     if let Some(idx) = visited.get(&node_id) {
@@ -225,7 +228,7 @@ fn process_branch_node(
     source: &Graph<'_>,
     graph: &mut GraphDump,
     visited: &mut Visited,
-    node: BranchID,
+    node: Branch,
 ) -> NodeIndex {
     let node_id = NodeID::Branch(node);
     if let Some(idx) = visited.get(&node_id) {
@@ -254,19 +257,19 @@ fn process_ctrl_node(
 
     use CtrlKind::*;
     match source[node].clone() {
-        Start => {
+        Entry => {
             let idx = graph.add_node(mem!("start"));
             visited.insert(node_id, idx);
             idx
         }
-        FalseBranch { branch } => {
+        Branch { branch, idx: 0 } => {
             let false_branch = graph.add_node(mem!("false branch"));
             visited.insert(node_id, false_branch);
             let branch = process_branch_node(source, graph, visited, branch);
             graph.add_edge(false_branch, branch, mem!("branch"));
             false_branch
         }
-        TrueBranch { branch } => {
+        Branch { branch, idx: _ } => {
             let true_branch = graph.add_node(mem!("true branch"));
             visited.insert(node_id, true_branch);
             let branch = process_branch_node(source, graph, visited, branch);

@@ -3,7 +3,7 @@ use parser::{AstBuilder, Expr};
 use crate::{
     Diagnostics, Error, Graph,
     binding::BindingID,
-    graph::{Ctrl, CtrlKind, CtrlPlaceholder, Data, DataKind, DataPlaceholder, MergeID, Type},
+    graph::{Ctrl, CtrlKind, CtrlPlaceholder, Data, DataKind, DataPlaceholder, Merge, Type},
 };
 use std::collections::HashMap;
 
@@ -32,7 +32,7 @@ enum CfgNode {
         predecessor: BlockID,
     },
     Merge {
-        merge: MergeID,
+        merge: Merge,
         /// pred.len() > 1
         predecessors: Vec<BlockID>,
     },
@@ -74,7 +74,7 @@ impl Cfg {
         })
     }
 
-    fn merge(&mut self, predecessors: Vec<BlockID>, merge: MergeID) -> BlockID {
+    fn merge(&mut self, predecessors: Vec<BlockID>, merge: Merge) -> BlockID {
         self.push_block(Block {
             definitions: HashMap::new(),
             cfg: CfgNode::Merge {
@@ -135,8 +135,10 @@ impl Cfg {
                 }
             }
 
-            let phi = graph.add_phi(merge, variants.into_boxed_slice());
-            graph[placeholder] = DataKind::Phi { phi };
+            graph[placeholder] = DataKind::Phi {
+                merge,
+                variants: variants.into_boxed_slice(),
+            };
         }
 
         let unsealed = &mut self.blocks[block.0];
@@ -185,9 +187,7 @@ impl Cfg {
                     variants.pop().unwrap()
                 } else {
                     let ty = graph.get_type(variants[0]);
-                    let phi = graph.add_phi(merge, variants.into_boxed_slice());
-
-                    graph.add_data_phi(phi, ty)
+                    graph.add_phi(merge, variants.into_boxed_slice(), ty)
                 };
 
                 Some(value)
@@ -392,10 +392,9 @@ impl DataCursors<true> {
 
 impl Graph<'_> {
     /// Variants.len() has to be greater 0
-    pub fn merge_data(&mut self, merge: MergeID, variants: Vec<Data>) -> Data {
+    pub fn merge_data(&mut self, merge: Merge, variants: Vec<Data>) -> Data {
         let ty = self.get_type(variants[0]);
-        let phi = self.add_phi(merge, variants.into_boxed_slice());
-        self.add_data_phi(phi, ty)
+        self.add_phi(merge, variants.into_boxed_slice(), ty)
     }
 }
 

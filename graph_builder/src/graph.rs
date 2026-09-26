@@ -28,41 +28,68 @@ impl CtrlPlaceholder {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub struct BranchID(usize);
+pub struct Branch(usize);
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub struct MergeID(usize);
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub struct PhiID(usize);
+pub struct Merge(usize);
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub struct Type(usize);
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct Branch {
+pub enum DataKind<'src> {
+    Literal {
+        literal: Literal<'src>,
+    },
+    Quote {
+        quote: String,
+    },
+    Boolean(bool),
+    Unit,
+
+    Unary {
+        op: UnaryOp,
+        value: Data,
+    },
+    Binary {
+        op: BinaryOp,
+        ops: [Data; 2],
+    },
+    Load {
+        ctrl: Ctrl,
+        addr: Data,
+    },
+
+    Phi {
+        merge: Merge, // merge always needs to have the same number of branches as the phi variants
+        variants: Box<[Data]>,
+    },
+
+    Type {
+        ty: Type,
+    },
+
+    Placeholder,
+    Err,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub enum CtrlKind {
+    Entry,
+    Merge { merge: Merge },
+    Branch { branch: Branch, idx: usize },
+    Placeholder,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub struct BranchKind {
     pub ctrl: Ctrl,
     pub condition: Data,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct Merge {
+pub struct MergeKind {
     pub prev: Box<[Ctrl]>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct Phi {
-    pub merge: MergeID, // merge always needs to have the same number of branches as the phi variants
-    pub variants: Box<[Data]>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub enum CtrlKind {
-    Start,
-    Merge { merge: MergeID },
-    TrueBranch { branch: BranchID },
-    FalseBranch { branch: BranchID },
-    Placeholder,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -85,33 +112,13 @@ pub enum TypeKey {
     Err,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub enum DataKind<'src> {
-    Literal { literal: Literal<'src> },
-    Quote { quote: String },
-    Boolean(bool),
-    Unit,
-
-    Unary { op: UnaryOp, value: Data },
-    Binary { op: BinaryOp, lhs: Data, rhs: Data },
-    Load { ctrl: Ctrl, addr: Data },
-
-    Phi { phi: PhiID },
-
-    Type { ty: Type },
-
-    Placeholder,
-    Err,
-}
-
 #[derive(Debug)]
 pub struct Graph<'src> {
     datas: Vec<DataKind<'src>>,
     typed: Vec<Type>,
     ctrls: Vec<CtrlKind>,
-    branches: Vec<Branch>,
-    merges: Vec<Merge>,
-    phis: Vec<Phi>,
+    branches: Vec<BranchKind>,
+    merges: Vec<MergeKind>,
     types: Vec<TypeKind>,
     type_cache: HashMap<TypeKey, Type>,
 
@@ -137,10 +144,9 @@ impl<'src> Graph<'src> {
         Self {
             datas: Vec::from(Self::DEFAULT_DATA),
             typed: Vec::from(Self::DEFAULT_TYPED),
-            ctrls: vec![CtrlKind::Start],
+            ctrls: vec![CtrlKind::Entry],
             branches: vec![],
             merges: vec![],
-            phis: vec![],
             types: Vec::from(Self::DEFAULT_TYPES),
             type_cache: HashMap::from(Self::DEFALT_TYPE_CACHE),
 
@@ -180,33 +186,31 @@ impl<'src> Graph<'src> {
         Ctrl(len)
     }
 
-    fn push_branch(&mut self, branch: Branch) -> BranchID {
+    fn push_branch(&mut self, branch: BranchKind) -> Branch {
         let len = self.branches.len();
         self.branches.push(branch);
-        BranchID(len)
+        Branch(len)
     }
 
-    pub fn add_merge(&mut self, branches: Box<[Ctrl]>) -> MergeID {
+    pub fn add_merge(&mut self, branches: Box<[Ctrl]>) -> Merge {
         let len = self.merges.len();
-        self.merges.push(Merge { prev: branches });
-        MergeID(len)
+        self.merges.push(MergeKind { prev: branches });
+        Merge(len)
     }
 
-    pub fn add_phi(&mut self, merge: MergeID, variants: Box<[Data]>) -> PhiID {
-        let len = self.phis.len();
-        self.phis.push(Phi { merge, variants });
-        PhiID(len)
+    pub fn add_phi(&mut self, merge: Merge, variants: Box<[Data]>, ty: Type) -> Data {
+        self.push_data(DataKind::Phi { merge, variants }, ty)
     }
 
-    pub fn add_ctrl_merge(&mut self, merge: MergeID) -> Ctrl {
+    pub fn add_ctrl_merge(&mut self, merge: Merge) -> Ctrl {
         self.push_ctrl_node(CtrlKind::Merge { merge })
     }
 
     pub fn add_branch(&mut self, ctrl: Ctrl, condition: Data) -> (Ctrl, Ctrl) {
-        let branch = self.push_branch(Branch { ctrl, condition });
+        let branch = self.push_branch(BranchKind { ctrl, condition });
         (
-            self.push_ctrl_node(CtrlKind::FalseBranch { branch }),
-            self.push_ctrl_node(CtrlKind::TrueBranch { branch }),
+            self.push_ctrl_node(CtrlKind::Branch { branch, idx: 0 }),
+            self.push_ctrl_node(CtrlKind::Branch { branch, idx: 1 }),
         )
     }
 
@@ -226,11 +230,13 @@ impl<'src> Graph<'src> {
     }
 
     pub fn add_binary(&mut self, op: BinaryOp, lhs: Data, rhs: Data, ty: Type) -> Data {
-        self.push_data(DataKind::Binary { op, lhs, rhs }, ty)
-    }
-
-    pub fn add_data_phi(&mut self, phi: PhiID, ty: Type) -> Data {
-        self.push_data(DataKind::Phi { phi }, ty)
+        self.push_data(
+            DataKind::Binary {
+                op,
+                ops: [lhs, rhs],
+            },
+            ty,
+        )
     }
 
     pub fn add_boolean(&mut self, boolean: bool) -> Data {
@@ -281,8 +287,7 @@ mod graph_indexing {
     use crate::graph::{CtrlPlaceholder, DataPlaceholder};
 
     use super::{
-        Branch, BranchID, Ctrl, CtrlKind, Data, DataKind, Graph, Merge, MergeID, Phi, PhiID, Type,
-        TypeKind,
+        Branch, BranchKind, Ctrl, CtrlKind, Data, DataKind, Graph, Merge, MergeKind, Type, TypeKind,
     };
 
     impl<'src> Index<Data> for Graph<'src> {
@@ -325,24 +330,17 @@ mod graph_indexing {
         }
     }
 
-    impl<'src> Index<BranchID> for Graph<'src> {
-        type Output = Branch;
-        fn index(&self, index: BranchID) -> &Self::Output {
+    impl<'src> Index<Branch> for Graph<'src> {
+        type Output = BranchKind;
+        fn index(&self, index: Branch) -> &Self::Output {
             &self.branches[index.0]
         }
     }
 
-    impl<'src> Index<MergeID> for Graph<'src> {
-        type Output = Merge;
-        fn index(&self, index: MergeID) -> &Self::Output {
+    impl<'src> Index<Merge> for Graph<'src> {
+        type Output = MergeKind;
+        fn index(&self, index: Merge) -> &Self::Output {
             &self.merges[index.0]
-        }
-    }
-
-    impl<'src> Index<PhiID> for Graph<'src> {
-        type Output = Phi;
-        fn index(&self, index: PhiID) -> &Self::Output {
-            &self.phis[index.0]
         }
     }
 
