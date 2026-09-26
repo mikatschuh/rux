@@ -6,13 +6,14 @@ use std::collections::HashMap;
 
 use graph_builder as source;
 
-mod dedup;
+mod canonical;
 mod graph;
 mod users;
 
 pub use crate::graph::{
     Branch, BranchKind, Ctrl, CtrlKind, Data, DataKind, Graph, Merge, MergeKind,
 };
+pub use canonical::Dir;
 
 struct GvnPass<'src, 'graph> {
     source_graph: &'graph source::Graph<'src>,

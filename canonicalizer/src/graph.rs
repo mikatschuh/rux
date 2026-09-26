@@ -3,7 +3,8 @@ use std::slice::from_ref;
 use parser::{BinaryOp, UnaryOp};
 
 use crate::{
-    dedup::{Dep, UniqueNodes},
+    Dir,
+    canonical::{Dep, UniqueNodes},
     users::{Deps, Users, Uses},
 };
 
@@ -16,7 +17,7 @@ pub type Merge = Dep<MergeKind>;
 pub enum DataKind {
     // Basic Data Types
     Unit,
-    Literal(()),
+    Literal(usize),
     Quote(String),
     Boolean(bool),
 
@@ -110,41 +111,78 @@ impl Graph {
     pub fn add_data_node(&mut self, node: DataKind) -> Data {
         let entry = self.nodes.data.entry(&node);
         self.users
-            .add_data_user(&self.nodes, entry.idx(), node.uses());
+            .add_data_user(&self.nodes, entry.dir(), node.uses());
         entry.add_node(&mut self.nodes.data, node)
     }
 
     pub fn add_ctrl_node(&mut self, node: CtrlKind) -> Ctrl {
         let entry = self.nodes.ctrl.entry(&node);
         self.users
-            .add_ctrl_user(&self.nodes, entry.idx(), node.uses());
+            .add_ctrl_user(&self.nodes, entry.dir(), node.uses());
         entry.add_node(&mut self.nodes.ctrl, node)
     }
 
     pub fn add_branch_node(&mut self, node: BranchKind) -> Branch {
         let entry = self.nodes.branch.entry(&node);
         self.users
-            .add_branch_user(&self.nodes, entry.idx(), node.uses());
+            .add_branch_user(&self.nodes, entry.dir(), node.uses());
         entry.add_node(&mut self.nodes.branch, node)
     }
 
     pub fn add_merge_node(&mut self, node: MergeKind) -> Merge {
         let entry = self.nodes.merge.entry(&node);
         self.users
-            .add_merge_user(&self.nodes, entry.idx(), node.uses());
+            .add_merge_user(&self.nodes, entry.dir(), node.uses());
         entry.add_node(&mut self.nodes.merge, node)
+    }
+
+    pub fn replace_data_node(&mut self, replaced: Dir<DataKind>, replacement: Dir<DataKind>) {
+        self.nodes.data.replace(replaced, replacement);
+    }
+    pub fn replace_ctrl_node(&mut self, replaced: Dir<CtrlKind>, replacement: Dir<CtrlKind>) {
+        self.nodes.ctrl.replace(replaced, replacement);
+    }
+    pub fn replace_branch_node(&mut self, replaced: Dir<BranchKind>, replacement: Dir<BranchKind>) {
+        self.nodes.branch.replace(replaced, replacement);
+    }
+    pub fn replace_merge_node(&mut self, replaced: Dir<MergeKind>, replacement: Dir<MergeKind>) {
+        self.nodes.merge.replace(replaced, replacement);
     }
 }
 
 mod graph_indexing {
     use std::ops::Index;
 
-    use crate::graph::{Data, DataKind, Graph};
+    use crate::{
+        Branch, BranchKind, Ctrl, CtrlKind, Merge, MergeKind,
+        graph::{Data, DataKind, Graph},
+    };
 
     impl Index<Data> for Graph {
         type Output = DataKind;
         fn index(&self, index: Data) -> &Self::Output {
             &self.nodes.data[index]
+        }
+    }
+
+    impl Index<Ctrl> for Graph {
+        type Output = CtrlKind;
+        fn index(&self, index: Ctrl) -> &Self::Output {
+            &self.nodes.ctrl[index]
+        }
+    }
+
+    impl Index<Branch> for Graph {
+        type Output = BranchKind;
+        fn index(&self, index: Branch) -> &Self::Output {
+            &self.nodes.branch[index]
+        }
+    }
+
+    impl Index<Merge> for Graph {
+        type Output = MergeKind;
+        fn index(&self, index: Merge) -> &Self::Output {
+            &self.nodes.merge[index]
         }
     }
 }

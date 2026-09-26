@@ -63,6 +63,7 @@ name = "canonicalizer"
 version = "0.1.0"
 dependencies = [
  "graph_builder",
+ "nonempty",
  "parser",
  "tokenizer",
 ]
