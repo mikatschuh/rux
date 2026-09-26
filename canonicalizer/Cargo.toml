@@ -6,6 +6,4 @@ edition = "2024"
 [dependencies]
 nonempty = "0.12.0"
 
-tokenizer = { path = "../tokenizer" }
-parser = { path = "../parser" }
 graph_builder = { path = "../graph_builder" }

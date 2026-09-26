@@ -23,8 +23,8 @@ mod type_check;
 
 pub use error::Error;
 pub use graph::{
-    Branch, BranchKind, Ctrl, CtrlKind, CtrlPlaceholder, Data, DataKind, DataPlaceholder, Graph,
-    Merge, MergeKind, Type, TypeKey, TypeKind,
+    BinaryOp, Branch, BranchKind, BuiltinType, Ctrl, CtrlKind, CtrlPlaceholder, Data, DataKind,
+    DataPlaceholder, Graph, Merge, MergeKind, Type, TypeKey, TypeKind, UnaryOp,
 };
 
 pub trait Diagnostics {

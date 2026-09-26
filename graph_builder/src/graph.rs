@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use parser::{BinaryOp, BuiltinType, UnaryOp};
+pub use parser::{BinaryOp, BuiltinType, UnaryOp};
 use tokenizer::{Literal, TypeSize};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]

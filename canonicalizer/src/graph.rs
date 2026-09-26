@@ -1,6 +1,6 @@
 use std::slice::from_ref;
 
-use parser::{BinaryOp, UnaryOp};
+use graph_builder::{BinaryOp, UnaryOp};
 
 use crate::{
     Dir,
