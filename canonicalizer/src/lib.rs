@@ -4,120 +4,127 @@
 
 use std::collections::HashMap;
 
-use graph_builder::{Branch, BranchKind, Ctrl, CtrlKind, Data, DataKind, Graph, Merge, MergeKind};
-
-use crate::graph::{
-    Branch as UBranch, BranchKind as UBranchKind, Ctrl as UCtrl, CtrlKind as UCtrlKind,
-    Data as UData, DataKind as UDataKind, Graph as UGraph, Merge as UMerge,
-    MergeKind as UMergeKind,
-};
+use graph_builder as source;
 
 mod dedup;
 mod graph;
 mod users;
 
-struct GvnPass<'src, 'graph> {
-    graph: &'graph Graph<'src>,
-    ugraph: UGraph,
+pub use crate::graph::{
+    Branch, BranchKind, Ctrl, CtrlKind, Data, DataKind, Graph, Merge, MergeKind,
+};
 
-    visited_data: HashMap<Data, UData>,
-    visited_ctrl: HashMap<Ctrl, UCtrl>,
-    visited_branch: HashMap<Branch, UBranch>,
-    visited_merge: HashMap<Merge, UMerge>,
+struct GvnPass<'src, 'graph> {
+    source_graph: &'graph source::Graph<'src>,
+    canonical_graph: Graph,
+
+    visited_data: HashMap<source::Data, Data>,
+    visited_ctrl: HashMap<source::Ctrl, Ctrl>,
+    visited_branch: HashMap<source::Branch, Branch>,
+    visited_merge: HashMap<source::Merge, Merge>,
 }
 
 impl<'src, 'graph> GvnPass<'src, 'graph> {
-    fn process_data(&mut self, data: Data) -> UData {
+    fn process_data(&mut self, data: source::Data) -> Data {
         if let Some(prev) = self.visited_data.get(&data) {
             return *prev;
         }
 
-        let udata = match self.graph[data].clone() {
-            DataKind::Unit => self.ugraph.add_data_node(UDataKind::Unit),
-            DataKind::Literal(_) => todo!("literals shouldn't actually arrive here"),
-            DataKind::Quote(quote) => self.ugraph.add_data_node(UDataKind::Quote(quote)),
-            DataKind::Boolean(boolean) => self.ugraph.add_data_node(UDataKind::Boolean(boolean)),
+        let canonical_data = match self.source_graph[data].clone() {
+            source::DataKind::Unit => self.canonical_graph.add_data_node(DataKind::Unit),
+            source::DataKind::Literal(_) => todo!("literals shouldn't actually arrive here"),
+            source::DataKind::Quote(quote) => {
+                self.canonical_graph.add_data_node(DataKind::Quote(quote))
+            }
+            source::DataKind::Boolean(boolean) => self
+                .canonical_graph
+                .add_data_node(DataKind::Boolean(boolean)),
 
-            DataKind::Unary { op, value } => {
+            source::DataKind::Unary { op, value } => {
                 let value = self.process_data(value);
-                self.ugraph.add_data_node(UDataKind::Unary { op, value })
+                self.canonical_graph
+                    .add_data_node(DataKind::Unary { op, value })
             }
-            DataKind::Binary { op, ops } => {
+            source::DataKind::Binary { op, ops } => {
                 let ops = [self.process_data(ops[0]), self.process_data(ops[1])];
-                self.ugraph.add_data_node(UDataKind::Binary { op, ops })
+                self.canonical_graph
+                    .add_data_node(DataKind::Binary { op, ops })
             }
-            DataKind::Load { .. } => todo!("implement memory"),
+            source::DataKind::Load { .. } => todo!("implement memory"),
 
-            DataKind::Phi { merge, variants } => {
+            source::DataKind::Phi { merge, variants } => {
                 let merge = self.process_merge(merge);
                 let variants = variants
                     .into_iter()
                     .map(|v| self.process_data(v))
                     .collect::<Vec<_>>()
                     .into_boxed_slice();
-                self.ugraph
-                    .add_data_node(UDataKind::Phi { merge, variants })
+                self.canonical_graph
+                    .add_data_node(DataKind::Phi { merge, variants })
             }
 
-            DataKind::Type { .. } | DataKind::Placeholder | DataKind::Err => unreachable!(),
+            source::DataKind::Type { .. }
+            | source::DataKind::Placeholder
+            | source::DataKind::Err => unreachable!(),
         };
 
-        self.visited_data.insert(data, udata);
-        udata
+        self.visited_data.insert(data, canonical_data);
+        canonical_data
     }
 
-    fn process_ctrl(&mut self, ctrl: Ctrl) -> UCtrl {
+    fn process_ctrl(&mut self, ctrl: source::Ctrl) -> Ctrl {
         if let Some(prev) = self.visited_ctrl.get(&ctrl) {
             return *prev;
         }
 
-        let uctrl = match self.graph[ctrl].clone() {
-            CtrlKind::Entry => self.ugraph.add_ctrl_node(UCtrlKind::Entry),
-            CtrlKind::Branch { branch, idx } => {
+        let canonical_ctrl = match self.source_graph[ctrl].clone() {
+            source::CtrlKind::Entry => self.canonical_graph.add_ctrl_node(CtrlKind::Entry),
+            source::CtrlKind::Branch { branch, idx } => {
                 let branch = self.process_branch(branch);
-                self.ugraph.add_ctrl_node(UCtrlKind::Branch { branch, idx })
+                self.canonical_graph
+                    .add_ctrl_node(CtrlKind::Branch { branch, idx })
             }
-            CtrlKind::Merge { merge } => {
+            source::CtrlKind::Merge { merge } => {
                 let merge = self.process_merge(merge);
-                self.ugraph.add_ctrl_node(UCtrlKind::Merge(merge))
+                self.canonical_graph.add_ctrl_node(CtrlKind::Merge(merge))
             }
-            CtrlKind::Placeholder => unreachable!(),
+            source::CtrlKind::Placeholder => unreachable!(),
         };
 
-        self.visited_ctrl.insert(ctrl, uctrl);
-        uctrl
+        self.visited_ctrl.insert(ctrl, canonical_ctrl);
+        canonical_ctrl
     }
 
-    fn process_branch(&mut self, branch: Branch) -> UBranch {
+    fn process_branch(&mut self, branch: source::Branch) -> Branch {
         if let Some(prev) = self.visited_branch.get(&branch) {
             return *prev;
         };
 
-        let BranchKind { parent, condition } = self.graph[branch].clone();
+        let source::BranchKind { parent, condition } = self.source_graph[branch].clone();
         let parent = self.process_ctrl(parent);
         let condition = self.process_data(condition);
-        let ubranch = self
-            .ugraph
-            .add_branch_node(UBranchKind { parent, condition });
+        let canonical_branch = self
+            .canonical_graph
+            .add_branch_node(BranchKind { parent, condition });
 
-        self.visited_branch.insert(branch, ubranch);
-        ubranch
+        self.visited_branch.insert(branch, canonical_branch);
+        canonical_branch
     }
 
-    fn process_merge(&mut self, merge: Merge) -> UMerge {
+    fn process_merge(&mut self, merge: source::Merge) -> Merge {
         if let Some(prev) = self.visited_merge.get(&merge) {
             return *prev;
         }
 
-        let MergeKind { prev } = self.graph[merge].clone();
+        let source::MergeKind { prev } = self.source_graph[merge].clone();
         let prev = prev
             .into_iter()
             .map(|v| self.process_ctrl(v))
             .collect::<Vec<_>>()
             .into_boxed_slice();
-        let umerge = self.ugraph.add_merge_node(UMergeKind { prev });
+        let canonical_merge = self.canonical_graph.add_merge_node(MergeKind { prev });
 
-        self.visited_merge.insert(merge, umerge);
-        umerge
+        self.visited_merge.insert(merge, canonical_merge);
+        canonical_merge
     }
 }

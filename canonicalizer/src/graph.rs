@@ -100,8 +100,7 @@ pub struct Nodes {
     pub merge: UniqueNodes<MergeKind>,
 }
 
-/// `U` stands for Unique and User. In this graph every node is unique and changes
-/// can be followed back to the onces depending on the changed node
+/// In this graph every node is unique and changes can be followed back to the onces depending on the changed node
 pub struct Graph {
     nodes: Nodes,
     users: Users,
