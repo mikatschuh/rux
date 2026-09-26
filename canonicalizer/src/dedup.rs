@@ -8,14 +8,15 @@ use std::{
 /// A type to represent one dependency in the Graph.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Dep<T> {
-    _unused: std::marker::PhantomData<T>,
+    _unused: PhantomData<T>,
     idx: usize,
 }
 
+#[allow(clippy::non_canonical_clone_impl)]
 impl<T> Clone for Dep<T> {
     fn clone(&self) -> Self {
         Self {
-            _unused: PhantomData::default(),
+            _unused: PhantomData,
             idx: self.idx,
         }
     }
@@ -36,14 +37,15 @@ impl<T: PartialEq + Eq> Ord for Dep<T> {
 /// A type to represent one dependency in the Graph.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Idx<T> {
-    _unused: std::marker::PhantomData<T>,
+    _unused: PhantomData<T>,
     idx: usize,
 }
 
+#[allow(clippy::non_canonical_clone_impl)]
 impl<T> Clone for Idx<T> {
     fn clone(&self) -> Self {
         Self {
-            _unused: PhantomData::default(),
+            _unused: PhantomData,
             idx: self.idx,
         }
     }
@@ -64,7 +66,7 @@ pub struct UniqueNodes<T> {
 
 impl<T: Clone + Eq + Hash> UniqueNodes<T> {
     pub fn entry(&mut self, node: &T) -> Entry<T> {
-        if let Some(idx) = self.cache.get(&node) {
+        if let Some(idx) = self.cache.get(node) {
             return Entry {
                 idx: *idx,
                 cached: true,
@@ -124,14 +126,14 @@ impl<T: Clone + Eq + Hash> Entry<T> {
 impl<T> UniqueNodes<T> {
     fn new_idx(&self) -> Idx<T> {
         Idx {
-            _unused: PhantomData::default(),
+            _unused: PhantomData,
             idx: self.indices_deps.len(),
         }
     }
 
     fn new_dep(&self) -> Dep<T> {
         Dep {
-            _unused: std::marker::PhantomData::default(),
+            _unused: PhantomData,
             idx: self.deps_indice.len(),
         }
     }

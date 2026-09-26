@@ -59,7 +59,7 @@ impl Deps for DataKind {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum CtrlKind {
     Entry,
-    Branch { branch: Branch, result_idx: usize },
+    Branch { branch: Branch, idx: usize },
     Merge(Merge),
 }
 
