@@ -129,20 +129,25 @@ pub struct UniqueNodes<T> {
     cache: HashMap<T, Dep<T>>,
 }
 
-impl<T: Clone + Eq + Hash + ReportUses> UniqueNodes<T> {
+pub trait Normalize {
+    fn norm(&mut self, nodes: &Nodes);
+}
+
+impl<T: Clone + Eq + Hash + ReportUses + Normalize> UniqueNodes<T> {
     pub(crate) fn new_entry(
         &self,
-        indirection: &Nodes,
+        nodes: &Nodes,
         user_table: &mut UserTable,
-        node: T,
+        mut node: T,
     ) -> Entry<T> {
+        node.norm(nodes);
         if let Some(dep) = self.cache.get(&node) {
             let dir = self.direct(*dep);
-            self.nodes[dir].add_uses(dir, indirection, user_table);
+            self.nodes[dir].add_uses(dir, nodes, user_table);
             Entry { dir, cached: None }
         } else {
             let dir = self.indirect.next_dir();
-            node.add_uses(dir, indirection, user_table);
+            node.add_uses(dir, nodes, user_table);
             Entry {
                 dir,
                 cached: Some(node),

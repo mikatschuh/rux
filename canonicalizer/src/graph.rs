@@ -3,7 +3,7 @@ use std::slice::from_ref;
 use graph_builder::{BinaryOp, UnaryOp};
 
 use crate::{
-    canonical::{Dep, UniqueNodes},
+    canonical::{Dep, Normalize, UniqueNodes},
     users::{ListUses, UserTable, Uses},
 };
 
@@ -51,6 +51,20 @@ impl ListUses for DataKind {
     }
 }
 
+impl Normalize for DataKind {
+    fn norm(&mut self, _: &Nodes) {
+        match self {
+            DataKind::Literal(_)
+            | DataKind::Quote(_)
+            | DataKind::Boolean(_)
+            | DataKind::Unit
+            | DataKind::Unary { .. }
+            | DataKind::Phi { .. } => {}
+            DataKind::Binary { ops, .. } => ops.sort(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum CtrlKind {
     Entry,
@@ -68,6 +82,10 @@ impl ListUses for CtrlKind {
     }
 }
 
+impl Normalize for CtrlKind {
+    fn norm(&mut self, _: &Nodes) {}
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BranchKind {
     pub parent: Ctrl,
@@ -82,9 +100,17 @@ impl ListUses for BranchKind {
     }
 }
 
+impl Normalize for BranchKind {
+    fn norm(&mut self, _: &Nodes) {}
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MergeKind {
     pub prev: Box<[Ctrl]>,
+}
+
+impl Normalize for MergeKind {
+    fn norm(&mut self, _: &Nodes) {}
 }
 
 impl ListUses for MergeKind {
