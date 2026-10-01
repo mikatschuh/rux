@@ -3,9 +3,8 @@ use std::slice::from_ref;
 use graph_builder::{BinaryOp, UnaryOp};
 
 use crate::{
-    Dir,
     canonical::{Dep, UniqueNodes},
-    users::{Deps, Users, Uses},
+    users::{ListUses, UserTable, Uses},
 };
 
 pub type Data = Dep<DataKind>;
@@ -37,7 +36,7 @@ pub enum DataKind {
     },
 }
 
-impl Deps for DataKind {
+impl ListUses for DataKind {
     fn uses<'a>(&'a self) -> Uses<'a> {
         match self {
             DataKind::Literal(_) | DataKind::Quote(_) | DataKind::Boolean(_) | DataKind::Unit => {
@@ -59,7 +58,7 @@ pub enum CtrlKind {
     Merge(Merge),
 }
 
-impl Deps for CtrlKind {
+impl ListUses for CtrlKind {
     fn uses<'a>(&'a self) -> Uses<'a> {
         match self {
             CtrlKind::Entry => Uses::default(),
@@ -75,7 +74,7 @@ pub struct BranchKind {
     pub condition: Data,
 }
 
-impl Deps for BranchKind {
+impl ListUses for BranchKind {
     fn uses<'a>(&'a self) -> Uses<'a> {
         Uses::default()
             .with_ctrl(from_ref(&self.parent))
@@ -88,7 +87,7 @@ pub struct MergeKind {
     pub prev: Box<[Ctrl]>,
 }
 
-impl Deps for MergeKind {
+impl ListUses for MergeKind {
     fn uses<'a>(&'a self) -> Uses<'a> {
         Uses::default().with_ctrl(&self.prev)
     }
@@ -103,86 +102,36 @@ pub struct Nodes {
 
 /// In this graph every node is unique and changes can be followed back to the onces depending on the changed node
 pub struct Graph {
-    nodes: Nodes,
-    users: Users,
+    pub nodes: Nodes,
+    user_table: UserTable,
 }
 
 impl Graph {
     pub fn add_data_node(&mut self, node: DataKind) -> Data {
-        let entry = self.nodes.data.entry(&node);
-        self.users
-            .add_data_user(&self.nodes, entry.dir(), node.uses());
-        entry.add_node(&mut self.nodes.data, node)
+        self.nodes
+            .data
+            .new_entry(&self.nodes, &mut self.user_table, node)
+            .add_node(&mut self.nodes.data)
     }
 
     pub fn add_ctrl_node(&mut self, node: CtrlKind) -> Ctrl {
-        let entry = self.nodes.ctrl.entry(&node);
-        self.users
-            .add_ctrl_user(&self.nodes, entry.dir(), node.uses());
-        entry.add_node(&mut self.nodes.ctrl, node)
+        self.nodes
+            .ctrl
+            .new_entry(&self.nodes, &mut self.user_table, node)
+            .add_node(&mut self.nodes.ctrl)
     }
 
     pub fn add_branch_node(&mut self, node: BranchKind) -> Branch {
-        let entry = self.nodes.branch.entry(&node);
-        self.users
-            .add_branch_user(&self.nodes, entry.dir(), node.uses());
-        entry.add_node(&mut self.nodes.branch, node)
+        self.nodes
+            .branch
+            .new_entry(&self.nodes, &mut self.user_table, node)
+            .add_node(&mut self.nodes.branch)
     }
 
     pub fn add_merge_node(&mut self, node: MergeKind) -> Merge {
-        let entry = self.nodes.merge.entry(&node);
-        self.users
-            .add_merge_user(&self.nodes, entry.dir(), node.uses());
-        entry.add_node(&mut self.nodes.merge, node)
-    }
-
-    pub fn replace_data_node(&mut self, replaced: Dir<DataKind>, replacement: Dir<DataKind>) {
-        self.nodes.data.replace(replaced, replacement);
-    }
-    pub fn replace_ctrl_node(&mut self, replaced: Dir<CtrlKind>, replacement: Dir<CtrlKind>) {
-        self.nodes.ctrl.replace(replaced, replacement);
-    }
-    pub fn replace_branch_node(&mut self, replaced: Dir<BranchKind>, replacement: Dir<BranchKind>) {
-        self.nodes.branch.replace(replaced, replacement);
-    }
-    pub fn replace_merge_node(&mut self, replaced: Dir<MergeKind>, replacement: Dir<MergeKind>) {
-        self.nodes.merge.replace(replaced, replacement);
-    }
-}
-
-mod graph_indexing {
-    use std::ops::Index;
-
-    use crate::{
-        Branch, BranchKind, Ctrl, CtrlKind, Merge, MergeKind,
-        graph::{Data, DataKind, Graph},
-    };
-
-    impl Index<Data> for Graph {
-        type Output = DataKind;
-        fn index(&self, index: Data) -> &Self::Output {
-            &self.nodes.data[index]
-        }
-    }
-
-    impl Index<Ctrl> for Graph {
-        type Output = CtrlKind;
-        fn index(&self, index: Ctrl) -> &Self::Output {
-            &self.nodes.ctrl[index]
-        }
-    }
-
-    impl Index<Branch> for Graph {
-        type Output = BranchKind;
-        fn index(&self, index: Branch) -> &Self::Output {
-            &self.nodes.branch[index]
-        }
-    }
-
-    impl Index<Merge> for Graph {
-        type Output = MergeKind;
-        fn index(&self, index: Merge) -> &Self::Output {
-            &self.nodes.merge[index]
-        }
+        self.nodes
+            .merge
+            .new_entry(&self.nodes, &mut self.user_table, node)
+            .add_node(&mut self.nodes.merge)
     }
 }

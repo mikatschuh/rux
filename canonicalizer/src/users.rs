@@ -1,40 +1,52 @@
+use std::collections::HashSet;
+
 use crate::{
     canonical::Dir,
     graph::{Branch, BranchKind, Ctrl, CtrlKind, Data, DataKind, Merge, MergeKind, Nodes},
 };
 
-pub trait Deps {
+pub trait ListUses {
     fn uses<'a>(&'a self) -> Uses<'a>;
 }
 
-pub struct Users {
+pub trait ReportUses: Sized + ListUses {
+    fn add_uses(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable);
+    fn remove_uses(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable);
+}
+
+pub struct UserTable {
     data: Vec<DataUsers>,
     ctrl: Vec<CtrlUsers>,
     branch: Vec<BranchUsers>,
     merge: Vec<MergeUsers>,
 }
 
-type UsersFrom<T> = Vec<Dir<T>>;
-type DataUsers = UsersFrom<DataKind>;
+type UsersOf<T> = HashSet<Dir<T>>;
 
-struct CtrlUsers {
-    branch: UsersFrom<BranchKind>,
-    merge: UsersFrom<MergeKind>,
+struct DataUsers {
+    data: UsersOf<DataKind>,
 }
 
-type BranchUsers = UsersFrom<CtrlKind>;
+struct CtrlUsers {
+    branch: UsersOf<BranchKind>,
+    merge: UsersOf<MergeKind>,
+}
+
+struct BranchUsers {
+    ctrl: UsersOf<CtrlKind>,
+}
 
 struct MergeUsers {
-    data: UsersFrom<DataKind>,
-    ctrl: UsersFrom<CtrlKind>,
+    data: UsersOf<DataKind>,
+    ctrl: UsersOf<CtrlKind>,
 }
 
 #[derive(Debug, Default)]
 pub struct Uses<'a> {
-    data: &'a [Data],
-    ctrl: &'a [Ctrl],
-    branch: &'a [Branch],
-    merge: &'a [Merge],
+    pub data: &'a [Data],
+    pub ctrl: &'a [Ctrl],
+    pub branch: &'a [Branch],
+    pub merge: &'a [Merge],
 }
 
 impl<'a> Uses<'a> {
@@ -53,7 +65,7 @@ impl<'a> Uses<'a> {
 
     fn direct(
         self,
-        deps_indice: &Nodes,
+        indirection: &Nodes,
     ) -> DirectUses<
         impl Iterator<Item = Dir<DataKind>>,
         impl Iterator<Item = Dir<CtrlKind>>,
@@ -61,13 +73,13 @@ impl<'a> Uses<'a> {
         impl Iterator<Item = Dir<MergeKind>>,
     > {
         DirectUses {
-            data: self.data.iter().map(|dep| deps_indice.data.direct(*dep)),
-            ctrl: self.ctrl.iter().map(|dep| deps_indice.ctrl.direct(*dep)),
+            data: self.data.iter().map(|dep| indirection.data.direct(*dep)),
+            ctrl: self.ctrl.iter().map(|dep| indirection.ctrl.direct(*dep)),
             branch: self
                 .branch
                 .iter()
-                .map(|dep| deps_indice.branch.direct(*dep)),
-            merge: self.merge.iter().map(|dep| deps_indice.merge.direct(*dep)),
+                .map(|dep| indirection.branch.direct(*dep)),
+            merge: self.merge.iter().map(|dep| indirection.merge.direct(*dep)),
         }
     }
 }
@@ -85,28 +97,78 @@ where
     merge: M,
 }
 
-impl Users {
-    pub fn add_data_user(&mut self, deps_indice: &Nodes, user: Dir<DataKind>, uses: Uses) {
-        let uses = uses.direct(deps_indice);
-        uses.data.for_each(|used| self.data[used].push(user));
-        uses.merge.for_each(|used| self.merge[used].data.push(user));
+impl ReportUses for DataKind {
+    fn add_uses(&self, user_dir: Dir<DataKind>, indirection: &Nodes, user_table: &mut UserTable) {
+        let uses = self.uses().direct(indirection);
+        uses.data.for_each(|used| {
+            user_table.data[used].data.insert(user_dir);
+        });
+        uses.merge.for_each(|used| {
+            user_table.merge[used].data.insert(user_dir);
+        });
     }
 
-    pub fn add_ctrl_user(&mut self, deps_indice: &Nodes, user: Dir<CtrlKind>, uses: Uses) {
-        let uses = uses.direct(deps_indice);
-        uses.branch.for_each(|used| self.branch[used].push(user));
-        uses.merge.for_each(|used| self.merge[used].ctrl.push(user));
+    fn remove_uses(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable) {
+        let uses = self.uses().direct(indirection);
+        uses.data.for_each(|used| {
+            user_table.data[used].data.remove(&user_dir);
+        });
+        uses.merge.for_each(|used| {
+            user_table.merge[used].data.remove(&user_dir);
+        });
+    }
+}
+
+impl ReportUses for CtrlKind {
+    fn add_uses(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable) {
+        let uses = self.uses().direct(indirection);
+        uses.branch.for_each(|used| {
+            user_table.branch[used].ctrl.insert(user_dir);
+        });
+        uses.merge.for_each(|used| {
+            user_table.merge[used].ctrl.insert(user_dir);
+        });
     }
 
-    pub fn add_branch_user(&mut self, deps_indice: &Nodes, user: Dir<BranchKind>, uses: Uses) {
-        uses.direct(deps_indice)
-            .ctrl
-            .for_each(|used| self.ctrl[used].branch.push(user));
+    fn remove_uses(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable) {
+        let uses = self.uses().direct(indirection);
+        uses.branch.for_each(|used| {
+            user_table.branch[used].ctrl.remove(&user_dir);
+        });
+        uses.merge.for_each(|used| {
+            user_table.merge[used].ctrl.remove(&user_dir);
+        });
+    }
+}
+
+impl ReportUses for BranchKind {
+    fn add_uses(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable) {
+        let uses = self.uses().direct(indirection);
+        uses.ctrl.for_each(|used| {
+            user_table.ctrl[used].branch.insert(user_dir);
+        });
     }
 
-    pub fn add_merge_user(&mut self, deps_indice: &Nodes, user: Dir<MergeKind>, uses: Uses) {
-        uses.direct(deps_indice)
-            .ctrl
-            .for_each(|used| self.ctrl[used].merge.push(user));
+    fn remove_uses(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable) {
+        let uses = self.uses().direct(indirection);
+        uses.ctrl.for_each(|used| {
+            user_table.ctrl[used].branch.remove(&user_dir);
+        });
+    }
+}
+
+impl ReportUses for MergeKind {
+    fn add_uses(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable) {
+        let uses = self.uses().direct(indirection);
+        uses.ctrl.for_each(|used| {
+            user_table.ctrl[used].merge.insert(user_dir);
+        });
+    }
+
+    fn remove_uses(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable) {
+        let uses = self.uses().direct(indirection);
+        uses.ctrl.for_each(|used| {
+            user_table.ctrl[used].merge.remove(&user_dir);
+        });
     }
 }
