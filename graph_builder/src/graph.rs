@@ -43,27 +43,13 @@ pub enum DataKind<'src> {
     Quote(String),
     Boolean(bool),
 
-    Unary {
-        op: UnaryOp,
-        value: Data,
-    },
-    Binary {
-        op: BinaryOp,
-        ops: [Data; 2],
-    },
-    Load {
-        ctrl: Ctrl,
-        addr: Data,
-    },
+    Unary { op: UnaryOp, value: Data },
+    Binary { op: BinaryOp, ops: [Data; 2] },
+    Load { ctrl: Ctrl, addr: Data },
 
-    Phi {
-        merge: Merge, // merge always needs to have the same number of branches as the phi variants
-        variants: Box<[Data]>,
-    },
+    Merge { merge: Merge, variants: Box<[Data]> },
 
-    Type {
-        ty: Type,
-    },
+    Type { ty: Type },
 
     Placeholder,
     Err,
@@ -194,8 +180,8 @@ impl<'src> Graph<'src> {
         Merge(len)
     }
 
-    pub fn add_phi(&mut self, merge: Merge, variants: Box<[Data]>, ty: Type) -> Data {
-        self.push_data(DataKind::Phi { merge, variants }, ty)
+    pub fn add_data_merge(&mut self, merge: Merge, variants: Box<[Data]>, ty: Type) -> Data {
+        self.push_data(DataKind::Merge { merge, variants }, ty)
     }
 
     pub fn add_ctrl_merge(&mut self, merge: Merge) -> Ctrl {

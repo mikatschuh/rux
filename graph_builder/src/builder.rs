@@ -15,7 +15,7 @@ pub struct BlockID(usize);
 pub struct Placeholder {
     var: BindingID,
     placeholder: DataPlaceholder,
-    /// this the AST-Node that read out the value of the incomplete phi for the first time
+    /// this the AST-Node that read out the value of the incomplete merges for the first time
     reference: Expr,
 }
 
@@ -111,7 +111,7 @@ impl Cfg {
 
         let placeholders = self.placeholders.pop().unwrap();
 
-        // add thoses backedges to the phi nodes of mutable variables declared outside the loop but used inside
+        // add thoses backedges to the merges nodes of mutable variables declared outside the loop but used inside
         'outer: for Placeholder {
             var,
             placeholder,
@@ -135,7 +135,7 @@ impl Cfg {
                 }
             }
 
-            graph[placeholder] = DataKind::Phi {
+            graph[placeholder] = DataKind::Merge {
                 merge,
                 variants: variants.into_boxed_slice(),
             };
@@ -186,8 +186,7 @@ impl Cfg {
                 let value = if variants.iter().all(|v| v == first) {
                     variants.pop().unwrap()
                 } else {
-                    let ty = graph.get_type(variants[0]);
-                    graph.add_phi(merge, variants.into_boxed_slice(), ty)
+                    graph.merge_data(merge, variants)
                 };
 
                 Some(value)
@@ -394,7 +393,7 @@ impl Graph<'_> {
     /// Variants.len() has to be greater 0
     pub fn merge_data(&mut self, merge: Merge, variants: Vec<Data>) -> Data {
         let ty = self.get_type(variants[0]);
-        self.add_phi(merge, variants.into_boxed_slice(), ty)
+        self.add_data_merge(merge, variants.into_boxed_slice(), ty)
     }
 }
 
@@ -484,7 +483,7 @@ mod tests {
         let Some(value) = &merged.state.states[0] else {
             panic!("merged state should contain a phi");
         };
-        let DataKind::Phi { phi } = &value.kind else {
+        let DataKind::Merge { phi } = &value.kind else {
             panic!("expected state phi");
         };
 

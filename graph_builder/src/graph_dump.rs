@@ -131,7 +131,7 @@ fn process_data_node(
         }
         Load { .. } => todo!(),
 
-        Phi { merge, variants } => {
+        Merge { merge, variants } => {
             let phi_node = graph.add_node("phi".to_string());
             visited.insert(node_id, phi_node);
             let merge = process_merge_node(source, graph, visited, merge);

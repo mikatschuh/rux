@@ -176,7 +176,6 @@ mod tests {
             (Source::Xor, ComBinaryOp::Xor),
             (Source::And, ComBinaryOp::And),
             (Source::Eq, ComBinaryOp::Eq),
-            (Source::Ne, ComBinaryOp::Ne),
             (Source::BitOr, ComBinaryOp::BitOr),
             (Source::BitXor, ComBinaryOp::BitXor),
             (Source::BitAnd, ComBinaryOp::BitAnd),

@@ -669,7 +669,7 @@ mod tests {
             DataKind::Unary { .. } => "unary",
             DataKind::Binary { .. } => "binary",
             DataKind::Load { .. } => "load",
-            DataKind::Phi { .. } => "phi",
+            DataKind::Merge { .. } => "phi",
             DataKind::Type { .. } => "type",
             DataKind::Err => "error",
             DataKind::Placeholder => "placeholder",
@@ -685,7 +685,7 @@ mod tests {
         let expr = ast.add_if(span(), condition, when_body, None);
         let arena = ast.arena();
         with_built_expr(expr, arena, |value| {
-            let DataKind::Phi { phi } = &value.kind else {
+            let DataKind::Merge { phi } = &value.kind else {
                 panic!("if expression should produce a phi");
             };
 

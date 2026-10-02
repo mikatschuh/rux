@@ -33,9 +33,9 @@ pub enum DataKind {
         op: ComBinaryOp,
         ops: OrderedOps,
     },
-    Phi {
+    Merge {
         merge: Merge,
-        /// The IDs have to be in increasing order
+        /// `variants[i]` is the value arriving through `merge.prev[i]`.
         variants: Box<[Data]>,
     },
 }
@@ -49,7 +49,7 @@ impl ListUses for DataKind {
             DataKind::Unary { value, .. } => Uses::default().with_data(from_ref(value)),
             DataKind::Binary { ops, .. } => Uses::default().with_data(ops),
             DataKind::ComBinary { ops, .. } => Uses::default().with_data(ops.get()),
-            DataKind::Phi { merge, variants } => Uses::default()
+            DataKind::Merge { merge, variants } => Uses::default()
                 .with_data(variants)
                 .with_merge(from_ref(merge)),
         }
