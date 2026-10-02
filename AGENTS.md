@@ -14,7 +14,8 @@
 - The compiler is made of passes:
   1. Parsing
     - Tokenization `tokenizer` -> `TokenStream` as interface
-    - Parsing `parser` produces an untyped AST right out of a token stream with name table
+    - AST construction: `parser` produces an untyped AST right out of a token stream with name table
+    - Parsing happens in parallel for every file
   2. Graph Construction `graph_builder`
     - The AST gets traversed and translated into a Sea of Nodes graph with full type information
     - Every diagnostic should be collected here

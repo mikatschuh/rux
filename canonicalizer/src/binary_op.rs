@@ -19,7 +19,6 @@ pub enum ComBinaryOp {
     And,
 
     Eq,
-    Ne,
 
     BitOr,
     BitXor,
@@ -52,76 +51,81 @@ enum Converted {
     Sub,
 }
 
-/// Returns the canonical operator and whether its result must be negated.
-fn convert_operator(op: graph_builder::BinaryOp) -> (Converted, bool) {
+/// Returns the canonical operator and an optional complement to apply to its result.
+fn convert_operator(op: graph_builder::BinaryOp) -> (Converted, Option<UnaryOp>) {
     use graph_builder::BinaryOp as Source;
 
     match op {
-        Source::Or | Source::Nor => (Converted::ComBinaryOp(ComBinaryOp::Or), op == Source::Nor),
-        Source::Xor | Source::Xnor => {
-            (Converted::ComBinaryOp(ComBinaryOp::Xor), op == Source::Xnor)
-        }
-        Source::And | Source::Nand => {
-            (Converted::ComBinaryOp(ComBinaryOp::And), op == Source::Nand)
-        }
-        Source::Eq => (Converted::ComBinaryOp(ComBinaryOp::Eq), false),
-        Source::Ne => (Converted::ComBinaryOp(ComBinaryOp::Ne), false),
+        Source::Or | Source::Nor => (
+            Converted::ComBinaryOp(ComBinaryOp::Or),
+            (op == Source::Nor).then_some(UnaryOp::Not),
+        ),
+        Source::Xor | Source::Xnor => (
+            Converted::ComBinaryOp(ComBinaryOp::Xor),
+            (op == Source::Xnor).then_some(UnaryOp::Not),
+        ),
+        Source::And | Source::Nand => (
+            Converted::ComBinaryOp(ComBinaryOp::And),
+            (op == Source::Nand).then_some(UnaryOp::Not),
+        ),
+        Source::Eq => (Converted::ComBinaryOp(ComBinaryOp::Eq), None),
+        Source::Ne => (Converted::ComBinaryOp(ComBinaryOp::Eq), Some(UnaryOp::Not)),
         Source::Less | Source::Greater => (
             Converted::BinaryOp {
                 op: BinaryOp::Less,
                 reverse: op == Source::Greater,
             },
-            false,
+            None,
         ),
         Source::LessEq | Source::GreaterEq => (
             Converted::BinaryOp {
                 op: BinaryOp::LessEq,
                 reverse: op == Source::GreaterEq,
             },
-            false,
+            None,
         ),
         Source::Lsh => (
             Converted::BinaryOp {
                 op: BinaryOp::Lsh,
                 reverse: false,
             },
-            false,
+            None,
         ),
         Source::Rsh => (
             Converted::BinaryOp {
                 op: BinaryOp::Rsh,
                 reverse: false,
             },
-            false,
+            None,
         ),
         Source::BitOr | Source::BitNor => (
             Converted::ComBinaryOp(ComBinaryOp::BitOr),
-            op == Source::BitNor,
+            (op == Source::BitNor).then_some(UnaryOp::BitNot),
         ),
         Source::BitXor | Source::BitXnor => (
             Converted::ComBinaryOp(ComBinaryOp::BitXor),
-            op == Source::BitXnor,
+            (op == Source::BitXnor).then_some(UnaryOp::BitNot),
         ),
         Source::BitAnd | Source::BitNand => (
             Converted::ComBinaryOp(ComBinaryOp::BitAnd),
-            op == Source::BitNand,
+            (op == Source::BitNand).then_some(UnaryOp::BitNot),
         ),
-        Source::Add => (Converted::ComBinaryOp(ComBinaryOp::Add), false),
-        Source::Sub => (Converted::Sub, false),
-        Source::Mul => (Converted::ComBinaryOp(ComBinaryOp::Mul), false),
+        Source::Add => (Converted::ComBinaryOp(ComBinaryOp::Add), None),
+        Source::Sub => (Converted::Sub, None),
+        Source::Mul => (Converted::ComBinaryOp(ComBinaryOp::Mul), None),
         Source::Div => (
             Converted::BinaryOp {
                 op: BinaryOp::Div,
                 reverse: false,
             },
-            false,
+            None,
         ),
         Source::Mod => (
             Converted::BinaryOp {
                 op: BinaryOp::Mod,
                 reverse: false,
             },
-            false,
+            None,
         ),
         Source::Dot | Source::Cross | Source::Index | Source::App => {
             unreachable!("{op:?} must be lowered before canonicalization")
@@ -130,7 +134,7 @@ fn convert_operator(op: graph_builder::BinaryOp) -> (Converted, bool) {
 }
 
 pub fn process_binary_op(graph: &mut Graph, op: graph_builder::BinaryOp, a: Data, b: Data) -> Data {
-    let (op, negate) = convert_operator(op);
+    let (op, complement) = convert_operator(op);
     let value = match op {
         Converted::BinaryOp { op, reverse } => graph.add_data_node(DataKind::Binary {
             op,
@@ -153,11 +157,8 @@ pub fn process_binary_op(graph: &mut Graph, op: graph_builder::BinaryOp, a: Data
         }
     };
 
-    if negate {
-        graph.add_data_node(DataKind::Unary {
-            op: UnaryOp::Not,
-            value,
-        })
+    if let Some(op) = complement {
+        graph.add_data_node(DataKind::Unary { op, value })
     } else {
         value
     }
@@ -184,7 +185,7 @@ mod tests {
         ] {
             assert_eq!(
                 convert_operator(source),
-                (Converted::ComBinaryOp(canonical), false),
+                (Converted::ComBinaryOp(canonical), None),
                 "{source:?}"
             );
         }
@@ -192,17 +193,17 @@ mod tests {
 
     #[test]
     fn negates_logical_and_bitwise_complements() {
-        for (source, canonical) in [
-            (Source::Nor, ComBinaryOp::Or),
-            (Source::Xnor, ComBinaryOp::Xor),
-            (Source::Nand, ComBinaryOp::And),
-            (Source::BitNor, ComBinaryOp::BitOr),
-            (Source::BitXnor, ComBinaryOp::BitXor),
-            (Source::BitNand, ComBinaryOp::BitAnd),
+        for (source, canonical, complement) in [
+            (Source::Nor, ComBinaryOp::Or, UnaryOp::Not),
+            (Source::Xnor, ComBinaryOp::Xor, UnaryOp::Not),
+            (Source::Nand, ComBinaryOp::And, UnaryOp::Not),
+            (Source::BitNor, ComBinaryOp::BitOr, UnaryOp::BitNot),
+            (Source::BitXnor, ComBinaryOp::BitXor, UnaryOp::BitNot),
+            (Source::BitNand, ComBinaryOp::BitAnd, UnaryOp::BitNot),
         ] {
             assert_eq!(
                 convert_operator(source),
-                (Converted::ComBinaryOp(canonical), true),
+                (Converted::ComBinaryOp(canonical), Some(complement)),
                 "{source:?}"
             );
         }
@@ -222,7 +223,7 @@ mod tests {
         ] {
             assert_eq!(
                 convert_operator(source),
-                (Converted::BinaryOp { op, reverse }, false),
+                (Converted::BinaryOp { op, reverse }, None),
                 "{source:?}"
             );
         }
@@ -230,7 +231,7 @@ mod tests {
 
     #[test]
     fn lowers_subtraction_separately() {
-        assert_eq!(convert_operator(Source::Sub), (Converted::Sub, false));
+        assert_eq!(convert_operator(Source::Sub), (Converted::Sub, None));
     }
 
     #[test]
