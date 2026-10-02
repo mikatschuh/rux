@@ -1,9 +1,9 @@
 use std::slice::from_ref;
 
-use graph_builder::{BinaryOp, UnaryOp};
-
 use crate::{
-    canonical::{Dep, Normalize, UniqueNodes},
+    binary_op::{BinaryOp, ComBinaryOp, OrderedOps},
+    canonical::{Dep, UniqueNodes},
+    unary_op::UnaryOp,
     users::{ListUses, UserTable, Uses},
 };
 
@@ -29,6 +29,10 @@ pub enum DataKind {
         op: BinaryOp,
         ops: [Data; 2],
     },
+    ComBinary {
+        op: ComBinaryOp,
+        ops: OrderedOps,
+    },
     Phi {
         merge: Merge,
         /// The IDs have to be in increasing order
@@ -44,23 +48,10 @@ impl ListUses for DataKind {
             }
             DataKind::Unary { value, .. } => Uses::default().with_data(from_ref(value)),
             DataKind::Binary { ops, .. } => Uses::default().with_data(ops),
+            DataKind::ComBinary { ops, .. } => Uses::default().with_data(ops.get()),
             DataKind::Phi { merge, variants } => Uses::default()
                 .with_data(variants)
                 .with_merge(from_ref(merge)),
-        }
-    }
-}
-
-impl Normalize for DataKind {
-    fn norm(&mut self, _: &Nodes) {
-        match self {
-            DataKind::Literal(_)
-            | DataKind::Quote(_)
-            | DataKind::Boolean(_)
-            | DataKind::Unit
-            | DataKind::Unary { .. }
-            | DataKind::Phi { .. } => {}
-            DataKind::Binary { ops, .. } => ops.sort(),
         }
     }
 }
@@ -82,10 +73,6 @@ impl ListUses for CtrlKind {
     }
 }
 
-impl Normalize for CtrlKind {
-    fn norm(&mut self, _: &Nodes) {}
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BranchKind {
     pub parent: Ctrl,
@@ -100,17 +87,9 @@ impl ListUses for BranchKind {
     }
 }
 
-impl Normalize for BranchKind {
-    fn norm(&mut self, _: &Nodes) {}
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MergeKind {
     pub prev: Box<[Ctrl]>,
-}
-
-impl Normalize for MergeKind {
-    fn norm(&mut self, _: &Nodes) {}
 }
 
 impl ListUses for MergeKind {

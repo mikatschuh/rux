@@ -6,10 +6,13 @@ use std::collections::HashMap;
 
 use graph_builder as source;
 
+mod binary_op;
 mod canonical;
 mod graph;
+mod unary_op;
 mod users;
 
+use crate::binary_op::process_binary_op;
 pub use crate::graph::{
     Branch, BranchKind, Ctrl, CtrlKind, Data, DataKind, Graph, Merge, MergeKind,
 };
@@ -43,13 +46,20 @@ impl<'src, 'graph> GvnPass<'src, 'graph> {
 
             source::DataKind::Unary { op, value } => {
                 let value = self.process_data(value);
+                let op = match op {
+                    source::UnaryOp::Not => unary_op::UnaryOp::Not,
+                    source::UnaryOp::Neg => unary_op::UnaryOp::Neg,
+                    source::UnaryOp::Ptr | source::UnaryOp::Deref => {
+                        todo!("implement memory")
+                    }
+                };
                 self.canonical_graph
                     .add_data_node(DataKind::Unary { op, value })
             }
             source::DataKind::Binary { op, ops } => {
-                let ops = [self.process_data(ops[0]), self.process_data(ops[1])];
-                self.canonical_graph
-                    .add_data_node(DataKind::Binary { op, ops })
+                let a = self.process_data(ops[0]);
+                let b = self.process_data(ops[1]);
+                process_binary_op(&mut self.canonical_graph, op, a, b)
             }
             source::DataKind::Load { .. } => todo!("implement memory"),
 
