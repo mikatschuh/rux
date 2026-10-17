@@ -20,6 +20,7 @@ pub trait ReportUses: Sized + ListUses {
     fn remove_node(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable);
 }
 
+#[derive(Default)]
 pub struct UserTable {
     data: Vec<DataUsers>,
     ctrl: Vec<CtrlUsers>,

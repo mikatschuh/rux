@@ -130,6 +130,19 @@ pub struct UniqueNodes<T> {
     cache: HashMap<T, Dep<T>>,
 }
 
+impl<T> Default for UniqueNodes<T> {
+    fn default() -> Self {
+        Self {
+            indirect: Indirect {
+                to_direct: Vec::new(),
+                from_direct: Vec::new(),
+            },
+            nodes: Vec::new(),
+            cache: HashMap::new(),
+        }
+    }
+}
+
 impl<T: Clone + Eq + Hash + ReportUses + Debug> UniqueNodes<T> {
     pub fn add_entry(
         &self,
@@ -157,7 +170,7 @@ impl<T: Clone + Eq + Hash + ReportUses + Debug> UniqueNodes<T> {
 
     pub fn allocate(&mut self) -> Dep<T> {
         let deps_count = self.indirect.to_direct.len();
-        self.indirect.to_direct[deps_count] = Dir::new(usize::MAX);
+        self.indirect.to_direct.push(Dir::new(usize::MAX));
         Dep::new(deps_count)
     }
 

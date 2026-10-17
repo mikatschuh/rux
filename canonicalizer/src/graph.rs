@@ -2,9 +2,8 @@ use std::slice::from_ref;
 
 use crate::{
     Dir,
-    binary_op::{BinaryOp, ComBinaryOp, OrderedOps},
     canonical::{Dep, UniqueNodes},
-    unary_op::UnaryOp,
+    operator::{BinaryOp, ComBinaryOp, OrderedOps, UnaryOp},
     users::{ListUses, UserTable, Uses},
 };
 
@@ -99,6 +98,7 @@ impl ListUses for MergeKind {
     }
 }
 
+#[derive(Default)]
 pub struct Nodes {
     pub data: UniqueNodes<DataKind>,
     pub ctrl: UniqueNodes<CtrlKind>,
@@ -106,6 +106,7 @@ pub struct Nodes {
     pub merge: UniqueNodes<MergeKind>,
 }
 
+#[derive(Default)]
 struct FreeLists {
     data: Vec<Dir<DataKind>>,
     ctrl: Vec<Dir<CtrlKind>>,
@@ -114,6 +115,7 @@ struct FreeLists {
 }
 
 /// In this graph every node is unique and changes can be followed back to the onces depending on the changed node
+#[derive(Default)]
 pub struct Graph {
     pub nodes: Nodes,
     free_lists: FreeLists,
