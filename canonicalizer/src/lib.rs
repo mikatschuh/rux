@@ -36,15 +36,20 @@ impl<'src, 'graph> GvnPass<'src, 'graph> {
             return *prev;
         }
 
-        let canonical_data = match self.source_graph[data].clone() {
-            source::DataKind::Unit => self.canonical_graph.add_data_node(DataKind::Unit),
+        let canonical_data = self.canonical_graph.nodes.data.allocate();
+        self.visited_data.insert(data, canonical_data);
+
+        match self.source_graph[data].clone() {
+            source::DataKind::Unit => self
+                .canonical_graph
+                .add_data_node(canonical_data, DataKind::Unit),
             source::DataKind::Literal(_) => todo!("literals shouldn't actually arrive here"),
-            source::DataKind::Quote(quote) => {
-                self.canonical_graph.add_data_node(DataKind::Quote(quote))
-            }
+            source::DataKind::Quote(quote) => self
+                .canonical_graph
+                .add_data_node(canonical_data, DataKind::Quote(quote)),
             source::DataKind::Boolean(boolean) => self
                 .canonical_graph
-                .add_data_node(DataKind::Boolean(boolean)),
+                .add_data_node(canonical_data, DataKind::Boolean(boolean)),
 
             source::DataKind::Unary { op, value } => {
                 let value = self.process_data(value);
@@ -56,12 +61,12 @@ impl<'src, 'graph> GvnPass<'src, 'graph> {
                     }
                 };
                 self.canonical_graph
-                    .add_data_node(DataKind::Unary { op, value })
+                    .add_data_node(canonical_data, DataKind::Unary { op, value })
             }
             source::DataKind::Binary { op, ops } => {
                 let a = self.process_data(ops[0]);
                 let b = self.process_data(ops[1]);
-                process_binary_op(&mut self.canonical_graph, op, a, b)
+                process_binary_op(&mut self.canonical_graph, op, a, b, canonical_data)
             }
             source::DataKind::Load { .. } => todo!("implement memory"),
 
@@ -79,18 +84,19 @@ impl<'src, 'graph> GvnPass<'src, 'graph> {
                     "data-mergee/merge arity mismatch"
                 );
                 let variants = permutation.iter().map(|&i| variants[i]).collect();
-                self.canonical_graph.add_data_node(DataKind::Merge {
-                    merge: canonical_merge,
-                    variants,
-                })
+                self.canonical_graph.add_data_node(
+                    canonical_data,
+                    DataKind::Merge {
+                        merge: canonical_merge,
+                        variants,
+                    },
+                )
             }
 
             source::DataKind::Type { .. }
             | source::DataKind::Placeholder
             | source::DataKind::Err => unreachable!(),
         };
-
-        self.visited_data.insert(data, canonical_data);
         canonical_data
     }
 
@@ -99,21 +105,26 @@ impl<'src, 'graph> GvnPass<'src, 'graph> {
             return *prev;
         }
 
-        let canonical_ctrl = match self.source_graph[ctrl].clone() {
-            source::CtrlKind::Entry => self.canonical_graph.add_ctrl_node(CtrlKind::Entry),
+        let canonical_ctrl = self.canonical_graph.nodes.ctrl.allocate();
+        self.visited_ctrl.insert(ctrl, canonical_ctrl);
+
+        match self.source_graph[ctrl].clone() {
+            source::CtrlKind::Entry => self
+                .canonical_graph
+                .add_ctrl_node(canonical_ctrl, CtrlKind::Entry),
             source::CtrlKind::Branch { branch, idx } => {
                 let branch = self.process_branch(branch);
                 self.canonical_graph
-                    .add_ctrl_node(CtrlKind::Branch { branch, idx })
+                    .add_ctrl_node(canonical_ctrl, CtrlKind::Branch { branch, idx })
             }
             source::CtrlKind::Merge { merge } => {
                 let merge = self.process_merge(merge);
-                self.canonical_graph.add_ctrl_node(CtrlKind::Merge(merge))
+                self.canonical_graph
+                    .add_ctrl_node(canonical_ctrl, CtrlKind::Merge(merge))
             }
             source::CtrlKind::Placeholder => unreachable!(),
         };
 
-        self.visited_ctrl.insert(ctrl, canonical_ctrl);
         canonical_ctrl
     }
 
@@ -122,14 +133,15 @@ impl<'src, 'graph> GvnPass<'src, 'graph> {
             return *prev;
         };
 
+        let canonical_branch = self.canonical_graph.nodes.branch.allocate();
+        self.visited_branch.insert(branch, canonical_branch);
+
         let source::BranchKind { parent, condition } = self.source_graph[branch].clone();
         let parent = self.process_ctrl(parent);
         let condition = self.process_data(condition);
-        let canonical_branch = self
-            .canonical_graph
-            .add_branch_node(BranchKind { parent, condition });
+        self.canonical_graph
+            .add_branch_node(canonical_branch, BranchKind { parent, condition });
 
-        self.visited_branch.insert(branch, canonical_branch);
         canonical_branch
     }
 
@@ -137,6 +149,9 @@ impl<'src, 'graph> GvnPass<'src, 'graph> {
         if let Some(prev) = self.visited_merge.get(&merge) {
             return *prev;
         }
+
+        let canonical_merge = self.canonical_graph.nodes.merge.allocate();
+        self.visited_merge.insert(merge, canonical_merge);
 
         let source::MergeKind { prev } = self.source_graph[merge].clone();
         let prev = prev
@@ -146,11 +161,11 @@ impl<'src, 'graph> GvnPass<'src, 'graph> {
             .into_boxed_slice();
         let permutation = input_permutation(&prev);
         let prev = permutation.iter().map(|&i| prev[i]).collect();
-        let canonical_merge = self.canonical_graph.add_merge_node(MergeKind { prev });
+        self.canonical_graph
+            .add_merge_node(canonical_merge, MergeKind { prev });
 
         self.merge_variant_permutation_table
             .insert(merge, permutation);
-        self.visited_merge.insert(merge, canonical_merge);
         canonical_merge
     }
 }

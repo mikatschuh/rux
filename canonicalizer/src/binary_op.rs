@@ -133,34 +133,56 @@ fn convert_operator(op: graph_builder::BinaryOp) -> (Converted, Option<UnaryOp>)
     }
 }
 
-pub fn process_binary_op(graph: &mut Graph, op: graph_builder::BinaryOp, a: Data, b: Data) -> Data {
+pub fn process_binary_op(
+    graph: &mut Graph,
+    op: graph_builder::BinaryOp,
+    a: Data,
+    b: Data,
+    result: Data,
+) {
     let (op, complement) = convert_operator(op);
-    let value = match op {
-        Converted::BinaryOp { op, reverse } => graph.add_data_node(DataKind::Binary {
-            op,
-            ops: if reverse { [b, a] } else { [a, b] },
-        }),
-        Converted::ComBinaryOp(op) => graph.add_data_node(DataKind::ComBinary {
-            op,
-            ops: OrderedOps::new_sorted([a, b]),
-        }),
+    let value = if complement.is_some() {
+        graph.nodes.data.allocate()
+    } else {
+        result
+    };
+    match op {
+        Converted::BinaryOp { op, reverse } => graph.add_data_node(
+            value,
+            DataKind::Binary {
+                op,
+                ops: if reverse { [b, a] } else { [a, b] },
+            },
+        ),
+        Converted::ComBinaryOp(op) => graph.add_data_node(
+            value,
+            DataKind::ComBinary {
+                op,
+                ops: OrderedOps::new_sorted([a, b]),
+            },
+        ),
         Converted::Sub => {
             // a - b canonicalizes to a + (-b); negate before sorting operands.
-            let b = graph.add_data_node(DataKind::Unary {
-                op: UnaryOp::Neg,
-                value: b,
-            });
-            graph.add_data_node(DataKind::ComBinary {
-                op: ComBinaryOp::Add,
-                ops: OrderedOps::new_sorted([a, b]),
-            })
+            let b = graph.nodes.data.allocate();
+            graph.add_data_node(
+                b,
+                DataKind::Unary {
+                    op: UnaryOp::Neg,
+                    value: b,
+                },
+            );
+            graph.add_data_node(
+                value,
+                DataKind::ComBinary {
+                    op: ComBinaryOp::Add,
+                    ops: OrderedOps::new_sorted([a, b]),
+                },
+            )
         }
     };
 
     if let Some(op) = complement {
-        graph.add_data_node(DataKind::Unary { op, value })
-    } else {
-        value
+        graph.add_data_node(result, DataKind::Unary { op, value })
     }
 }
 

@@ -121,7 +121,7 @@ pub struct Graph {
 }
 
 impl Graph {
-    pub fn add_data_node(&mut self, node: DataKind) -> Data {
+    pub fn add_data_node(&mut self, dep: Dep<DataKind>, node: DataKind) {
         self.nodes
             .data
             .add_entry(
@@ -130,10 +130,10 @@ impl Graph {
                 &mut self.user_table,
                 node,
             )
-            .add_node(&mut self.nodes.data)
+            .fill_in(&mut self.nodes.data, dep)
     }
 
-    pub fn add_ctrl_node(&mut self, node: CtrlKind) -> Ctrl {
+    pub fn add_ctrl_node(&mut self, dep: Dep<CtrlKind>, node: CtrlKind) {
         self.nodes
             .ctrl
             .add_entry(
@@ -142,10 +142,10 @@ impl Graph {
                 &mut self.user_table,
                 node,
             )
-            .add_node(&mut self.nodes.ctrl)
+            .fill_in(&mut self.nodes.ctrl, dep)
     }
 
-    pub fn add_branch_node(&mut self, node: BranchKind) -> Branch {
+    pub fn add_branch_node(&mut self, dep: Dep<BranchKind>, node: BranchKind) {
         self.nodes
             .branch
             .add_entry(
@@ -154,10 +154,10 @@ impl Graph {
                 &mut self.user_table,
                 node,
             )
-            .add_node(&mut self.nodes.branch)
+            .fill_in(&mut self.nodes.branch, dep)
     }
 
-    pub fn add_merge_node(&mut self, node: MergeKind) -> Merge {
+    pub fn add_merge_node(&mut self, dep: Dep<MergeKind>, node: MergeKind) {
         self.nodes
             .merge
             .add_entry(
@@ -166,6 +166,6 @@ impl Graph {
                 &mut self.user_table,
                 node,
             )
-            .add_node(&mut self.nodes.merge)
+            .fill_in(&mut self.nodes.merge, dep)
     }
 }
