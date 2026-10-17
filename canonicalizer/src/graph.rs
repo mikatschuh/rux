@@ -1,6 +1,7 @@
 use std::slice::from_ref;
 
 use crate::{
+    Dir,
     binary_op::{BinaryOp, ComBinaryOp, OrderedOps},
     canonical::{Dep, UniqueNodes},
     unary_op::UnaryOp,
@@ -105,9 +106,17 @@ pub struct Nodes {
     pub merge: UniqueNodes<MergeKind>,
 }
 
+struct FreeLists {
+    data: Vec<Dir<DataKind>>,
+    ctrl: Vec<Dir<CtrlKind>>,
+    branch: Vec<Dir<BranchKind>>,
+    merge: Vec<Dir<MergeKind>>,
+}
+
 /// In this graph every node is unique and changes can be followed back to the onces depending on the changed node
 pub struct Graph {
     pub nodes: Nodes,
+    free_lists: FreeLists,
     user_table: UserTable,
 }
 
@@ -115,28 +124,48 @@ impl Graph {
     pub fn add_data_node(&mut self, node: DataKind) -> Data {
         self.nodes
             .data
-            .new_entry(&self.nodes, &mut self.user_table, node)
+            .add_entry(
+                &mut self.free_lists.data,
+                &self.nodes,
+                &mut self.user_table,
+                node,
+            )
             .add_node(&mut self.nodes.data)
     }
 
     pub fn add_ctrl_node(&mut self, node: CtrlKind) -> Ctrl {
         self.nodes
             .ctrl
-            .new_entry(&self.nodes, &mut self.user_table, node)
+            .add_entry(
+                &mut self.free_lists.ctrl,
+                &self.nodes,
+                &mut self.user_table,
+                node,
+            )
             .add_node(&mut self.nodes.ctrl)
     }
 
     pub fn add_branch_node(&mut self, node: BranchKind) -> Branch {
         self.nodes
             .branch
-            .new_entry(&self.nodes, &mut self.user_table, node)
+            .add_entry(
+                &mut self.free_lists.branch,
+                &self.nodes,
+                &mut self.user_table,
+                node,
+            )
             .add_node(&mut self.nodes.branch)
     }
 
     pub fn add_merge_node(&mut self, node: MergeKind) -> Merge {
         self.nodes
             .merge
-            .new_entry(&self.nodes, &mut self.user_table, node)
+            .add_entry(
+                &mut self.free_lists.merge,
+                &self.nodes,
+                &mut self.user_table,
+                node,
+            )
             .add_node(&mut self.nodes.merge)
     }
 }

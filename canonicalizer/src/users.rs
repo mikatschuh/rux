@@ -10,8 +10,14 @@ pub trait ListUses {
 }
 
 pub trait ReportUses: Sized + ListUses {
-    fn add_uses(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable);
-    fn remove_uses(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable);
+    fn add_node(
+        &self,
+        user_dir: Dir<Self>,
+        indirection: &Nodes,
+        user_table: &mut UserTable,
+        reused: bool,
+    );
+    fn remove_node(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable);
 }
 
 pub struct UserTable {
@@ -23,19 +29,23 @@ pub struct UserTable {
 
 type UsersOf<T> = HashSet<Dir<T>>;
 
+#[derive(Default)]
 struct DataUsers {
     data: UsersOf<DataKind>,
 }
 
+#[derive(Default)]
 struct CtrlUsers {
     branch: UsersOf<BranchKind>,
     merge: UsersOf<MergeKind>,
 }
 
+#[derive(Default)]
 struct BranchUsers {
     ctrl: UsersOf<CtrlKind>,
 }
 
+#[derive(Default)]
 struct MergeUsers {
     data: UsersOf<DataKind>,
     ctrl: UsersOf<CtrlKind>,
@@ -98,7 +108,16 @@ where
 }
 
 impl ReportUses for DataKind {
-    fn add_uses(&self, user_dir: Dir<DataKind>, indirection: &Nodes, user_table: &mut UserTable) {
+    fn add_node(
+        &self,
+        user_dir: Dir<DataKind>,
+        indirection: &Nodes,
+        user_table: &mut UserTable,
+        reused: bool,
+    ) {
+        if !reused {
+            user_table.data.push(DataUsers::default())
+        }
         let uses = self.uses().direct(indirection);
         uses.data.for_each(|used| {
             user_table.data[used].data.insert(user_dir);
@@ -108,7 +127,8 @@ impl ReportUses for DataKind {
         });
     }
 
-    fn remove_uses(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable) {
+    fn remove_node(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable) {
+        user_table.data[user_dir].data.clear();
         let uses = self.uses().direct(indirection);
         uses.data.for_each(|used| {
             user_table.data[used].data.remove(&user_dir);
@@ -120,7 +140,16 @@ impl ReportUses for DataKind {
 }
 
 impl ReportUses for CtrlKind {
-    fn add_uses(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable) {
+    fn add_node(
+        &self,
+        user_dir: Dir<Self>,
+        indirection: &Nodes,
+        user_table: &mut UserTable,
+        reused: bool,
+    ) {
+        if !reused {
+            user_table.ctrl.push(CtrlUsers::default())
+        }
         let uses = self.uses().direct(indirection);
         uses.branch.for_each(|used| {
             user_table.branch[used].ctrl.insert(user_dir);
@@ -130,7 +159,9 @@ impl ReportUses for CtrlKind {
         });
     }
 
-    fn remove_uses(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable) {
+    fn remove_node(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable) {
+        user_table.ctrl[user_dir].branch.clear();
+        user_table.ctrl[user_dir].merge.clear();
         let uses = self.uses().direct(indirection);
         uses.branch.for_each(|used| {
             user_table.branch[used].ctrl.remove(&user_dir);
@@ -142,14 +173,24 @@ impl ReportUses for CtrlKind {
 }
 
 impl ReportUses for BranchKind {
-    fn add_uses(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable) {
+    fn add_node(
+        &self,
+        user_dir: Dir<Self>,
+        indirection: &Nodes,
+        user_table: &mut UserTable,
+        reused: bool,
+    ) {
+        if !reused {
+            user_table.branch.push(BranchUsers::default())
+        }
         let uses = self.uses().direct(indirection);
         uses.ctrl.for_each(|used| {
             user_table.ctrl[used].branch.insert(user_dir);
         });
     }
 
-    fn remove_uses(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable) {
+    fn remove_node(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable) {
+        user_table.branch[user_dir].ctrl.clear();
         let uses = self.uses().direct(indirection);
         uses.ctrl.for_each(|used| {
             user_table.ctrl[used].branch.remove(&user_dir);
@@ -158,14 +199,25 @@ impl ReportUses for BranchKind {
 }
 
 impl ReportUses for MergeKind {
-    fn add_uses(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable) {
+    fn add_node(
+        &self,
+        user_dir: Dir<Self>,
+        indirection: &Nodes,
+        user_table: &mut UserTable,
+        reused: bool,
+    ) {
+        if !reused {
+            user_table.merge.push(MergeUsers::default())
+        }
         let uses = self.uses().direct(indirection);
         uses.ctrl.for_each(|used| {
             user_table.ctrl[used].merge.insert(user_dir);
         });
     }
 
-    fn remove_uses(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable) {
+    fn remove_node(&self, user_dir: Dir<Self>, indirection: &Nodes, user_table: &mut UserTable) {
+        user_table.merge[user_dir].data.clear();
+        user_table.merge[user_dir].ctrl.clear();
         let uses = self.uses().direct(indirection);
         uses.ctrl.for_each(|used| {
             user_table.ctrl[used].merge.remove(&user_dir);
