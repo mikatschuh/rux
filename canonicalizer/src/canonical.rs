@@ -105,7 +105,7 @@ impl<T> Indirect<T> {
     }
 
     /// Remaps all `Dep` that pointed to `replaced` to now point to `new`
-    fn remap(&mut self, free_list: &mut Vec<Dir<T>>, old: Dir<T>, new: Dir<T>)
+    fn remap(&mut self, old: Dir<T>, new: Dir<T>)
     where
         T: Debug,
     {
@@ -117,7 +117,6 @@ impl<T> Indirect<T> {
             self.to_direct[dep.idx] = new;
             self.from_direct[new].push(*dep)
         }
-        free_list.push(old)
     }
 }
 
@@ -189,8 +188,9 @@ impl<T: Clone + Eq + Hash + ReportUses + Debug> UniqueNodes<T> {
         if old == new {
             return;
         }
-        self.indirect.remap(free_list, old, new);
+        self.indirect.remap(old, new);
         self.nodes[old].remove_node(old, indirection, user_table);
+        free_list.push(old);
     }
 }
 
