@@ -143,7 +143,7 @@ impl<T> Default for UniqueNodes<T> {
 }
 
 impl<T: Clone + Eq + Hash + ReportUses + Debug> UniqueNodes<T> {
-    pub fn add_entry(
+    pub(crate) fn add_entry(
         &self,
         free_list: &mut Vec<Dir<T>>,
         nodes: &Nodes,
@@ -167,7 +167,7 @@ impl<T: Clone + Eq + Hash + ReportUses + Debug> UniqueNodes<T> {
         }
     }
 
-    pub fn allocate(&mut self) -> Dep<T> {
+    pub(crate) fn allocate(&mut self) -> Dep<T> {
         let deps_count = self.indirect.to_direct.len();
         self.indirect.to_direct.push(Dir::new(usize::MAX));
         Dep::new(deps_count)
@@ -177,31 +177,26 @@ impl<T: Clone + Eq + Hash + ReportUses + Debug> UniqueNodes<T> {
         self.indirect.to_direct[dep.idx]
     }
 
-    pub fn remap(
-        &mut self,
-        free_list: &mut Vec<Dir<T>>,
-        indirection: &Nodes,
-        user_table: &mut UserTable,
-        old: Dir<T>,
-        new: Dir<T>,
-    ) {
+    pub fn remap_deps(&mut self, free_list: &mut Vec<Dir<T>>, old: Dep<T>, new: Dep<T>) {
+        let old = self.direct(old);
+        let new = self.direct(new);
         if old == new {
             return;
         }
         self.indirect.remap(old, new);
-        self.nodes[old].remove_node(old, indirection, user_table);
+        self.cache.remove(&self.nodes[old]);
         free_list.push(old);
     }
 }
 
-pub enum Entry<T> {
+pub(crate) enum Entry<T> {
     Cached { dir: Dir<T> },
     NewReused { free_dir: Dir<T>, node: T },
     New(T),
 }
 
 impl<T: Clone + Eq + Hash> Entry<T> {
-    pub fn fill_in(self, graph: &mut UniqueNodes<T>, placeholder: Dep<T>) {
+    pub(crate) fn fill_in(self, graph: &mut UniqueNodes<T>, placeholder: Dep<T>) {
         match self {
             Entry::Cached { dir } => graph.indirect.add_existing_dep(dir, placeholder), // reuse existing dependency
             Entry::NewReused { free_dir, node } => {
@@ -218,31 +213,6 @@ impl<T: Clone + Eq + Hash> Entry<T> {
 
                 graph.nodes.push(node.clone());
                 graph.cache.insert(node, placeholder);
-            }
-        }
-    }
-
-    pub fn add_node(self, graph: &mut UniqueNodes<T>) -> Dep<T> {
-        match self {
-            Entry::Cached { dir } => graph.indirect.from_direct[dir][0], // reuse existing dependency
-            Entry::NewReused { free_dir, node } => {
-                let dep = Dep::new(graph.indirect.to_direct.len());
-                graph.indirect.to_direct.push(free_dir);
-                graph.indirect.from_direct[free_dir] = nonempty![dep];
-
-                graph.nodes[free_dir] = node.clone();
-                graph.cache.insert(node, dep);
-                dep
-            }
-            Entry::New(node) => {
-                let dir = Dir::new(graph.indirect.from_direct.len());
-                let dep = Dep::new(graph.indirect.to_direct.len());
-                graph.indirect.to_direct.push(dir);
-                graph.indirect.from_direct.push(nonempty![dep]);
-
-                graph.nodes.push(node.clone());
-                graph.cache.insert(node, dep);
-                dep
             }
         }
     }

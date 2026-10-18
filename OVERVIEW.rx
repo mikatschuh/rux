@@ -51,7 +51,7 @@ struct Vec3 {
 }
 
 // enums
-enum State {
+union State {
     Done,
     Processing,
     NotStarted,
@@ -59,7 +59,7 @@ enum State {
 // commas can be used to insert a void type
 
 // without commas:
-enum State {
+union State {
     Done       ()
     Processing ()
     NotStarted ()
@@ -69,20 +69,32 @@ enum State {
 newty Meter i32
 
 // types can have parameters:
-enum Result fn(ok type, err type) {
+union Result fn(ok type, err type) {
     Ok ok
     Err err
 }
 
 // you can add custom types to variants or fields:
-enum Result fn(ok type) {
+union Result fn(ok type) {
     Ok ok
-    Err enum {
+    union Err {
         MissingDigits struct {
             byte -> u8
             span Span
         }
         MissingExponent Span
+    }
+}
+
+impl T type, N Option(usize)
+
+struct(T, N) Sorted {
+    arr: T[N]
+}
+
+fn(T, N) sorted(arr: T[N]) Sorted {
+    Sorted {
+        arr: sort(#out arr)
     }
 }
 

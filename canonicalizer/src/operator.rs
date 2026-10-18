@@ -1,6 +1,8 @@
+use std::ops::Deref;
+
 use crate::{Data, DataKind, Graph};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnaryOp {
     Not,
     BitNot,
@@ -36,12 +38,19 @@ pub struct OrderedOps {
 }
 
 impl OrderedOps {
-    pub fn new_sorted(mut ops: [Data; 2]) -> Self {
+    pub fn sorted(mut ops: [Data; 2]) -> Self {
         ops.sort();
         Self { ops }
     }
 
     pub fn get(&self) -> &[Data; 2] {
+        &self.ops
+    }
+}
+
+impl Deref for OrderedOps {
+    type Target = [Data; 2];
+    fn deref(&self) -> &Self::Target {
         &self.ops
     }
 }
@@ -132,7 +141,7 @@ fn convert_operator(op: graph_builder::BinaryOp) -> (Converted, Option<UnaryOp>)
     }
 }
 
-pub fn process_binary_op(
+pub fn process_source_op(
     graph: &mut Graph,
     op: graph_builder::BinaryOp,
     a: Data,
@@ -146,18 +155,18 @@ pub fn process_binary_op(
         result
     };
     match op {
-        Converted::BinaryOp { op, reverse } => graph.add_data_node(
+        Converted::BinaryOp { op, reverse } => graph.fill_in_data(
             value,
             DataKind::Binary {
                 op,
                 ops: if reverse { [b, a] } else { [a, b] },
             },
         ),
-        Converted::ComBinaryOp(op) => graph.add_data_node(
+        Converted::ComBinaryOp(op) => graph.fill_in_data(
             value,
             DataKind::ComBinary {
                 op,
-                ops: OrderedOps::new_sorted([a, b]),
+                ops: OrderedOps::sorted([a, b]),
             },
         ),
         Converted::Sub | Converted::Div => {
@@ -167,11 +176,11 @@ pub fn process_binary_op(
                 (UnaryOp::Reciprocal, ComBinaryOp::Mul)
             };
             let rhs = unary_node(graph, unary, b);
-            graph.add_data_node(value, commutative_node(binary, a, rhs));
+            graph.fill_in_data(value, commutative_node(binary, a, rhs));
         }
         Converted::LessEq { reverse } => {
             let less = graph.nodes.data.allocate();
-            graph.add_data_node(
+            graph.fill_in_data(
                 less,
                 DataKind::Binary {
                     op: BinaryOp::Less,
@@ -179,7 +188,7 @@ pub fn process_binary_op(
                 },
             );
             let equal = commutative(graph, ComBinaryOp::Eq, a, b);
-            graph.add_data_node(value, commutative_node(ComBinaryOp::Or, less, equal));
+            graph.fill_in_data(value, commutative_node(ComBinaryOp::Or, less, equal));
         }
         Converted::And { bitwise } | Converted::Xor { bitwise } => {
             let (or, not) = if bitwise {
@@ -200,7 +209,7 @@ pub fn process_binary_op(
                 // a AND b = NOT(NOT(a) OR NOT(b)).
                 either_not
             };
-            graph.add_data_node(
+            graph.fill_in_data(
                 value,
                 DataKind::Unary {
                     op: not,
@@ -211,26 +220,26 @@ pub fn process_binary_op(
     };
 
     if let Some(op) = complement {
-        graph.add_data_node(result, DataKind::Unary { op, value })
+        graph.fill_in_data(result, DataKind::Unary { op, value })
     }
 }
 
 fn unary_node(graph: &mut Graph, op: UnaryOp, value: Data) -> Data {
     let result = graph.nodes.data.allocate();
-    graph.add_data_node(result, DataKind::Unary { op, value });
+    graph.fill_in_data(result, DataKind::Unary { op, value });
     result
 }
 
 fn commutative_node(op: ComBinaryOp, a: Data, b: Data) -> DataKind {
     DataKind::ComBinary {
         op,
-        ops: OrderedOps::new_sorted([a, b]),
+        ops: OrderedOps::sorted([a, b]),
     }
 }
 
 fn commutative(graph: &mut Graph, op: ComBinaryOp, a: Data, b: Data) -> Data {
     let result = graph.nodes.data.allocate();
-    graph.add_data_node(result, commutative_node(op, a, b));
+    graph.fill_in_data(result, commutative_node(op, a, b));
     result
 }
 
@@ -241,7 +250,7 @@ mod tests {
 
     fn input(graph: &mut Graph, value: usize) -> Data {
         let result = graph.nodes.data.allocate();
-        graph.add_data_node(result, DataKind::Literal(value));
+        graph.fill_in_data(result, DataKind::Literal(value));
         result
     }
 
@@ -292,7 +301,7 @@ mod tests {
                     let lhs = input(&mut graph, a);
                     let rhs = input(&mut graph, b);
                     let result = graph.nodes.data.allocate();
-                    process_binary_op(&mut graph, op, lhs, rhs, result);
+                    process_source_op(&mut graph, op, lhs, rhs, result);
                     assert_eq!(evaluate(&graph, result), expected, "{a} {op:?} {b}");
                 }
             }
@@ -316,7 +325,7 @@ mod tests {
                     let lhs = input(&mut graph, a);
                     let rhs = input(&mut graph, b);
                     let result = graph.nodes.data.allocate();
-                    process_binary_op(&mut graph, op, lhs, rhs, result);
+                    process_source_op(&mut graph, op, lhs, rhs, result);
                     assert_eq!(evaluate(&graph, result), expected, "{a} {op:?} {b}");
                 }
             }
@@ -337,7 +346,7 @@ mod tests {
                     let lhs = input(&mut graph, a);
                     let rhs = input(&mut graph, b);
                     let result = graph.nodes.data.allocate();
-                    process_binary_op(&mut graph, op, lhs, rhs, result);
+                    process_source_op(&mut graph, op, lhs, rhs, result);
                     assert_eq!(
                         evaluate(&graph, result),
                         usize::from(expected),
@@ -367,7 +376,7 @@ mod tests {
             let a = input(&mut graph, 6);
             let b = input(&mut graph, 3);
             let result = graph.nodes.data.allocate();
-            process_binary_op(&mut graph, source, a, b, result);
+            process_source_op(&mut graph, source, a, b, result);
             let DataKind::ComBinary { op, ops } = &graph.nodes.data[result] else {
                 panic!("expected a commutative arithmetic node");
             };

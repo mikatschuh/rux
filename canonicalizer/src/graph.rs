@@ -4,7 +4,7 @@ use crate::{
     Dir,
     canonical::{Dep, UniqueNodes},
     operator::{BinaryOp, ComBinaryOp, OrderedOps, UnaryOp},
-    users::{ListUses, UserTable, Uses},
+    users::{ListUses, ReportUses, UserTable, Uses},
 };
 
 pub type Data = Dep<DataKind>;
@@ -123,7 +123,35 @@ pub struct Graph {
 }
 
 impl Graph {
-    pub fn add_data_node(&mut self, dep: Dep<DataKind>, node: DataKind) {
+    /// Allocates a dependency and fills it with a canonicalized node.
+    pub fn add_data(&mut self, node: DataKind) -> Data {
+        let dep = self.nodes.data.allocate();
+        self.fill_in_data(dep, node);
+        dep
+    }
+
+    /// Allocates a dependency and fills it with a canonicalized node.
+    pub fn add_ctrl(&mut self, node: CtrlKind) -> Ctrl {
+        let dep = self.nodes.ctrl.allocate();
+        self.fill_in_ctrl(dep, node);
+        dep
+    }
+
+    /// Allocates a dependency and fills it with a canonicalized node.
+    pub fn add_branch(&mut self, node: BranchKind) -> Branch {
+        let dep = self.nodes.branch.allocate();
+        self.fill_in_branch(dep, node);
+        dep
+    }
+
+    /// Allocates a dependency and fills it with a canonicalized node.
+    pub fn add_merge(&mut self, node: MergeKind) -> Merge {
+        let dep = self.nodes.merge.allocate();
+        self.fill_in_merge(dep, node);
+        dep
+    }
+
+    pub(crate) fn fill_in_data(&mut self, dep: Data, node: DataKind) {
         self.nodes
             .data
             .add_entry(
@@ -135,7 +163,7 @@ impl Graph {
             .fill_in(&mut self.nodes.data, dep)
     }
 
-    pub fn add_ctrl_node(&mut self, dep: Dep<CtrlKind>, node: CtrlKind) {
+    pub(crate) fn fill_in_ctrl(&mut self, dep: Ctrl, node: CtrlKind) {
         self.nodes
             .ctrl
             .add_entry(
@@ -147,7 +175,7 @@ impl Graph {
             .fill_in(&mut self.nodes.ctrl, dep)
     }
 
-    pub fn add_branch_node(&mut self, dep: Dep<BranchKind>, node: BranchKind) {
+    pub(crate) fn fill_in_branch(&mut self, dep: Branch, node: BranchKind) {
         self.nodes
             .branch
             .add_entry(
@@ -159,7 +187,7 @@ impl Graph {
             .fill_in(&mut self.nodes.branch, dep)
     }
 
-    pub fn add_merge_node(&mut self, dep: Dep<MergeKind>, node: MergeKind) {
+    pub(crate) fn fill_in_merge(&mut self, dep: Merge, node: MergeKind) {
         self.nodes
             .merge
             .add_entry(
@@ -169,5 +197,120 @@ impl Graph {
                 node,
             )
             .fill_in(&mut self.nodes.merge, dep)
+    }
+
+    /// Redirects every dependency on `old` to `new` and frees the old node.
+    pub fn remap_data(&mut self, old: Data, new: Data) {
+        let old_dir = self.nodes.data.direct(old);
+        if old_dir == self.nodes.data.direct(new) {
+            return;
+        }
+        self.nodes.data[old_dir].remove_node(old_dir, &self.nodes, &mut self.user_table);
+        self.nodes
+            .data
+            .remap_deps(&mut self.free_lists.data, old, new);
+    }
+
+    /// Redirects every dependency on `old` to `new` and frees the old node.
+    pub fn remap_ctrl(&mut self, old: Ctrl, new: Ctrl) {
+        let old_dir = self.nodes.ctrl.direct(old);
+        if old_dir == self.nodes.ctrl.direct(new) {
+            return;
+        }
+        self.nodes.ctrl[old_dir].remove_node(old_dir, &self.nodes, &mut self.user_table);
+        self.nodes
+            .ctrl
+            .remap_deps(&mut self.free_lists.ctrl, old, new);
+    }
+
+    /// Redirects every dependency on `old` to `new` and frees the old node.
+    pub fn remap_branch(&mut self, old: Branch, new: Branch) {
+        let old_dir = self.nodes.branch.direct(old);
+        if old_dir == self.nodes.branch.direct(new) {
+            return;
+        }
+        self.nodes.branch[old_dir].remove_node(old_dir, &self.nodes, &mut self.user_table);
+        self.nodes
+            .branch
+            .remap_deps(&mut self.free_lists.branch, old, new);
+    }
+
+    /// Redirects every dependency on `old` to `new` and frees the old node.
+    pub fn remap_merge(&mut self, old: Merge, new: Merge) {
+        let old_dir = self.nodes.merge.direct(old);
+        if old_dir == self.nodes.merge.direct(new) {
+            return;
+        }
+        self.nodes.merge[old_dir].remove_node(old_dir, &self.nodes, &mut self.user_table);
+        self.nodes
+            .merge
+            .remap_deps(&mut self.free_lists.merge, old, new);
+    }
+}
+
+mod graph_indexing {
+    use std::ops::Index;
+
+    use super::{Branch, BranchKind, Ctrl, CtrlKind, Data, DataKind, Graph, Merge, MergeKind};
+
+    impl Index<Data> for Graph {
+        type Output = DataKind;
+
+        fn index(&self, index: Data) -> &Self::Output {
+            &self.nodes.data[index]
+        }
+    }
+
+    impl Index<Ctrl> for Graph {
+        type Output = CtrlKind;
+
+        fn index(&self, index: Ctrl) -> &Self::Output {
+            &self.nodes.ctrl[index]
+        }
+    }
+
+    impl Index<Branch> for Graph {
+        type Output = BranchKind;
+
+        fn index(&self, index: Branch) -> &Self::Output {
+            &self.nodes.branch[index]
+        }
+    }
+
+    impl Index<Merge> for Graph {
+        type Output = MergeKind;
+
+        fn index(&self, index: Merge) -> &Self::Output {
+            &self.nodes.merge[index]
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DataKind, Graph};
+
+    #[test]
+    fn remaps_all_aliases_and_reuses_freed_nodes() {
+        let mut graph = Graph::default();
+        let old = graph.nodes.data.allocate();
+        graph.fill_in_data(old, DataKind::Literal(1));
+        let alias = graph.nodes.data.allocate();
+        graph.fill_in_data(alias, DataKind::Literal(1));
+        let new = graph.nodes.data.allocate();
+        graph.fill_in_data(new, DataKind::Unit);
+        let old_dir = graph.nodes.data.direct(old);
+
+        graph.remap_data(old, new);
+        assert_eq!(graph.nodes.data.direct(old), graph.nodes.data.direct(new));
+        assert_eq!(graph.nodes.data.direct(alias), graph.nodes.data.direct(new));
+        graph.remap_data(alias, new);
+
+        let replacement = graph.nodes.data.allocate();
+        graph.fill_in_data(replacement, DataKind::Literal(1));
+        assert_eq!(graph.nodes.data.direct(replacement), old_dir);
+        assert_eq!(graph.nodes.data[replacement], DataKind::Literal(1));
+        assert_eq!(graph.nodes.data[old], DataKind::Unit);
+        assert_eq!(graph.nodes.data[alias], DataKind::Unit);
     }
 }
