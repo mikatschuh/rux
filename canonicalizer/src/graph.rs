@@ -4,13 +4,40 @@ use crate::{
     Dir,
     canonical::{Dep, UniqueNodes},
     operator::{BinaryOp, ComBinaryOp, OrderedOps, UnaryOp},
-    users::{ListUses, ReportUses, UserTable, Uses},
+    users::{ReportUses, UserTable},
 };
 
 pub type Data = Dep<DataKind>;
 pub type Ctrl = Dep<CtrlKind>;
 pub type Branch = Dep<BranchKind>;
 pub type Merge = Dep<MergeKind>;
+
+pub trait ListDeps {
+    fn deps<'a>(&'a self) -> NodeDeps<'a>;
+}
+
+#[derive(Debug, Default)]
+pub struct NodeDeps<'a> {
+    pub data: &'a [Data],
+    pub ctrl: &'a [Ctrl],
+    pub branch: &'a [Branch],
+    pub merge: &'a [Merge],
+}
+
+impl<'a> NodeDeps<'a> {
+    pub fn with_data(self, data: &'a [Data]) -> Self {
+        Self { data, ..self }
+    }
+    pub fn with_ctrl(self, ctrl: &'a [Ctrl]) -> Self {
+        Self { ctrl, ..self }
+    }
+    pub fn with_branch(self, branch: &'a [Branch]) -> Self {
+        Self { branch, ..self }
+    }
+    pub fn with_merge(self, merge: &'a [Merge]) -> Self {
+        Self { merge, ..self }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DataKind {
@@ -40,16 +67,16 @@ pub enum DataKind {
     },
 }
 
-impl ListUses for DataKind {
-    fn uses<'a>(&'a self) -> Uses<'a> {
+impl ListDeps for DataKind {
+    fn deps<'a>(&'a self) -> NodeDeps<'a> {
         match self {
             DataKind::Literal(_) | DataKind::Quote(_) | DataKind::Boolean(_) | DataKind::Unit => {
-                Uses::default()
+                NodeDeps::default()
             }
-            DataKind::Unary { value, .. } => Uses::default().with_data(from_ref(value)),
-            DataKind::Binary { ops, .. } => Uses::default().with_data(ops),
-            DataKind::ComBinary { ops, .. } => Uses::default().with_data(ops.get()),
-            DataKind::Merge { merge, variants } => Uses::default()
+            DataKind::Unary { value, .. } => NodeDeps::default().with_data(from_ref(value)),
+            DataKind::Binary { ops, .. } => NodeDeps::default().with_data(ops),
+            DataKind::ComBinary { ops, .. } => NodeDeps::default().with_data(ops.get()),
+            DataKind::Merge { merge, variants } => NodeDeps::default()
                 .with_data(variants)
                 .with_merge(from_ref(merge)),
         }
@@ -63,12 +90,14 @@ pub enum CtrlKind {
     Merge(Merge),
 }
 
-impl ListUses for CtrlKind {
-    fn uses<'a>(&'a self) -> Uses<'a> {
+impl ListDeps for CtrlKind {
+    fn deps<'a>(&'a self) -> NodeDeps<'a> {
         match self {
-            CtrlKind::Entry => Uses::default(),
-            CtrlKind::Branch { branch: value, .. } => Uses::default().with_branch(from_ref(value)),
-            CtrlKind::Merge(merge) => Uses::default().with_merge(from_ref(merge)),
+            CtrlKind::Entry => NodeDeps::default(),
+            CtrlKind::Branch { branch: value, .. } => {
+                NodeDeps::default().with_branch(from_ref(value))
+            }
+            CtrlKind::Merge(merge) => NodeDeps::default().with_merge(from_ref(merge)),
         }
     }
 }
@@ -79,9 +108,9 @@ pub struct BranchKind {
     pub condition: Data,
 }
 
-impl ListUses for BranchKind {
-    fn uses<'a>(&'a self) -> Uses<'a> {
-        Uses::default()
+impl ListDeps for BranchKind {
+    fn deps<'a>(&'a self) -> NodeDeps<'a> {
+        NodeDeps::default()
             .with_ctrl(from_ref(&self.parent))
             .with_data(from_ref(&self.condition))
     }
@@ -92,9 +121,9 @@ pub struct MergeKind {
     pub prev: Box<[Ctrl]>,
 }
 
-impl ListUses for MergeKind {
-    fn uses<'a>(&'a self) -> Uses<'a> {
-        Uses::default().with_ctrl(&self.prev)
+impl ListDeps for MergeKind {
+    fn deps<'a>(&'a self) -> NodeDeps<'a> {
+        NodeDeps::default().with_ctrl(&self.prev)
     }
 }
 
@@ -123,30 +152,50 @@ pub struct Graph {
 }
 
 impl Graph {
+    /// Allocates an unfilled dependency and its user-table slot.
+    pub fn allocate_data(&mut self) -> Data {
+        self.nodes.data.allocate(&mut self.user_table)
+    }
+
+    /// Allocates an unfilled dependency and its user-table slot.
+    pub fn allocate_ctrl(&mut self) -> Ctrl {
+        self.nodes.ctrl.allocate(&mut self.user_table)
+    }
+
+    /// Allocates an unfilled dependency and its user-table slot.
+    pub fn allocate_branch(&mut self) -> Branch {
+        self.nodes.branch.allocate(&mut self.user_table)
+    }
+
+    /// Allocates an unfilled dependency and its user-table slot.
+    pub fn allocate_merge(&mut self) -> Merge {
+        self.nodes.merge.allocate(&mut self.user_table)
+    }
+
     /// Allocates a dependency and fills it with a canonicalized node.
     pub fn add_data(&mut self, node: DataKind) -> Data {
-        let dep = self.nodes.data.allocate();
+        let dep = self.allocate_data();
         self.fill_in_data(dep, node);
         dep
     }
 
     /// Allocates a dependency and fills it with a canonicalized node.
     pub fn add_ctrl(&mut self, node: CtrlKind) -> Ctrl {
-        let dep = self.nodes.ctrl.allocate();
+        let dep = self.allocate_ctrl();
         self.fill_in_ctrl(dep, node);
         dep
     }
 
     /// Allocates a dependency and fills it with a canonicalized node.
     pub fn add_branch(&mut self, node: BranchKind) -> Branch {
-        let dep = self.nodes.branch.allocate();
+        let dep = self.allocate_branch();
         self.fill_in_branch(dep, node);
         dep
     }
 
     /// Allocates a dependency and fills it with a canonicalized node.
     pub fn add_merge(&mut self, node: MergeKind) -> Merge {
-        let dep = self.nodes.merge.allocate();
+        let dep = self.allocate_merge();
         self.fill_in_merge(dep, node);
         dep
     }
@@ -154,49 +203,25 @@ impl Graph {
     pub(crate) fn fill_in_data(&mut self, dep: Data, node: DataKind) {
         self.nodes
             .data
-            .add_entry(
-                &mut self.free_lists.data,
-                &self.nodes,
-                &mut self.user_table,
-                node,
-            )
-            .fill_in(&mut self.nodes.data, dep)
+            .add_node(&mut self.free_lists.data, &mut self.user_table, dep, node)
     }
 
     pub(crate) fn fill_in_ctrl(&mut self, dep: Ctrl, node: CtrlKind) {
         self.nodes
             .ctrl
-            .add_entry(
-                &mut self.free_lists.ctrl,
-                &self.nodes,
-                &mut self.user_table,
-                node,
-            )
-            .fill_in(&mut self.nodes.ctrl, dep)
+            .add_node(&mut self.free_lists.ctrl, &mut self.user_table, dep, node)
     }
 
     pub(crate) fn fill_in_branch(&mut self, dep: Branch, node: BranchKind) {
         self.nodes
             .branch
-            .add_entry(
-                &mut self.free_lists.branch,
-                &self.nodes,
-                &mut self.user_table,
-                node,
-            )
-            .fill_in(&mut self.nodes.branch, dep)
+            .add_node(&mut self.free_lists.branch, &mut self.user_table, dep, node)
     }
 
     pub(crate) fn fill_in_merge(&mut self, dep: Merge, node: MergeKind) {
         self.nodes
             .merge
-            .add_entry(
-                &mut self.free_lists.merge,
-                &self.nodes,
-                &mut self.user_table,
-                node,
-            )
-            .fill_in(&mut self.nodes.merge, dep)
+            .add_node(&mut self.free_lists.merge, &mut self.user_table, dep, node)
     }
 
     /// Redirects every dependency on `old` to `new` and frees the old node.
@@ -205,7 +230,6 @@ impl Graph {
         if old_dir == self.nodes.data.direct(new) {
             return;
         }
-        self.nodes.data[old_dir].remove_node(old_dir, &self.nodes, &mut self.user_table);
         self.nodes
             .data
             .remap_deps(&mut self.free_lists.data, old, new);
@@ -217,7 +241,7 @@ impl Graph {
         if old_dir == self.nodes.ctrl.direct(new) {
             return;
         }
-        self.nodes.ctrl[old_dir].remove_node(old_dir, &self.nodes, &mut self.user_table);
+        self.nodes.ctrl[old_dir].remove_node(old_dir, &mut self.user_table);
         self.nodes
             .ctrl
             .remap_deps(&mut self.free_lists.ctrl, old, new);
@@ -229,7 +253,7 @@ impl Graph {
         if old_dir == self.nodes.branch.direct(new) {
             return;
         }
-        self.nodes.branch[old_dir].remove_node(old_dir, &self.nodes, &mut self.user_table);
+        self.nodes.branch[old_dir].remove_node(old_dir, &mut self.user_table);
         self.nodes
             .branch
             .remap_deps(&mut self.free_lists.branch, old, new);
@@ -241,7 +265,7 @@ impl Graph {
         if old_dir == self.nodes.merge.direct(new) {
             return;
         }
-        self.nodes.merge[old_dir].remove_node(old_dir, &self.nodes, &mut self.user_table);
+        self.nodes.merge[old_dir].remove_node(old_dir, &mut self.user_table);
         self.nodes
             .merge
             .remap_deps(&mut self.free_lists.merge, old, new);
@@ -293,11 +317,11 @@ mod tests {
     #[test]
     fn remaps_all_aliases_and_reuses_freed_nodes() {
         let mut graph = Graph::default();
-        let old = graph.nodes.data.allocate();
+        let old = graph.allocate_data();
         graph.fill_in_data(old, DataKind::Literal(1));
-        let alias = graph.nodes.data.allocate();
+        let alias = graph.allocate_data();
         graph.fill_in_data(alias, DataKind::Literal(1));
-        let new = graph.nodes.data.allocate();
+        let new = graph.allocate_data();
         graph.fill_in_data(new, DataKind::Unit);
         let old_dir = graph.nodes.data.direct(old);
 
@@ -306,7 +330,7 @@ mod tests {
         assert_eq!(graph.nodes.data.direct(alias), graph.nodes.data.direct(new));
         graph.remap_data(alias, new);
 
-        let replacement = graph.nodes.data.allocate();
+        let replacement = graph.allocate_data();
         graph.fill_in_data(replacement, DataKind::Literal(1));
         assert_eq!(graph.nodes.data.direct(replacement), old_dir);
         assert_eq!(graph.nodes.data[replacement], DataKind::Literal(1));

@@ -8,10 +8,7 @@ use std::{
 
 use nonempty::{NonEmpty, nonempty};
 
-use crate::{
-    graph::Nodes,
-    users::{ReportUses, UserTable},
-};
+use crate::users::{ReportUses, UserTable};
 
 /// A type to represent one dependency in the graph.
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -99,9 +96,9 @@ struct Indirect<T> {
 }
 
 impl<T> Indirect<T> {
-    fn add_existing_dep(&mut self, dir: Dir<T>, dep: Dep<T>) {
+    fn direct_dep_to(&mut self, dep: Dep<T>, dir: Dir<T>) {
         self.from_direct[dir].push(dep);
-        self.to_direct[dep.idx] = dir;
+        self.to_direct[dep] = dir;
     }
 
     /// Remaps all `Dep` that pointed to `replaced` to now point to `new`
@@ -111,11 +108,10 @@ impl<T> Indirect<T> {
     {
         assert_ne!(old, new);
         for dep in [self.from_direct[old].head]
-            .iter()
-            .chain(std::mem::take(&mut self.from_direct[old].tail).iter())
+            .into_iter()
+            .chain(std::mem::take(&mut self.from_direct[old].tail))
         {
-            self.to_direct[dep.idx] = new;
-            self.from_direct[new].push(*dep)
+            self.direct_dep_to(dep, new);
         }
     }
 }
@@ -143,41 +139,42 @@ impl<T> Default for UniqueNodes<T> {
 }
 
 impl<T: Clone + Eq + Hash + ReportUses + Debug> UniqueNodes<T> {
-    pub(crate) fn add_entry(
-        &self,
+    pub(crate) fn add_node(
+        &mut self,
         free_list: &mut Vec<Dir<T>>,
-        nodes: &Nodes,
         user_table: &mut UserTable,
+        placeholder: Dep<T>,
         node: T,
-    ) -> Entry<T> {
+    ) {
         if let Some(dep) = self.cache.get(&node) {
             let dir = self.direct(*dep);
-            Entry::Cached { dir }
+            self.indirect.direct_dep_to(placeholder, dir);
         } else if let Some(free_dir) = free_list.pop() {
-            node.add_node(free_dir, nodes, user_table, true);
-            Entry::NewReused { free_dir, node }
+            node.add_node(free_dir, user_table);
+            self.indirect.from_direct[free_dir] = nonempty![placeholder];
+            self.indirect.to_direct[placeholder] = free_dir;
+
+            self.nodes[free_dir] = node.clone();
+            self.cache.insert(node, placeholder);
         } else {
-            node.add_node(
-                Dir::new(self.indirect.from_direct.len()),
-                nodes,
-                user_table,
-                false,
-            );
-            Entry::New(node)
+            let dir = Dir::new(self.indirect.from_direct.len());
+            node.add_node(dir, user_table);
+            self.indirect.from_direct.push(nonempty![placeholder]);
+            self.indirect.to_direct[placeholder] = dir;
+
+            self.nodes.push(node.clone());
+            self.cache.insert(node, placeholder);
         }
     }
 
-    pub(crate) fn allocate(&mut self) -> Dep<T> {
+    pub(crate) fn allocate(&mut self, user_table: &mut UserTable) -> Dep<T> {
         let deps_count = self.indirect.to_direct.len();
         self.indirect.to_direct.push(Dir::new(usize::MAX));
+        T::add_dep(user_table);
         Dep::new(deps_count)
     }
 
-    pub fn direct(&self, dep: Dep<T>) -> Dir<T> {
-        self.indirect.to_direct[dep.idx]
-    }
-
-    pub fn remap_deps(&mut self, free_list: &mut Vec<Dir<T>>, old: Dep<T>, new: Dep<T>) {
+    pub(crate) fn remap_deps(&mut self, free_list: &mut Vec<Dir<T>>, old: Dep<T>, new: Dep<T>) {
         let old = self.direct(old);
         let new = self.direct(new);
         if old == new {
@@ -187,34 +184,9 @@ impl<T: Clone + Eq + Hash + ReportUses + Debug> UniqueNodes<T> {
         self.cache.remove(&self.nodes[old]);
         free_list.push(old);
     }
-}
 
-pub(crate) enum Entry<T> {
-    Cached { dir: Dir<T> },
-    NewReused { free_dir: Dir<T>, node: T },
-    New(T),
-}
-
-impl<T: Clone + Eq + Hash> Entry<T> {
-    pub(crate) fn fill_in(self, graph: &mut UniqueNodes<T>, placeholder: Dep<T>) {
-        match self {
-            Entry::Cached { dir } => graph.indirect.add_existing_dep(dir, placeholder), // reuse existing dependency
-            Entry::NewReused { free_dir, node } => {
-                graph.indirect.from_direct[free_dir] = nonempty![placeholder];
-                graph.indirect.to_direct[placeholder.idx] = free_dir;
-
-                graph.nodes[free_dir] = node.clone();
-                graph.cache.insert(node, placeholder);
-            }
-            Entry::New(node) => {
-                let dir = Dir::new(graph.indirect.from_direct.len());
-                graph.indirect.from_direct.push(nonempty![placeholder]);
-                graph.indirect.to_direct[placeholder.idx] = dir;
-
-                graph.nodes.push(node.clone());
-                graph.cache.insert(node, placeholder);
-            }
-        }
+    pub fn direct(&self, dep: Dep<T>) -> Dir<T> {
+        self.indirect.to_direct[dep]
     }
 }
 
@@ -231,10 +203,23 @@ impl<A, B> IndexMut<Dir<A>> for Vec<B> {
     }
 }
 
+impl<A, B> Index<Dep<A>> for Vec<B> {
+    type Output = B;
+    fn index(&self, index: Dep<A>) -> &Self::Output {
+        &self[index.idx]
+    }
+}
+
+impl<A, B> IndexMut<Dep<A>> for Vec<B> {
+    fn index_mut(&mut self, index: Dep<A>) -> &mut Self::Output {
+        &mut self[index.idx]
+    }
+}
+
 impl<T> Index<Dep<T>> for UniqueNodes<T> {
     type Output = T;
     fn index(&self, index: Dep<T>) -> &Self::Output {
-        let dir = self.indirect.to_direct[index.idx];
+        let dir = self.indirect.to_direct[index];
         &self.nodes[dir]
     }
 }

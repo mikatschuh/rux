@@ -14,29 +14,34 @@ mod operator;
 mod users;
 
 pub use canonical::Dir;
-pub use graph::{Branch, BranchKind, Ctrl, CtrlKind, Data, DataKind, Graph, Merge, MergeKind};
+pub use graph::{
+    Branch, BranchKind, Ctrl, CtrlKind, Data, DataKind, Graph, ListDeps, Merge, MergeKind, NodeDeps,
+};
 pub use operator::{BinaryOp, ComBinaryOp, OrderedOps, UnaryOp};
+
+struct Visited {
+    data: HashMap<source::Data, Data>,
+    ctrl: HashMap<source::Ctrl, Ctrl>,
+    branch: HashMap<source::Branch, Branch>,
+    merge: HashMap<source::Merge, Merge>,
+}
 
 struct GvnPass<'src, 'graph> {
     source_graph: &'graph source::Graph<'src>,
     canonical_graph: Graph,
-
-    visited_data: HashMap<source::Data, Data>,
-    visited_ctrl: HashMap<source::Ctrl, Ctrl>,
-    visited_branch: HashMap<source::Branch, Branch>,
-    visited_merge: HashMap<source::Merge, Merge>,
+    visited: Visited,
     /// Maps canonical input positions to source input positions for each source merge.
     merge_variant_permutation_table: HashMap<source::Merge, Box<[usize]>>,
 }
 
 impl<'src, 'graph> GvnPass<'src, 'graph> {
     fn process_data(&mut self, data: source::Data) -> Data {
-        if let Some(prev) = self.visited_data.get(&data) {
+        if let Some(prev) = self.visited.data.get(&data) {
             return *prev;
         }
 
-        let canonical_data = self.canonical_graph.nodes.data.allocate();
-        self.visited_data.insert(data, canonical_data);
+        let canonical_data = self.canonical_graph.allocate_data();
+        self.visited.data.insert(data, canonical_data);
 
         match self.source_graph[data].clone() {
             source::DataKind::Unit => self
@@ -100,12 +105,12 @@ impl<'src, 'graph> GvnPass<'src, 'graph> {
     }
 
     fn process_ctrl(&mut self, ctrl: source::Ctrl) -> Ctrl {
-        if let Some(prev) = self.visited_ctrl.get(&ctrl) {
+        if let Some(prev) = self.visited.ctrl.get(&ctrl) {
             return *prev;
         }
 
-        let canonical_ctrl = self.canonical_graph.nodes.ctrl.allocate();
-        self.visited_ctrl.insert(ctrl, canonical_ctrl);
+        let canonical_ctrl = self.canonical_graph.allocate_ctrl();
+        self.visited.ctrl.insert(ctrl, canonical_ctrl);
 
         match self.source_graph[ctrl].clone() {
             source::CtrlKind::Entry => self
@@ -128,12 +133,12 @@ impl<'src, 'graph> GvnPass<'src, 'graph> {
     }
 
     fn process_branch(&mut self, branch: source::Branch) -> Branch {
-        if let Some(prev) = self.visited_branch.get(&branch) {
+        if let Some(prev) = self.visited.branch.get(&branch) {
             return *prev;
         };
 
-        let canonical_branch = self.canonical_graph.nodes.branch.allocate();
-        self.visited_branch.insert(branch, canonical_branch);
+        let canonical_branch = self.canonical_graph.allocate_branch();
+        self.visited.branch.insert(branch, canonical_branch);
 
         let source::BranchKind { parent, condition } = self.source_graph[branch].clone();
         let parent = self.process_ctrl(parent);
@@ -145,12 +150,12 @@ impl<'src, 'graph> GvnPass<'src, 'graph> {
     }
 
     fn process_merge(&mut self, merge: source::Merge) -> Merge {
-        if let Some(prev) = self.visited_merge.get(&merge) {
+        if let Some(prev) = self.visited.merge.get(&merge) {
             return *prev;
         }
 
-        let canonical_merge = self.canonical_graph.nodes.merge.allocate();
-        self.visited_merge.insert(merge, canonical_merge);
+        let canonical_merge = self.canonical_graph.allocate_merge();
+        self.visited.merge.insert(merge, canonical_merge);
 
         let source::MergeKind { prev } = self.source_graph[merge].clone();
         let prev = prev
