@@ -255,7 +255,7 @@ mod tests {
     }
 
     fn evaluate(graph: &Graph, data: Data) -> usize {
-        match &graph.nodes.data[data] {
+        match &graph[data] {
             DataKind::Literal(value) => *value,
             DataKind::Unary { op, value } => {
                 let value = evaluate(graph, *value);
@@ -354,7 +354,7 @@ mod tests {
                     );
                     if matches!(op, Source::LessEq | Source::GreaterEq) {
                         assert!(matches!(
-                            graph.nodes.data[result],
+                            graph[result],
                             DataKind::ComBinary {
                                 op: ComBinaryOp::Or,
                                 ..
@@ -377,13 +377,13 @@ mod tests {
             let b = input(&mut graph, 3);
             let result = graph.allocate();
             process_source_op(&mut graph, source, a, b, result);
-            let DataKind::ComBinary { op, ops } = &graph.nodes.data[result] else {
+            let DataKind::ComBinary { op, ops } = &graph[result] else {
                 panic!("expected a commutative arithmetic node");
             };
             assert_eq!(*op, binary);
             assert_eq!(ops.get()[0], a);
             assert_eq!(
-                graph.nodes.data[ops.get()[1]],
+                graph[ops.get()[1]],
                 DataKind::Unary {
                     op: unary,
                     value: b

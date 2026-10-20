@@ -179,7 +179,7 @@ pub struct Nodes {
 /// In this graph every node is unique and changes can be followed back to the onces depending on the changed node
 #[derive(Default)]
 pub struct Graph {
-    pub(crate) nodes: Nodes,
+    nodes: Nodes,
     user_table: UserTable,
 }
 
