@@ -132,7 +132,7 @@ mod tests {
         let mut interner = Interner::new();
         let symbol = interner.get("outside");
         let ty = graph.add_builtin_type(BuiltinType::Signed { size: 32 });
-        let mut state = Vec::new();
+        let mut state = vec![];
 
         let id = SymbolTableStack::new().add_symbol(false, symbol, ty, &mut state);
 
@@ -148,7 +148,7 @@ mod tests {
         let outer_ty = graph.add_builtin_type(BuiltinType::Signed { size: 32 });
         let inner_ty = graph.add_builtin_type(BuiltinType::Unsigned { size: 32 });
         let mut table = SymbolTableStack::new();
-        let mut state = Vec::new();
+        let mut state = vec![];
 
         let outer_scope = table.open_scope();
         let outer_id = table
@@ -182,7 +182,7 @@ mod tests {
         let symbol = interner.get("shadowed");
         let ty = graph.add_builtin_type(BuiltinType::Signed { size: 32 });
         let mut table = SymbolTableStack::new();
-        let mut state = Vec::new();
+        let mut state = vec![];
 
         let scope = table.open_scope();
         let first = table

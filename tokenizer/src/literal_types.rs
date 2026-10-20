@@ -32,7 +32,7 @@ impl Base {
         }
 
         let base = BigUint::from(base);
-        let mut out = Vec::new();
+        let mut out = vec![];
 
         while !digits.is_zero() {
             let (quotient, remainder) = digits.div_rem(&base);

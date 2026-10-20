@@ -130,7 +130,6 @@ impl ListDeps for MergeKind {
 pub trait Node: Sized + Clone + Eq + Hash + ReportUses + Debug {
     fn nodes(nodes: &Nodes) -> &UniqueNodes<Self>;
     fn nodes_mut(nodes: &mut Nodes) -> &mut UniqueNodes<Self>;
-    fn free_list_mut(free_list: &mut FreeLists) -> &mut Vec<Dir<Self>>;
 }
 
 impl Node for DataKind {
@@ -139,9 +138,6 @@ impl Node for DataKind {
     }
     fn nodes_mut(nodes: &mut Nodes) -> &mut UniqueNodes<Self> {
         &mut nodes.data
-    }
-    fn free_list_mut(free_list: &mut FreeLists) -> &mut Vec<Dir<Self>> {
-        &mut free_list.data
     }
 }
 
@@ -152,9 +148,6 @@ impl Node for CtrlKind {
     fn nodes_mut(nodes: &mut Nodes) -> &mut UniqueNodes<Self> {
         &mut nodes.ctrl
     }
-    fn free_list_mut(free_list: &mut FreeLists) -> &mut Vec<Dir<Self>> {
-        &mut free_list.ctrl
-    }
 }
 
 impl Node for BranchKind {
@@ -164,9 +157,6 @@ impl Node for BranchKind {
     fn nodes_mut(nodes: &mut Nodes) -> &mut UniqueNodes<Self> {
         &mut nodes.branch
     }
-    fn free_list_mut(free_list: &mut FreeLists) -> &mut Vec<Dir<Self>> {
-        &mut free_list.branch
-    }
 }
 
 impl Node for MergeKind {
@@ -175,9 +165,6 @@ impl Node for MergeKind {
     }
     fn nodes_mut(nodes: &mut Nodes) -> &mut UniqueNodes<Self> {
         &mut nodes.merge
-    }
-    fn free_list_mut(free_list: &mut FreeLists) -> &mut Vec<Dir<Self>> {
-        &mut free_list.merge
     }
 }
 
@@ -189,19 +176,10 @@ pub struct Nodes {
     pub merge: UniqueNodes<MergeKind>,
 }
 
-#[derive(Default)]
-pub struct FreeLists {
-    pub data: Vec<Dir<DataKind>>,
-    pub ctrl: Vec<Dir<CtrlKind>>,
-    pub branch: Vec<Dir<BranchKind>>,
-    pub merge: Vec<Dir<MergeKind>>,
-}
-
 /// In this graph every node is unique and changes can be followed back to the onces depending on the changed node
 #[derive(Default)]
 pub struct Graph {
     pub(crate) nodes: Nodes,
-    free_lists: FreeLists,
     user_table: UserTable,
 }
 
@@ -275,12 +253,7 @@ impl Graph {
     }
 
     pub(crate) fn fill_in<N: Node>(&mut self, dep: Stable<N>, node: N) {
-        N::nodes_mut(&mut self.nodes).add_node(
-            N::free_list_mut(&mut self.free_lists),
-            &mut self.user_table,
-            dep,
-            node,
-        )
+        N::nodes_mut(&mut self.nodes).add_node(&mut self.user_table, dep, node)
     }
 
     /// Redirects every dependency on `old` to `new` and frees the old node.
@@ -291,11 +264,7 @@ impl Graph {
             return;
         }
         N::nodes_mut(&mut self.nodes)[old_dir].remove_node(old_dir, &mut self.user_table);
-        N::nodes_mut(&mut self.nodes).remap_deps(
-            N::free_list_mut(&mut self.free_lists),
-            old_dir,
-            new_dir,
-        );
+        N::nodes_mut(&mut self.nodes).remap_deps(old_dir, new_dir);
     }
 
     pub fn nodes<'a, N: Node + 'a>(&'a self) -> impl Iterator<Item = Dir<N>> {

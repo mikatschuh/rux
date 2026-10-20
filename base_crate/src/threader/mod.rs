@@ -17,7 +17,7 @@ pub struct Threadpool {
 impl Threadpool {
     pub fn new() -> Self {
         Self {
-            workers: Vec::new(),
+            workers: vec![],
             task_queue: Arc::new(Injector::new()),
         }
     }
