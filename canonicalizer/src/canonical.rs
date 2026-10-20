@@ -165,7 +165,7 @@ impl<N: Node> UniqueNodes<N> {
         self.to_direct[dep]
     }
 
-    pub(crate) fn dependencies(&self, dir: Dir<N>) -> impl Iterator<Item = Stable<N>> + '_ {
+    pub(crate) fn stable_deps(&self, dir: Dir<N>) -> impl Iterator<Item = Stable<N>> + '_ {
         self.from_direct[dir].iter().copied()
     }
 

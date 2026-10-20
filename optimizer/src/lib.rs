@@ -53,6 +53,16 @@ impl<'graph> PeepholePass<'graph> {
     fn execute_worklist(&mut self) {
         while let Some(node) = self.worklist.data.iter().copied().next() {
             self.worklist.data.remove(&node);
+
+            if let Some(new) = self.simplify_data(node) {
+                self.graph
+                    .data_data_users(node)
+                    .for_each(|user| _ = self.worklist.data.insert(user));
+                // we don't add branch users to the worklist because we can't simplify them right now
+
+                let new = self.graph.direct(new);
+                self.graph.remap(node, new);
+            }
         }
     }
 }

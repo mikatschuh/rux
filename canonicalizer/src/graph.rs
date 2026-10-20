@@ -185,59 +185,82 @@ pub struct Graph {
 
 impl Graph {
     /// Iterates over data users of all aliases of `dep`.
-    pub fn data_data_users(&self, dep: Data) -> impl Iterator<Item = Dir<DataKind>> + '_ {
+    pub fn data_data_users(&self, dir: Dir<DataKind>) -> impl Iterator<Item = Dir<DataKind>> + '_ {
         self.nodes
             .data
-            .dependencies(self.nodes.data.direct(dep))
+            .stable_deps(dir)
             .flat_map(|dep| self.user_table.data[dep].data.iter().copied())
     }
 
     /// Iterates over branch users of all aliases of `dep`.
-    pub fn data_branch_users(&self, dep: Data) -> impl Iterator<Item = Dir<BranchKind>> + '_ {
+    pub fn data_branch_users(
+        &self,
+        dir: Dir<DataKind>,
+    ) -> impl Iterator<Item = Dir<BranchKind>> + '_ {
         self.nodes
             .data
-            .dependencies(self.nodes.data.direct(dep))
+            .stable_deps(dir)
             .flat_map(|dep| self.user_table.data[dep].branch.iter().copied())
     }
 
     /// Iterates over branch users of all aliases of `dep`.
-    pub fn ctrl_branch_users(&self, dep: Ctrl) -> impl Iterator<Item = Dir<BranchKind>> + '_ {
+    pub fn ctrl_branch_users(
+        &self,
+        dir: Dir<CtrlKind>,
+    ) -> impl Iterator<Item = Dir<BranchKind>> + '_ {
         self.nodes
             .ctrl
-            .dependencies(self.nodes.ctrl.direct(dep))
+            .stable_deps(dir)
             .flat_map(|dep| self.user_table.ctrl[dep].branch.iter().copied())
     }
 
     /// Iterates over merge users of all aliases of `dep`.
-    pub fn ctrl_merge_users(&self, dep: Ctrl) -> impl Iterator<Item = Dir<MergeKind>> + '_ {
+    pub fn ctrl_merge_users(
+        &self,
+        dir: Dir<CtrlKind>,
+    ) -> impl Iterator<Item = Dir<MergeKind>> + '_ {
         self.nodes
             .ctrl
-            .dependencies(self.nodes.ctrl.direct(dep))
+            .stable_deps(dir)
             .flat_map(|dep| self.user_table.ctrl[dep].merge.iter().copied())
     }
 
     /// Iterates over ctrl users of all aliases of `dep`.
-    pub fn branch_ctrl_users(&self, dep: Branch) -> impl Iterator<Item = Dir<CtrlKind>> + '_ {
+    pub fn branch_ctrl_users(
+        &self,
+        dir: Dir<BranchKind>,
+    ) -> impl Iterator<Item = Dir<CtrlKind>> + '_ {
         self.nodes
             .branch
-            .dependencies(self.nodes.branch.direct(dep))
+            .stable_deps(dir)
             .flat_map(|dep| self.user_table.branch[dep].ctrl.iter().copied())
     }
 
     /// Iterates over data users of all aliases of `dep`.
-    pub fn merge_data_users(&self, dep: Merge) -> impl Iterator<Item = Dir<DataKind>> + '_ {
+    pub fn merge_data_users(
+        &self,
+        dir: Dir<MergeKind>,
+    ) -> impl Iterator<Item = Dir<DataKind>> + '_ {
         self.nodes
             .merge
-            .dependencies(self.nodes.merge.direct(dep))
+            .stable_deps(dir)
             .flat_map(|dep| self.user_table.merge[dep].data.iter().copied())
     }
 
     /// Iterates over ctrl users of all aliases of `dep`.
-    pub fn merge_ctrl_users(&self, dep: Merge) -> impl Iterator<Item = Dir<CtrlKind>> + '_ {
+    pub fn merge_ctrl_users(
+        &self,
+        dir: Dir<MergeKind>,
+    ) -> impl Iterator<Item = Dir<CtrlKind>> + '_ {
         self.nodes
             .merge
-            .dependencies(self.nodes.merge.direct(dep))
+            .stable_deps(dir)
             .flat_map(|dep| self.user_table.merge[dep].ctrl.iter().copied())
+    }
+
+    /// Returns the direct handle of a certain dependency.
+    pub fn direct<N: Node>(&self, dep: Stable<N>) -> Dir<N> {
+        N::nodes(&self.nodes).direct(dep)
     }
 
     /// Allocates an unfilled dependency and its user-table slot.
@@ -252,19 +275,18 @@ impl Graph {
         dep
     }
 
+    /// Adds a node to an unfilled dependency.
     pub(crate) fn fill_in<N: Node>(&mut self, dep: Stable<N>, node: N) {
         N::nodes_mut(&mut self.nodes).add_node(&mut self.user_table, dep, node)
     }
 
     /// Redirects every dependency on `old` to `new` and frees the old node.
-    pub fn remap<N: Node>(&mut self, old: Stable<N>, new: Stable<N>) {
-        let old_dir = N::nodes_mut(&mut self.nodes).direct(old);
-        let new_dir = N::nodes_mut(&mut self.nodes).direct(new);
-        if old_dir == new_dir {
+    pub fn remap<N: Node>(&mut self, old: Dir<N>, new: Dir<N>) {
+        if old == new {
             return;
         }
-        N::nodes_mut(&mut self.nodes)[old_dir].remove_node(old_dir, &mut self.user_table);
-        N::nodes_mut(&mut self.nodes).remap_deps(old_dir, new_dir);
+        N::nodes_mut(&mut self.nodes)[old].remove_node(old, &mut self.user_table);
+        N::nodes_mut(&mut self.nodes).remap_deps(old, new);
     }
 
     pub fn nodes<'a, N: Node + 'a>(&'a self) -> impl Iterator<Item = Dir<N>> {
@@ -303,7 +325,7 @@ mod tests {
     use super::{BinaryOp, BranchKind, CtrlKind, DataKind, Graph, MergeKind};
 
     #[test]
-    fn collects_distinct_users_across_aliases_and_remapping() {
+    fn collects_users_per_alias_across_remapping() {
         let mut graph = Graph::default();
         let value = graph.add(DataKind::Literal(1));
         let alias = graph.add(DataKind::Literal(1));
@@ -311,22 +333,40 @@ mod tests {
             op: BinaryOp::Less,
             ops: [value, alias],
         });
-        let expected = [graph.nodes.data.direct(user)];
-        assert_eq!(graph.data_data_users(value).collect::<Vec<_>>(), expected);
-        assert_eq!(graph.data_data_users(alias).collect::<Vec<_>>(), expected);
-
-        let replacement = graph.add(DataKind::Literal(2));
-        graph.remap(value, replacement);
+        // Each alias contributes its user set, so this user is returned twice.
+        let expected = [graph.direct(user); 2];
+        let value_dir = graph.direct(value);
+        let alias_dir = graph.direct(alias);
         assert_eq!(
-            graph.data_data_users(replacement).collect::<Vec<_>>(),
+            graph.data_data_users(value_dir).collect::<Vec<_>>(),
             expected
         );
-        assert_eq!(graph.data_data_users(alias).collect::<Vec<_>>(), expected);
+        assert_eq!(
+            graph.data_data_users(alias_dir).collect::<Vec<_>>(),
+            expected
+        );
+
+        let replacement = graph.add(DataKind::Literal(2));
+        graph.remap(value_dir, graph.direct(replacement));
+        assert_eq!(
+            graph
+                .data_data_users(graph.direct(replacement))
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(
+            graph
+                .data_data_users(graph.direct(alias))
+                .collect::<Vec<_>>(),
+            expected
+        );
 
         let reused = graph.add(DataKind::Literal(3));
-        assert_eq!(graph.data_data_users(reused).count(), 0);
+        assert_eq!(graph.data_data_users(graph.direct(reused)).count(), 0);
         assert_eq!(
-            graph.data_data_users(replacement).collect::<Vec<_>>(),
+            graph
+                .data_data_users(graph.direct(replacement))
+                .collect::<Vec<_>>(),
             expected
         );
     }
@@ -363,32 +403,46 @@ mod tests {
         let branch_dir = graph.nodes.branch.direct(branch);
         let alias_dir = graph.nodes.branch.direct(branch_alias);
         assert_eq!(
-            graph.data_data_users(condition).collect::<Vec<_>>(),
+            graph
+                .data_data_users(graph.direct(condition))
+                .collect::<Vec<_>>(),
             [graph.nodes.data.direct(merged_data)]
         );
         assert_eq!(
-            graph.data_branch_users(condition).collect::<HashSet<_>>(),
+            graph
+                .data_branch_users(graph.direct(condition))
+                .collect::<HashSet<_>>(),
             HashSet::from([branch_dir, alias_dir])
         );
         assert_eq!(
-            graph.ctrl_branch_users(entry).collect::<HashSet<_>>(),
+            graph
+                .ctrl_branch_users(graph.direct(entry))
+                .collect::<HashSet<_>>(),
             HashSet::from([branch_dir, alias_dir])
         );
         assert_eq!(
-            graph.ctrl_merge_users(entry).collect::<Vec<_>>(),
+            graph
+                .ctrl_merge_users(graph.direct(entry))
+                .collect::<Vec<_>>(),
             [graph.nodes.merge.direct(merge)]
         );
         assert_eq!(
-            graph.branch_ctrl_users(branch_alias).collect::<Vec<_>>(),
+            graph
+                .branch_ctrl_users(graph.direct(branch_alias))
+                .collect::<Vec<_>>(),
             [graph.nodes.ctrl.direct(projection)]
         );
-        assert_eq!(graph.branch_ctrl_users(branch).count(), 0);
+        assert_eq!(graph.branch_ctrl_users(graph.direct(branch)).count(), 0);
         assert_eq!(
-            graph.merge_ctrl_users(merge).collect::<Vec<_>>(),
+            graph
+                .merge_ctrl_users(graph.direct(merge))
+                .collect::<Vec<_>>(),
             [graph.nodes.ctrl.direct(merged_ctrl)]
         );
         assert_eq!(
-            graph.merge_data_users(merge).collect::<Vec<_>>(),
+            graph
+                .merge_data_users(graph.direct(merge))
+                .collect::<Vec<_>>(),
             [graph.nodes.data.direct(merged_data)]
         );
     }
@@ -404,10 +458,10 @@ mod tests {
         graph.fill_in(new, DataKind::Unit);
         let old_dir = graph.nodes.data.direct(old);
 
-        graph.remap(old, new);
+        graph.remap(old_dir, graph.direct(new));
         assert_eq!(graph.nodes.data.direct(old), graph.nodes.data.direct(new));
         assert_eq!(graph.nodes.data.direct(alias), graph.nodes.data.direct(new));
-        graph.remap(alias, new);
+        graph.remap(graph.direct(alias), graph.direct(new));
 
         let replacement = graph.allocate();
         graph.fill_in(replacement, DataKind::Literal(1));

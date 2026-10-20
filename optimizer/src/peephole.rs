@@ -1,9 +1,9 @@
-use canonicalizer::{BinaryOp, ComBinaryOp, Data, DataKind, OrderedOps, UnaryOp};
+use canonicalizer::{BinaryOp, ComBinaryOp, Data, DataKind, Dir, OrderedOps, UnaryOp};
 
 use crate::PeepholePass;
 
 impl PeepholePass<'_> {
-    fn simplify_data(&mut self, node: Data) -> Option<Data> {
+    pub fn simplify_data(&mut self, node: Dir<DataKind>) -> Option<Data> {
         match &self.graph[node] {
             DataKind::ComBinary {
                 op: ComBinaryOp::Eq,
