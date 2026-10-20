@@ -13,7 +13,7 @@ mod graph;
 mod operator;
 mod users;
 
-pub use canonical::Dir;
+pub use canonical::Unique;
 pub use graph::{Branch, BranchKind, Ctrl, CtrlKind, Data, DataKind, Graph, Merge, MergeKind};
 pub use operator::{BinaryOp, ComBinaryOp, OrderedOps, UnaryOp};
 

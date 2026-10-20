@@ -1,8 +1,8 @@
 use std::{fmt::Debug, hash::Hash, slice::from_ref};
 
 use crate::{
-    Dir,
-    canonical::{Stable, UniqueNodes},
+    Unique,
+    canonical::{Canonicalizer, Stable},
     operator::{BinaryOp, ComBinaryOp, OrderedOps, UnaryOp},
     users::{ReportUses, UserTable},
 };
@@ -128,52 +128,52 @@ impl ListDeps for MergeKind {
 }
 
 pub trait Node: Sized + Clone + Eq + Hash + ReportUses + Debug {
-    fn nodes(nodes: &Nodes) -> &UniqueNodes<Self>;
-    fn nodes_mut(nodes: &mut Nodes) -> &mut UniqueNodes<Self>;
+    fn nodes(nodes: &Nodes) -> &Canonicalizer<Self>;
+    fn nodes_mut(nodes: &mut Nodes) -> &mut Canonicalizer<Self>;
 }
 
 impl Node for DataKind {
-    fn nodes(nodes: &Nodes) -> &UniqueNodes<Self> {
+    fn nodes(nodes: &Nodes) -> &Canonicalizer<Self> {
         &nodes.data
     }
-    fn nodes_mut(nodes: &mut Nodes) -> &mut UniqueNodes<Self> {
+    fn nodes_mut(nodes: &mut Nodes) -> &mut Canonicalizer<Self> {
         &mut nodes.data
     }
 }
 
 impl Node for CtrlKind {
-    fn nodes(nodes: &Nodes) -> &UniqueNodes<Self> {
+    fn nodes(nodes: &Nodes) -> &Canonicalizer<Self> {
         &nodes.ctrl
     }
-    fn nodes_mut(nodes: &mut Nodes) -> &mut UniqueNodes<Self> {
+    fn nodes_mut(nodes: &mut Nodes) -> &mut Canonicalizer<Self> {
         &mut nodes.ctrl
     }
 }
 
 impl Node for BranchKind {
-    fn nodes(nodes: &Nodes) -> &UniqueNodes<Self> {
+    fn nodes(nodes: &Nodes) -> &Canonicalizer<Self> {
         &nodes.branch
     }
-    fn nodes_mut(nodes: &mut Nodes) -> &mut UniqueNodes<Self> {
+    fn nodes_mut(nodes: &mut Nodes) -> &mut Canonicalizer<Self> {
         &mut nodes.branch
     }
 }
 
 impl Node for MergeKind {
-    fn nodes(nodes: &Nodes) -> &UniqueNodes<Self> {
+    fn nodes(nodes: &Nodes) -> &Canonicalizer<Self> {
         &nodes.merge
     }
-    fn nodes_mut(nodes: &mut Nodes) -> &mut UniqueNodes<Self> {
+    fn nodes_mut(nodes: &mut Nodes) -> &mut Canonicalizer<Self> {
         &mut nodes.merge
     }
 }
 
 #[derive(Default)]
 pub struct Nodes {
-    pub data: UniqueNodes<DataKind>,
-    pub ctrl: UniqueNodes<CtrlKind>,
-    pub branch: UniqueNodes<BranchKind>,
-    pub merge: UniqueNodes<MergeKind>,
+    pub data: Canonicalizer<DataKind>,
+    pub ctrl: Canonicalizer<CtrlKind>,
+    pub branch: Canonicalizer<BranchKind>,
+    pub merge: Canonicalizer<MergeKind>,
 }
 
 /// In this graph every node is unique and changes can be followed back to the onces depending on the changed node
@@ -185,7 +185,10 @@ pub struct Graph {
 
 impl Graph {
     /// Iterates over data users of all aliases of `dep`.
-    pub fn data_data_users(&self, dir: Dir<DataKind>) -> impl Iterator<Item = Dir<DataKind>> + '_ {
+    pub fn data_data_users(
+        &self,
+        dir: Unique<DataKind>,
+    ) -> impl Iterator<Item = Unique<DataKind>> + '_ {
         self.nodes
             .data
             .stable_deps(dir)
@@ -195,8 +198,8 @@ impl Graph {
     /// Iterates over branch users of all aliases of `dep`.
     pub fn data_branch_users(
         &self,
-        dir: Dir<DataKind>,
-    ) -> impl Iterator<Item = Dir<BranchKind>> + '_ {
+        dir: Unique<DataKind>,
+    ) -> impl Iterator<Item = Unique<BranchKind>> + '_ {
         self.nodes
             .data
             .stable_deps(dir)
@@ -206,8 +209,8 @@ impl Graph {
     /// Iterates over branch users of all aliases of `dep`.
     pub fn ctrl_branch_users(
         &self,
-        dir: Dir<CtrlKind>,
-    ) -> impl Iterator<Item = Dir<BranchKind>> + '_ {
+        dir: Unique<CtrlKind>,
+    ) -> impl Iterator<Item = Unique<BranchKind>> + '_ {
         self.nodes
             .ctrl
             .stable_deps(dir)
@@ -217,8 +220,8 @@ impl Graph {
     /// Iterates over merge users of all aliases of `dep`.
     pub fn ctrl_merge_users(
         &self,
-        dir: Dir<CtrlKind>,
-    ) -> impl Iterator<Item = Dir<MergeKind>> + '_ {
+        dir: Unique<CtrlKind>,
+    ) -> impl Iterator<Item = Unique<MergeKind>> + '_ {
         self.nodes
             .ctrl
             .stable_deps(dir)
@@ -228,8 +231,8 @@ impl Graph {
     /// Iterates over ctrl users of all aliases of `dep`.
     pub fn branch_ctrl_users(
         &self,
-        dir: Dir<BranchKind>,
-    ) -> impl Iterator<Item = Dir<CtrlKind>> + '_ {
+        dir: Unique<BranchKind>,
+    ) -> impl Iterator<Item = Unique<CtrlKind>> + '_ {
         self.nodes
             .branch
             .stable_deps(dir)
@@ -239,8 +242,8 @@ impl Graph {
     /// Iterates over data users of all aliases of `dep`.
     pub fn merge_data_users(
         &self,
-        dir: Dir<MergeKind>,
-    ) -> impl Iterator<Item = Dir<DataKind>> + '_ {
+        dir: Unique<MergeKind>,
+    ) -> impl Iterator<Item = Unique<DataKind>> + '_ {
         self.nodes
             .merge
             .stable_deps(dir)
@@ -250,8 +253,8 @@ impl Graph {
     /// Iterates over ctrl users of all aliases of `dep`.
     pub fn merge_ctrl_users(
         &self,
-        dir: Dir<MergeKind>,
-    ) -> impl Iterator<Item = Dir<CtrlKind>> + '_ {
+        dir: Unique<MergeKind>,
+    ) -> impl Iterator<Item = Unique<CtrlKind>> + '_ {
         self.nodes
             .merge
             .stable_deps(dir)
@@ -259,7 +262,7 @@ impl Graph {
     }
 
     /// Returns the direct handle of a certain dependency.
-    pub fn direct<N: Node>(&self, dep: Stable<N>) -> Dir<N> {
+    pub fn direct<N: Node>(&self, dep: Stable<N>) -> Unique<N> {
         N::nodes(&self.nodes).direct(dep)
     }
 
@@ -281,7 +284,7 @@ impl Graph {
     }
 
     /// Redirects every dependency on `old` to `new` and frees the old node.
-    pub fn remap<N: Node>(&mut self, old: Dir<N>, new: Dir<N>) {
+    pub fn remap<N: Node>(&mut self, old: Unique<N>, new: Unique<N>) {
         if old == new {
             return;
         }
@@ -289,7 +292,7 @@ impl Graph {
         N::nodes_mut(&mut self.nodes).remap_deps(old, new);
     }
 
-    pub fn nodes<'a, N: Node + 'a>(&'a self) -> impl Iterator<Item = Dir<N>> {
+    pub fn nodes<'a, N: Node + 'a>(&'a self) -> impl Iterator<Item = Unique<N>> {
         N::nodes(&self.nodes).nodes()
     }
 }
@@ -297,7 +300,7 @@ impl Graph {
 mod graph_indexing {
     use std::ops::Index;
 
-    use crate::{Dir, canonical::Stable, graph::Node};
+    use crate::{Unique, canonical::Stable, graph::Node};
 
     use super::Graph;
 
@@ -309,10 +312,10 @@ mod graph_indexing {
         }
     }
 
-    impl<N: Node> Index<Dir<N>> for Graph {
+    impl<N: Node> Index<Unique<N>> for Graph {
         type Output = N;
 
-        fn index(&self, index: Dir<N>) -> &Self::Output {
+        fn index(&self, index: Unique<N>) -> &Self::Output {
             &N::nodes(&self.nodes)[index]
         }
     }

@@ -1,13 +1,13 @@
 use std::collections::HashSet;
 
 use crate::{
-    canonical::Dir,
+    canonical::Unique,
     graph::{BranchKind, CtrlKind, DataKind, ListDeps, MergeKind},
 };
 
 pub trait ReportUses: Sized + ListDeps {
-    fn add_node(&self, user_dir: Dir<Self>, user_table: &mut UserTable);
-    fn remove_node(&self, user_dir: Dir<Self>, user_table: &mut UserTable);
+    fn add_node(&self, user_dir: Unique<Self>, user_table: &mut UserTable);
+    fn remove_node(&self, user_dir: Unique<Self>, user_table: &mut UserTable);
 
     fn add_dep(user_table: &mut UserTable);
 }
@@ -20,7 +20,7 @@ pub struct UserTable {
     pub merge: Vec<MergeUsers>,
 }
 
-type UsersOf<T> = HashSet<Dir<T>>;
+type UsersOf<T> = HashSet<Unique<T>>;
 
 #[derive(Default)]
 pub struct DataUsers {
@@ -46,7 +46,7 @@ pub struct MergeUsers {
 }
 
 impl ReportUses for DataKind {
-    fn add_node(&self, user_dir: Dir<DataKind>, user_table: &mut UserTable) {
+    fn add_node(&self, user_dir: Unique<DataKind>, user_table: &mut UserTable) {
         let uses = self.deps();
         uses.data.iter().copied().for_each(|used| {
             user_table.data[used].data.insert(user_dir);
@@ -56,7 +56,7 @@ impl ReportUses for DataKind {
         });
     }
 
-    fn remove_node(&self, user_dir: Dir<Self>, user_table: &mut UserTable) {
+    fn remove_node(&self, user_dir: Unique<Self>, user_table: &mut UserTable) {
         let uses = self.deps();
         uses.data.iter().copied().for_each(|used| {
             user_table.data[used].data.remove(&user_dir);
@@ -72,7 +72,7 @@ impl ReportUses for DataKind {
 }
 
 impl ReportUses for CtrlKind {
-    fn add_node(&self, user_dir: Dir<Self>, user_table: &mut UserTable) {
+    fn add_node(&self, user_dir: Unique<Self>, user_table: &mut UserTable) {
         let uses = self.deps();
         uses.branch.iter().copied().for_each(|used| {
             user_table.branch[used].ctrl.insert(user_dir);
@@ -82,7 +82,7 @@ impl ReportUses for CtrlKind {
         });
     }
 
-    fn remove_node(&self, user_dir: Dir<Self>, user_table: &mut UserTable) {
+    fn remove_node(&self, user_dir: Unique<Self>, user_table: &mut UserTable) {
         let uses = self.deps();
         uses.branch.iter().copied().for_each(|used| {
             user_table.branch[used].ctrl.remove(&user_dir);
@@ -98,7 +98,7 @@ impl ReportUses for CtrlKind {
 }
 
 impl ReportUses for BranchKind {
-    fn add_node(&self, user_dir: Dir<Self>, user_table: &mut UserTable) {
+    fn add_node(&self, user_dir: Unique<Self>, user_table: &mut UserTable) {
         let uses = self.deps();
         uses.ctrl.iter().copied().for_each(|used| {
             user_table.ctrl[used].branch.insert(user_dir);
@@ -108,7 +108,7 @@ impl ReportUses for BranchKind {
         });
     }
 
-    fn remove_node(&self, user_dir: Dir<Self>, user_table: &mut UserTable) {
+    fn remove_node(&self, user_dir: Unique<Self>, user_table: &mut UserTable) {
         let uses = self.deps();
         uses.ctrl.iter().copied().for_each(|used| {
             user_table.ctrl[used].branch.remove(&user_dir);
@@ -124,14 +124,14 @@ impl ReportUses for BranchKind {
 }
 
 impl ReportUses for MergeKind {
-    fn add_node(&self, user_dir: Dir<Self>, user_table: &mut UserTable) {
+    fn add_node(&self, user_dir: Unique<Self>, user_table: &mut UserTable) {
         let uses = self.deps();
         uses.ctrl.iter().copied().for_each(|used| {
             user_table.ctrl[used].merge.insert(user_dir);
         });
     }
 
-    fn remove_node(&self, user_dir: Dir<Self>, user_table: &mut UserTable) {
+    fn remove_node(&self, user_dir: Unique<Self>, user_table: &mut UserTable) {
         let uses = self.deps();
         uses.ctrl.iter().copied().for_each(|used| {
             user_table.ctrl[used].merge.remove(&user_dir);

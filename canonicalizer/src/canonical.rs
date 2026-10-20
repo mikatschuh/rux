@@ -50,12 +50,12 @@ impl<N: PartialEq + Eq> Ord for Stable<N> {
 
 /// A type to represent a unique node in the graph.
 #[derive(Debug)]
-pub struct Dir<N> {
+pub struct Unique<N> {
     _marker: PhantomData<N>,
     idx: usize,
 }
 
-impl<N> Dir<N> {
+impl<N> Unique<N> {
     pub(crate) fn new(idx: usize) -> Self {
         Self {
             _marker: PhantomData,
@@ -65,7 +65,7 @@ impl<N> Dir<N> {
 }
 
 #[allow(clippy::non_canonical_clone_impl)]
-impl<N> Clone for Dir<N> {
+impl<N> Clone for Unique<N> {
     fn clone(&self) -> Self {
         Self {
             _marker: PhantomData,
@@ -73,35 +73,35 @@ impl<N> Clone for Dir<N> {
         }
     }
 }
-impl<N> Copy for Dir<N> {}
+impl<N> Copy for Unique<N> {}
 
-impl<N> PartialEq<Dir<N>> for Dir<N> {
-    fn eq(&self, other: &Dir<N>) -> bool {
+impl<N> PartialEq<Unique<N>> for Unique<N> {
+    fn eq(&self, other: &Unique<N>) -> bool {
         self.idx == other.idx
     }
 }
-impl<N> Eq for Dir<N> {}
+impl<N> Eq for Unique<N> {}
 
-impl<N> Hash for Dir<N> {
+impl<N> Hash for Unique<N> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.idx.hash(state)
     }
 }
 
 /// In this graph every node is deduplicated.
-pub struct UniqueNodes<N> {
+pub struct Canonicalizer<N> {
     /// For every dependency `Dep` one direct index `Dir`.
-    to_direct: Vec<Dir<N>>,
+    to_direct: Vec<Unique<N>>,
     /// For every direct index `Dir` all dependencies `Dep` that use it.
     from_direct: Vec<NonEmpty<Stable<N>>>,
     /// Stores the actual nodes
     nodes: Vec<N>,
     /// Caches nodes
-    cache: HashMap<N, Dir<N>>,
-    free_list: Vec<Dir<N>>,
+    cache: HashMap<N, Unique<N>>,
+    free_list: Vec<Unique<N>>,
 }
 
-impl<N: Node> Default for UniqueNodes<N> {
+impl<N: Node> Default for Canonicalizer<N> {
     fn default() -> Self {
         Self {
             to_direct: vec![],
@@ -113,27 +113,27 @@ impl<N: Node> Default for UniqueNodes<N> {
     }
 }
 
-impl<N: Node> UniqueNodes<N> {
-    fn bind_to(&mut self, dep: Stable<N>, dir: Dir<N>) {
-        self.from_direct[dir].push(dep);
-        self.to_direct[dep] = dir;
+impl<N: Node> Canonicalizer<N> {
+    fn bind(&mut self, ind: Stable<N>, dir: Unique<N>) {
+        self.from_direct[dir].push(ind);
+        self.to_direct[ind] = dir;
     }
 
-    pub(crate) fn add_node(&mut self, user_table: &mut UserTable, dep: Stable<N>, node: N) {
+    pub(crate) fn add_node(&mut self, user_table: &mut UserTable, stable: Stable<N>, node: N) {
         if let Some(dir) = self.cache.get(&node) {
-            self.bind_to(dep, *dir);
+            self.bind(stable, *dir);
         } else if let Some(free_dir) = self.free_list.pop() {
             node.add_node(free_dir, user_table);
-            self.from_direct[free_dir] = nonempty![dep];
-            self.to_direct[dep] = free_dir;
+            self.from_direct[free_dir] = nonempty![stable];
+            self.to_direct[stable] = free_dir;
 
             self.nodes[free_dir] = node.clone();
             self.cache.insert(node, free_dir);
         } else {
-            let dir = Dir::new(self.from_direct.len());
+            let dir = Unique::new(self.from_direct.len());
             node.add_node(dir, user_table);
-            self.from_direct.push(nonempty![dep]);
-            self.to_direct[dep] = dir;
+            self.from_direct.push(nonempty![stable]);
+            self.to_direct[stable] = dir;
 
             self.nodes.push(node.clone());
             self.cache.insert(node, dir);
@@ -142,47 +142,47 @@ impl<N: Node> UniqueNodes<N> {
 
     pub(crate) fn allocate(&mut self, user_table: &mut UserTable) -> Stable<N> {
         let deps_count = self.to_direct.len();
-        self.to_direct.push(Dir::new(usize::MAX));
+        self.to_direct.push(Unique::new(usize::MAX));
         N::add_dep(user_table);
         Stable::new(deps_count)
     }
 
-    pub(crate) fn remap_deps(&mut self, old: Dir<N>, new: Dir<N>) {
+    pub(crate) fn remap_deps(&mut self, old: Unique<N>, new: Unique<N>) {
         if old == new {
             return;
         }
-        for dep in [self.from_direct[old].head]
+        for ind in [self.from_direct[old].head]
             .into_iter()
             .chain(std::mem::take(&mut self.from_direct[old].tail))
         {
-            self.bind_to(dep, new);
+            self.bind(ind, new);
         }
         self.cache.remove(&self.nodes[old]);
         self.free_list.push(old);
     }
 
-    pub(crate) fn direct(&self, dep: Stable<N>) -> Dir<N> {
+    pub(crate) fn direct(&self, dep: Stable<N>) -> Unique<N> {
         self.to_direct[dep]
     }
 
-    pub(crate) fn stable_deps(&self, dir: Dir<N>) -> impl Iterator<Item = Stable<N>> + '_ {
+    pub(crate) fn stable_deps(&self, dir: Unique<N>) -> impl Iterator<Item = Stable<N>> + '_ {
         self.from_direct[dir].iter().copied()
     }
 
-    pub fn nodes(&self) -> impl Iterator<Item = Dir<N>> {
-        (0..self.from_direct.len()).map(|i| Dir::new(i))
+    pub fn nodes(&self) -> impl Iterator<Item = Unique<N>> {
+        (0..self.from_direct.len()).map(|i| Unique::new(i))
     }
 }
 
-impl<A, B> Index<Dir<A>> for Vec<B> {
+impl<A, B> Index<Unique<A>> for Vec<B> {
     type Output = B;
-    fn index(&self, index: Dir<A>) -> &Self::Output {
+    fn index(&self, index: Unique<A>) -> &Self::Output {
         &self[index.idx]
     }
 }
 
-impl<A, B> IndexMut<Dir<A>> for Vec<B> {
-    fn index_mut(&mut self, index: Dir<A>) -> &mut Self::Output {
+impl<A, B> IndexMut<Unique<A>> for Vec<B> {
+    fn index_mut(&mut self, index: Unique<A>) -> &mut Self::Output {
         &mut self[index.idx]
     }
 }
@@ -200,7 +200,7 @@ impl<A, B> IndexMut<Stable<A>> for Vec<B> {
     }
 }
 
-impl<N> Index<Stable<N>> for UniqueNodes<N> {
+impl<N> Index<Stable<N>> for Canonicalizer<N> {
     type Output = N;
     fn index(&self, index: Stable<N>) -> &Self::Output {
         let dir = self.to_direct[index];
@@ -208,9 +208,9 @@ impl<N> Index<Stable<N>> for UniqueNodes<N> {
     }
 }
 
-impl<N> Index<Dir<N>> for UniqueNodes<N> {
+impl<N> Index<Unique<N>> for Canonicalizer<N> {
     type Output = N;
-    fn index(&self, index: Dir<N>) -> &Self::Output {
+    fn index(&self, index: Unique<N>) -> &Self::Output {
         &self.nodes[index]
     }
 }

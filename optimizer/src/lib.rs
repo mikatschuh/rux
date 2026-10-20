@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use canonicalizer::{BranchKind, CtrlKind, DataKind, Dir, Graph, MergeKind};
+use canonicalizer::{BranchKind, CtrlKind, DataKind, Unique, Graph, MergeKind};
 
 mod peephole;
 
@@ -21,18 +21,18 @@ pub fn optimize_graph(graph: &mut Graph) {
 
 #[derive(Default)]
 struct Worklist {
-    data: HashSet<Dir<DataKind>>,
-    ctrl: HashSet<Dir<CtrlKind>>,
-    branch: HashSet<Dir<BranchKind>>,
-    merge: HashSet<Dir<MergeKind>>,
+    data: HashSet<Unique<DataKind>>,
+    ctrl: HashSet<Unique<CtrlKind>>,
+    branch: HashSet<Unique<BranchKind>>,
+    merge: HashSet<Unique<MergeKind>>,
 }
 
 #[derive(Default)]
 struct Visited {
-    data: Vec<Dir<DataKind>>,
-    ctrl: Vec<Dir<CtrlKind>>,
-    branch: Vec<Dir<BranchKind>>,
-    merge: Vec<Dir<MergeKind>>,
+    data: Vec<Unique<DataKind>>,
+    ctrl: Vec<Unique<CtrlKind>>,
+    branch: Vec<Unique<BranchKind>>,
+    merge: Vec<Unique<MergeKind>>,
 }
 
 struct PeepholePass<'graph> {
