@@ -1,4 +1,4 @@
-use canonicalizer::{BinaryOp, ComBinaryOp, Data, DataKind, Unique, OrderedOps, UnaryOp};
+use canonicalizer::{BinaryOp, ComBinaryOp, Data, DataKind, OrderedOps, UnaryOp, Unique};
 
 use crate::PeepholePass;
 

@@ -1,0 +1,11 @@
+// No functions yet: main is an initialized constant containing a block.
+let main usize = {
+    var sum = 0
+    var i = 0
+    loop {
+        sum = sum + i
+        i++
+        if i > 63 break
+    }
+    sum
+}

@@ -1,0 +1,10 @@
+// A cyclic graph with redundant boolean operations. No execution is timed.
+let main bool = {
+    var value = false
+    loop {
+        value = value || false
+        if !value { break }
+        value = !value
+    }
+    value
+}

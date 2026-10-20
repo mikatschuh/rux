@@ -6,3 +6,6 @@ The goal is to simplify and generalize Rust's base (as well as syntax) and then 
 2. expanded type system
 3. more control, more low level more of that
 If you think right now: wait isn't that Zig? Nope it isn't. This will be pretty similar to Zig where Zig found great solutions, but where following Rust's Philosophy takes a different way as for ownership and borrowing for example, Rux will choose that over Zig's approach.
+
+Compiler pass benchmarks, generated workloads, and an optimizer behavior report
+are documented in [compiler_benchmarks/README.md](compiler_benchmarks/README.md).

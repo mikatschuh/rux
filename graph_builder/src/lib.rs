@@ -31,6 +31,31 @@ pub trait Diagnostics {
     fn add(&mut self, span: Span, err: Error);
 }
 
+/// Builds an entry constant without formatting a debug graph.
+/// Returns `None` when the entry is missing or is not an initialized typed constant.
+pub fn build_graph<'src, D: Diagnostics>(
+    ast: &AstBuilder<'src>,
+    mut item_table: HashMap<Symbol, Item>,
+    starting_point: Symbol,
+    errors: D,
+    target_ptr_size: TypeSize,
+) -> Option<(Graph<'src>, Data, D)> {
+    let Item::Constant {
+        definition:
+            Definition::Type {
+                assignment: Some(Assignment { value, .. }),
+                ..
+            },
+        ..
+    } = item_table.remove(&starting_point)?
+    else {
+        return None;
+    };
+    let (mut builder, cursor) = GraphBuilder::new(ast, errors, item_table, target_ptr_size);
+    let result = builder.expr(value, cursor);
+    Some((builder.graph, result.data, builder.errors))
+}
+
 pub fn build_graph_debug<'src, D: Diagnostics>(
     ast: &AstBuilder<'src>,
     mut item_table: HashMap<Symbol, Item>,

@@ -1,0 +1,12 @@
+// Deliberately repeated expressions and identical merge alternatives.
+let main bool = {
+    let a = true || false
+    let b = true || false
+    var value = a
+    if b {
+        value = !false
+    } else {
+        value = !false
+    }
+    !(value || false)
+}

@@ -1,0 +1,19 @@
+[package]
+name = "compiler_benchmarks"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+tokenizer = { path = "../tokenizer" }
+parser = { path = "../parser" }
+graph_builder = { path = "../graph_builder" }
+canonicalizer = { path = "../canonicalizer" }
+optimizer = { path = "../optimizer" }
+
+[dev-dependencies]
+criterion = { version = "0.8", features = ["html_reports"] }
+
+[[bench]]
+name = "passes"
+harness = false

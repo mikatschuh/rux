@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use canonicalizer::{BranchKind, CtrlKind, DataKind, Unique, Graph, MergeKind};
+use canonicalizer::{BranchKind, CtrlKind, DataKind, Graph, MergeKind, Unique};
 
 mod peephole;
 

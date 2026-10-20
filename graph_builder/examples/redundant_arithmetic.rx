@@ -1,0 +1,15 @@
+// Frontend workload until numeric literal lowering reaches canonicalization.
+// The loop keeps arithmetic dependent on a merge rather than just literals.
+let main usize = {
+    var value = 1
+    var i = 0
+    loop {
+        let duplicate_a = value + 0
+        let duplicate_b = value + 0
+        value = ((duplicate_a * 1) + (duplicate_b * 0)) % 1024
+        value = value << 0
+        i++
+        if i > 31 break
+    }
+    value
+}
