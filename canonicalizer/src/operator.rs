@@ -150,19 +150,19 @@ pub fn process_source_op(
 ) {
     let (op, complement) = convert_operator(op);
     let value = if complement.is_some() {
-        graph.allocate_data()
+        graph.allocate()
     } else {
         result
     };
     match op {
-        Converted::BinaryOp { op, reverse } => graph.fill_in_data(
+        Converted::BinaryOp { op, reverse } => graph.fill_in(
             value,
             DataKind::Binary {
                 op,
                 ops: if reverse { [b, a] } else { [a, b] },
             },
         ),
-        Converted::ComBinaryOp(op) => graph.fill_in_data(
+        Converted::ComBinaryOp(op) => graph.fill_in(
             value,
             DataKind::ComBinary {
                 op,
@@ -176,11 +176,11 @@ pub fn process_source_op(
                 (UnaryOp::Reciprocal, ComBinaryOp::Mul)
             };
             let rhs = unary_node(graph, unary, b);
-            graph.fill_in_data(value, commutative_node(binary, a, rhs));
+            graph.fill_in(value, commutative_node(binary, a, rhs));
         }
         Converted::LessEq { reverse } => {
-            let less = graph.allocate_data();
-            graph.fill_in_data(
+            let less = graph.allocate();
+            graph.fill_in(
                 less,
                 DataKind::Binary {
                     op: BinaryOp::Less,
@@ -188,7 +188,7 @@ pub fn process_source_op(
                 },
             );
             let equal = commutative(graph, ComBinaryOp::Eq, a, b);
-            graph.fill_in_data(value, commutative_node(ComBinaryOp::Or, less, equal));
+            graph.fill_in(value, commutative_node(ComBinaryOp::Or, less, equal));
         }
         Converted::And { bitwise } | Converted::Xor { bitwise } => {
             let (or, not) = if bitwise {
@@ -196,20 +196,20 @@ pub fn process_source_op(
             } else {
                 (ComBinaryOp::Or, UnaryOp::Not)
             };
-            let not_a = unary_node(graph, not.clone(), a);
-            let not_b = unary_node(graph, not.clone(), b);
+            let not_a = unary_node(graph, not, a);
+            let not_b = unary_node(graph, not, b);
             let either_not = commutative(graph, or, not_a, not_b);
             let operand = if matches!(op, Converted::Xor { .. }) {
                 // a XOR b = NOT(NOT(a OR b) OR NOT(NOT(a) OR NOT(b))).
                 let either = commutative(graph, or, a, b);
-                let neither = unary_node(graph, not.clone(), either);
-                let both = unary_node(graph, not.clone(), either_not);
+                let neither = unary_node(graph, not, either);
+                let both = unary_node(graph, not, either_not);
                 commutative(graph, or, neither, both)
             } else {
                 // a AND b = NOT(NOT(a) OR NOT(b)).
                 either_not
             };
-            graph.fill_in_data(
+            graph.fill_in(
                 value,
                 DataKind::Unary {
                     op: not,
@@ -220,13 +220,13 @@ pub fn process_source_op(
     };
 
     if let Some(op) = complement {
-        graph.fill_in_data(result, DataKind::Unary { op, value })
+        graph.fill_in(result, DataKind::Unary { op, value })
     }
 }
 
 fn unary_node(graph: &mut Graph, op: UnaryOp, value: Data) -> Data {
-    let result = graph.allocate_data();
-    graph.fill_in_data(result, DataKind::Unary { op, value });
+    let result = graph.allocate();
+    graph.fill_in(result, DataKind::Unary { op, value });
     result
 }
 
@@ -238,8 +238,8 @@ fn commutative_node(op: ComBinaryOp, a: Data, b: Data) -> DataKind {
 }
 
 fn commutative(graph: &mut Graph, op: ComBinaryOp, a: Data, b: Data) -> Data {
-    let result = graph.allocate_data();
-    graph.fill_in_data(result, commutative_node(op, a, b));
+    let result = graph.allocate();
+    graph.fill_in(result, commutative_node(op, a, b));
     result
 }
 
@@ -249,8 +249,8 @@ mod tests {
     use graph_builder::BinaryOp as Source;
 
     fn input(graph: &mut Graph, value: usize) -> Data {
-        let result = graph.allocate_data();
-        graph.fill_in_data(result, DataKind::Literal(value));
+        let result = graph.allocate();
+        graph.fill_in(result, DataKind::Literal(value));
         result
     }
 
@@ -300,7 +300,7 @@ mod tests {
                     let mut graph = Graph::default();
                     let lhs = input(&mut graph, a);
                     let rhs = input(&mut graph, b);
-                    let result = graph.allocate_data();
+                    let result = graph.allocate();
                     process_source_op(&mut graph, op, lhs, rhs, result);
                     assert_eq!(evaluate(&graph, result), expected, "{a} {op:?} {b}");
                 }
@@ -324,7 +324,7 @@ mod tests {
                     let mut graph = Graph::default();
                     let lhs = input(&mut graph, a);
                     let rhs = input(&mut graph, b);
-                    let result = graph.allocate_data();
+                    let result = graph.allocate();
                     process_source_op(&mut graph, op, lhs, rhs, result);
                     assert_eq!(evaluate(&graph, result), expected, "{a} {op:?} {b}");
                 }
@@ -345,7 +345,7 @@ mod tests {
                     let mut graph = Graph::default();
                     let lhs = input(&mut graph, a);
                     let rhs = input(&mut graph, b);
-                    let result = graph.allocate_data();
+                    let result = graph.allocate();
                     process_source_op(&mut graph, op, lhs, rhs, result);
                     assert_eq!(
                         evaluate(&graph, result),
@@ -375,7 +375,7 @@ mod tests {
             let mut graph = Graph::default();
             let a = input(&mut graph, 6);
             let b = input(&mut graph, 3);
-            let result = graph.allocate_data();
+            let result = graph.allocate();
             process_source_op(&mut graph, source, a, b, result);
             let DataKind::ComBinary { op, ops } = &graph.nodes.data[result] else {
                 panic!("expected a commutative arithmetic node");

@@ -25,6 +25,7 @@ type UsersOf<T> = HashSet<Dir<T>>;
 #[derive(Default)]
 pub struct DataUsers {
     pub data: UsersOf<DataKind>,
+    pub branch: UsersOf<BranchKind>,
 }
 
 #[derive(Default)]
@@ -102,12 +103,18 @@ impl ReportUses for BranchKind {
         uses.ctrl.iter().copied().for_each(|used| {
             user_table.ctrl[used].branch.insert(user_dir);
         });
+        uses.data.iter().copied().for_each(|used| {
+            user_table.data[used].branch.insert(user_dir);
+        });
     }
 
     fn remove_node(&self, user_dir: Dir<Self>, user_table: &mut UserTable) {
         let uses = self.deps();
         uses.ctrl.iter().copied().for_each(|used| {
             user_table.ctrl[used].branch.remove(&user_dir);
+        });
+        uses.data.iter().copied().for_each(|used| {
+            user_table.data[used].branch.remove(&user_dir);
         });
     }
 

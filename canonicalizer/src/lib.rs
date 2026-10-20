@@ -19,6 +19,20 @@ pub use graph::{
 };
 pub use operator::{BinaryOp, ComBinaryOp, OrderedOps, UnaryOp};
 
+pub fn process_graph(
+    source_graph: &source::Graph,
+    start: impl IntoIterator<Item = source::Data>,
+) -> (Graph, Box<[Data]>) {
+    let mut pass = GvnPass::new(source_graph);
+    let start = start
+        .into_iter()
+        .map(|data| pass.process_data(data))
+        .collect::<Box<[Data]>>();
+
+    (pass.canonical_graph, start)
+}
+
+#[derive(Default)]
 struct Visited {
     data: HashMap<source::Data, Data>,
     ctrl: HashMap<source::Ctrl, Ctrl>,
@@ -35,25 +49,32 @@ struct GvnPass<'src, 'graph> {
 }
 
 impl<'src, 'graph> GvnPass<'src, 'graph> {
+    fn new(source_graph: &'graph source::Graph<'src>) -> Self {
+        Self {
+            source_graph,
+            canonical_graph: Graph::default(),
+            visited: Visited::default(),
+            merge_variant_permutation_table: HashMap::new(),
+        }
+    }
+
     fn process_data(&mut self, data: source::Data) -> Data {
         if let Some(prev) = self.visited.data.get(&data) {
             return *prev;
         }
 
-        let canonical_data = self.canonical_graph.allocate_data();
+        let canonical_data = self.canonical_graph.allocate();
         self.visited.data.insert(data, canonical_data);
 
         match self.source_graph[data].clone() {
-            source::DataKind::Unit => self
-                .canonical_graph
-                .fill_in_data(canonical_data, DataKind::Unit),
+            source::DataKind::Unit => self.canonical_graph.fill_in(canonical_data, DataKind::Unit),
             source::DataKind::Literal(_) => todo!("literals shouldn't actually arrive here"),
             source::DataKind::Quote(quote) => self
                 .canonical_graph
-                .fill_in_data(canonical_data, DataKind::Quote(quote)),
+                .fill_in(canonical_data, DataKind::Quote(quote)),
             source::DataKind::Boolean(boolean) => self
                 .canonical_graph
-                .fill_in_data(canonical_data, DataKind::Boolean(boolean)),
+                .fill_in(canonical_data, DataKind::Boolean(boolean)),
 
             source::DataKind::Unary { op, value } => {
                 let value = self.process_data(value);
@@ -65,7 +86,7 @@ impl<'src, 'graph> GvnPass<'src, 'graph> {
                     }
                 };
                 self.canonical_graph
-                    .fill_in_data(canonical_data, DataKind::Unary { op, value })
+                    .fill_in(canonical_data, DataKind::Unary { op, value })
             }
             source::DataKind::Binary { op, ops } => {
                 let a = self.process_data(ops[0]);
@@ -88,7 +109,7 @@ impl<'src, 'graph> GvnPass<'src, 'graph> {
                     "data-mergee/merge arity mismatch"
                 );
                 let variants = permutation.iter().map(|&i| variants[i]).collect();
-                self.canonical_graph.fill_in_data(
+                self.canonical_graph.fill_in(
                     canonical_data,
                     DataKind::Merge {
                         merge: canonical_merge,
@@ -109,22 +130,22 @@ impl<'src, 'graph> GvnPass<'src, 'graph> {
             return *prev;
         }
 
-        let canonical_ctrl = self.canonical_graph.allocate_ctrl();
+        let canonical_ctrl = self.canonical_graph.allocate();
         self.visited.ctrl.insert(ctrl, canonical_ctrl);
 
         match self.source_graph[ctrl].clone() {
             source::CtrlKind::Entry => self
                 .canonical_graph
-                .fill_in_ctrl(canonical_ctrl, CtrlKind::Entry),
+                .fill_in(canonical_ctrl, CtrlKind::Entry),
             source::CtrlKind::Branch { branch, idx } => {
                 let branch = self.process_branch(branch);
                 self.canonical_graph
-                    .fill_in_ctrl(canonical_ctrl, CtrlKind::Branch { branch, idx })
+                    .fill_in(canonical_ctrl, CtrlKind::Branch { branch, idx })
             }
             source::CtrlKind::Merge { merge } => {
                 let merge = self.process_merge(merge);
                 self.canonical_graph
-                    .fill_in_ctrl(canonical_ctrl, CtrlKind::Merge(merge))
+                    .fill_in(canonical_ctrl, CtrlKind::Merge(merge))
             }
             source::CtrlKind::Placeholder => unreachable!(),
         };
@@ -137,14 +158,14 @@ impl<'src, 'graph> GvnPass<'src, 'graph> {
             return *prev;
         };
 
-        let canonical_branch = self.canonical_graph.allocate_branch();
+        let canonical_branch = self.canonical_graph.allocate();
         self.visited.branch.insert(branch, canonical_branch);
 
         let source::BranchKind { parent, condition } = self.source_graph[branch].clone();
         let parent = self.process_ctrl(parent);
         let condition = self.process_data(condition);
         self.canonical_graph
-            .fill_in_branch(canonical_branch, BranchKind { parent, condition });
+            .fill_in(canonical_branch, BranchKind { parent, condition });
 
         canonical_branch
     }
@@ -154,7 +175,7 @@ impl<'src, 'graph> GvnPass<'src, 'graph> {
             return *prev;
         }
 
-        let canonical_merge = self.canonical_graph.allocate_merge();
+        let canonical_merge = self.canonical_graph.allocate();
         self.visited.merge.insert(merge, canonical_merge);
 
         let source::MergeKind { prev } = self.source_graph[merge].clone();
@@ -166,7 +187,7 @@ impl<'src, 'graph> GvnPass<'src, 'graph> {
         let permutation = input_permutation(&prev);
         let prev = permutation.iter().map(|&i| prev[i]).collect();
         self.canonical_graph
-            .fill_in_merge(canonical_merge, MergeKind { prev });
+            .fill_in(canonical_merge, MergeKind { prev });
 
         self.merge_variant_permutation_table
             .insert(merge, permutation);
