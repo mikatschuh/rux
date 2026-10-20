@@ -12,12 +12,12 @@ use crate::{graph::Node, users::UserTable};
 
 /// A type to represent one dependency in the graph.
 #[derive(Debug, PartialEq, Eq, Hash)]
-pub struct Stable<T> {
-    _marker: PhantomData<T>,
+pub struct Stable<N> {
+    _marker: PhantomData<N>,
     idx: usize,
 }
 
-impl<T> Stable<T> {
+impl<N> Stable<N> {
     fn new(idx: usize) -> Self {
         Self {
             _marker: PhantomData,
@@ -27,7 +27,7 @@ impl<T> Stable<T> {
 }
 
 #[allow(clippy::non_canonical_clone_impl)]
-impl<T> Clone for Stable<T> {
+impl<N> Clone for Stable<N> {
     fn clone(&self) -> Self {
         Self {
             _marker: PhantomData,
@@ -35,14 +35,14 @@ impl<T> Clone for Stable<T> {
         }
     }
 }
-impl<T> Copy for Stable<T> {}
+impl<N> Copy for Stable<N> {}
 
-impl<T: PartialEq> PartialOrd for Stable<T> {
+impl<N: PartialEq> PartialOrd for Stable<N> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.idx.cmp(&other.idx))
     }
 }
-impl<T: PartialEq + Eq> Ord for Stable<T> {
+impl<N: PartialEq + Eq> Ord for Stable<N> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.idx.cmp(&other.idx)
     }
@@ -50,12 +50,12 @@ impl<T: PartialEq + Eq> Ord for Stable<T> {
 
 /// A type to represent a unique node in the graph.
 #[derive(Debug)]
-pub struct Dir<T> {
-    _marker: PhantomData<T>,
+pub struct Dir<N> {
+    _marker: PhantomData<N>,
     idx: usize,
 }
 
-impl<T> Dir<T> {
+impl<N> Dir<N> {
     pub(crate) fn new(idx: usize) -> Self {
         Self {
             _marker: PhantomData,
@@ -65,7 +65,7 @@ impl<T> Dir<T> {
 }
 
 #[allow(clippy::non_canonical_clone_impl)]
-impl<T> Clone for Dir<T> {
+impl<N> Clone for Dir<N> {
     fn clone(&self) -> Self {
         Self {
             _marker: PhantomData,
@@ -73,16 +73,16 @@ impl<T> Clone for Dir<T> {
         }
     }
 }
-impl<T> Copy for Dir<T> {}
+impl<N> Copy for Dir<N> {}
 
-impl<T> PartialEq<Dir<T>> for Dir<T> {
-    fn eq(&self, other: &Dir<T>) -> bool {
+impl<N> PartialEq<Dir<N>> for Dir<N> {
+    fn eq(&self, other: &Dir<N>) -> bool {
         self.idx == other.idx
     }
 }
-impl<T> Eq for Dir<T> {}
+impl<N> Eq for Dir<N> {}
 
-impl<T> Hash for Dir<T> {
+impl<N> Hash for Dir<N> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.idx.hash(state)
     }
@@ -114,26 +114,26 @@ impl<N: Node> Default for UniqueNodes<N> {
 }
 
 impl<N: Node> UniqueNodes<N> {
-    fn direct_placeholder_to(&mut self, dep: Stable<N>, dir: Dir<N>) {
+    fn bind_to(&mut self, dep: Stable<N>, dir: Dir<N>) {
         self.from_direct[dir].push(dep);
         self.to_direct[dep] = dir;
     }
 
-    pub(crate) fn add_node(&mut self, user_table: &mut UserTable, placeholder: Stable<N>, node: N) {
+    pub(crate) fn add_node(&mut self, user_table: &mut UserTable, dep: Stable<N>, node: N) {
         if let Some(dir) = self.cache.get(&node) {
-            self.direct_placeholder_to(placeholder, *dir);
+            self.bind_to(dep, *dir);
         } else if let Some(free_dir) = self.free_list.pop() {
             node.add_node(free_dir, user_table);
-            self.from_direct[free_dir] = nonempty![placeholder];
-            self.to_direct[placeholder] = free_dir;
+            self.from_direct[free_dir] = nonempty![dep];
+            self.to_direct[dep] = free_dir;
 
             self.nodes[free_dir] = node.clone();
             self.cache.insert(node, free_dir);
         } else {
             let dir = Dir::new(self.from_direct.len());
             node.add_node(dir, user_table);
-            self.from_direct.push(nonempty![placeholder]);
-            self.to_direct[placeholder] = dir;
+            self.from_direct.push(nonempty![dep]);
+            self.to_direct[dep] = dir;
 
             self.nodes.push(node.clone());
             self.cache.insert(node, dir);
@@ -155,7 +155,7 @@ impl<N: Node> UniqueNodes<N> {
             .into_iter()
             .chain(std::mem::take(&mut self.from_direct[old].tail))
         {
-            self.direct_placeholder_to(dep, new);
+            self.bind_to(dep, new);
         }
         self.cache.remove(&self.nodes[old]);
         self.free_list.push(old);
@@ -200,17 +200,17 @@ impl<A, B> IndexMut<Stable<A>> for Vec<B> {
     }
 }
 
-impl<T> Index<Stable<T>> for UniqueNodes<T> {
-    type Output = T;
-    fn index(&self, index: Stable<T>) -> &Self::Output {
+impl<N> Index<Stable<N>> for UniqueNodes<N> {
+    type Output = N;
+    fn index(&self, index: Stable<N>) -> &Self::Output {
         let dir = self.to_direct[index];
         &self.nodes[dir]
     }
 }
 
-impl<T> Index<Dir<T>> for UniqueNodes<T> {
-    type Output = T;
-    fn index(&self, index: Dir<T>) -> &Self::Output {
+impl<N> Index<Dir<N>> for UniqueNodes<N> {
+    type Output = N;
+    fn index(&self, index: Dir<N>) -> &Self::Output {
         &self.nodes[index]
     }
 }

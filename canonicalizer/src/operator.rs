@@ -155,14 +155,14 @@ pub fn process_source_op(
         result
     };
     match op {
-        Converted::BinaryOp { op, reverse } => graph.fill_in(
+        Converted::BinaryOp { op, reverse } => graph.bind(
             value,
             DataKind::Binary {
                 op,
                 ops: if reverse { [b, a] } else { [a, b] },
             },
         ),
-        Converted::ComBinaryOp(op) => graph.fill_in(
+        Converted::ComBinaryOp(op) => graph.bind(
             value,
             DataKind::ComBinary {
                 op,
@@ -176,11 +176,11 @@ pub fn process_source_op(
                 (UnaryOp::Reciprocal, ComBinaryOp::Mul)
             };
             let rhs = unary_node(graph, unary, b);
-            graph.fill_in(value, commutative_node(binary, a, rhs));
+            graph.bind(value, commutative_node(binary, a, rhs));
         }
         Converted::LessEq { reverse } => {
             let less = graph.allocate();
-            graph.fill_in(
+            graph.bind(
                 less,
                 DataKind::Binary {
                     op: BinaryOp::Less,
@@ -188,7 +188,7 @@ pub fn process_source_op(
                 },
             );
             let equal = commutative(graph, ComBinaryOp::Eq, a, b);
-            graph.fill_in(value, commutative_node(ComBinaryOp::Or, less, equal));
+            graph.bind(value, commutative_node(ComBinaryOp::Or, less, equal));
         }
         Converted::And { bitwise } | Converted::Xor { bitwise } => {
             let (or, not) = if bitwise {
@@ -209,7 +209,7 @@ pub fn process_source_op(
                 // a AND b = NOT(NOT(a) OR NOT(b)).
                 either_not
             };
-            graph.fill_in(
+            graph.bind(
                 value,
                 DataKind::Unary {
                     op: not,
@@ -220,13 +220,13 @@ pub fn process_source_op(
     };
 
     if let Some(op) = complement {
-        graph.fill_in(result, DataKind::Unary { op, value })
+        graph.bind(result, DataKind::Unary { op, value })
     }
 }
 
 fn unary_node(graph: &mut Graph, op: UnaryOp, value: Data) -> Data {
     let result = graph.allocate();
-    graph.fill_in(result, DataKind::Unary { op, value });
+    graph.bind(result, DataKind::Unary { op, value });
     result
 }
 
@@ -239,7 +239,7 @@ fn commutative_node(op: ComBinaryOp, a: Data, b: Data) -> DataKind {
 
 fn commutative(graph: &mut Graph, op: ComBinaryOp, a: Data, b: Data) -> Data {
     let result = graph.allocate();
-    graph.fill_in(result, commutative_node(op, a, b));
+    graph.bind(result, commutative_node(op, a, b));
     result
 }
 
@@ -250,7 +250,7 @@ mod tests {
 
     fn input(graph: &mut Graph, value: usize) -> Data {
         let result = graph.allocate();
-        graph.fill_in(result, DataKind::Literal(value));
+        graph.bind(result, DataKind::Literal(value));
         result
     }
 

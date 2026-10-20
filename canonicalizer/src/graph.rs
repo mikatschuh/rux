@@ -271,12 +271,12 @@ impl Graph {
     /// Allocates a dependency and fills it with a canonicalized node.
     pub fn add<N: Node>(&mut self, node: N) -> Stable<N> {
         let dep = self.allocate();
-        self.fill_in(dep, node);
+        self.bind(dep, node);
         dep
     }
 
     /// Adds a node to an unfilled dependency.
-    pub(crate) fn fill_in<N: Node>(&mut self, dep: Stable<N>, node: N) {
+    pub(crate) fn bind<N: Node>(&mut self, dep: Stable<N>, node: N) {
         N::nodes_mut(&mut self.nodes).add_node(&mut self.user_table, dep, node)
     }
 
@@ -451,11 +451,11 @@ mod tests {
     fn remaps_all_aliases_and_reuses_freed_nodes() {
         let mut graph = Graph::default();
         let old = graph.allocate();
-        graph.fill_in(old, DataKind::Literal(1));
+        graph.bind(old, DataKind::Literal(1));
         let alias = graph.allocate();
-        graph.fill_in(alias, DataKind::Literal(1));
+        graph.bind(alias, DataKind::Literal(1));
         let new = graph.allocate();
-        graph.fill_in(new, DataKind::Unit);
+        graph.bind(new, DataKind::Unit);
         let old_dir = graph.nodes.data.direct(old);
 
         graph.remap(old_dir, graph.direct(new));
@@ -464,7 +464,7 @@ mod tests {
         graph.remap(graph.direct(alias), graph.direct(new));
 
         let replacement = graph.allocate();
-        graph.fill_in(replacement, DataKind::Literal(1));
+        graph.bind(replacement, DataKind::Literal(1));
         assert_eq!(graph.nodes.data.direct(replacement), old_dir);
         assert_eq!(graph.nodes.data[replacement], DataKind::Literal(1));
         assert_eq!(graph.nodes.data[old], DataKind::Unit);
