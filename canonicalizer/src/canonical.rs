@@ -8,19 +8,16 @@ use std::{
 
 use nonempty::{NonEmpty, nonempty};
 
-use crate::{
-    graph::{FreeLists, Nodes},
-    users::{ReportUses, UserTable},
-};
+use crate::{graph::Node, users::UserTable};
 
 /// A type to represent one dependency in the graph.
 #[derive(Debug, PartialEq, Eq, Hash)]
-pub struct Dep<T> {
+pub struct Stable<T> {
     _marker: PhantomData<T>,
     idx: usize,
 }
 
-impl<T> Dep<T> {
+impl<T> Stable<T> {
     fn new(idx: usize) -> Self {
         Self {
             _marker: PhantomData,
@@ -30,7 +27,7 @@ impl<T> Dep<T> {
 }
 
 #[allow(clippy::non_canonical_clone_impl)]
-impl<T> Clone for Dep<T> {
+impl<T> Clone for Stable<T> {
     fn clone(&self) -> Self {
         Self {
             _marker: PhantomData,
@@ -38,14 +35,14 @@ impl<T> Clone for Dep<T> {
         }
     }
 }
-impl<T> Copy for Dep<T> {}
+impl<T> Copy for Stable<T> {}
 
-impl<T: PartialEq> PartialOrd for Dep<T> {
+impl<T: PartialEq> PartialOrd for Stable<T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.idx.cmp(&other.idx))
     }
 }
-impl<T: PartialEq + Eq> Ord for Dep<T> {
+impl<T: PartialEq + Eq> Ord for Stable<T> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.idx.cmp(&other.idx)
     }
@@ -95,11 +92,11 @@ struct Indirect<T> {
     /// For every dependency `Dep` one direct index `Dir`.
     to_direct: Vec<Dir<T>>,
     /// For every direct index `Dir` all dependencies `Dep` that use it.
-    from_direct: Vec<NonEmpty<Dep<T>>>,
+    from_direct: Vec<NonEmpty<Stable<T>>>,
 }
 
 impl<T> Indirect<T> {
-    fn direct_dep_to(&mut self, dep: Dep<T>, dir: Dir<T>) {
+    fn direct_dep_to(&mut self, dep: Stable<T>, dir: Dir<T>) {
         self.from_direct[dir].push(dep);
         self.to_direct[dep] = dir;
     }
@@ -141,17 +138,12 @@ impl<T> Default for UniqueNodes<T> {
     }
 }
 
-pub trait Node: Sized + Clone + Eq + Hash + ReportUses + Debug {
-    fn nodes_mut(nodes: &mut Nodes) -> &mut UniqueNodes<Self>;
-    fn free_list_mut(free_list: &mut FreeLists) -> &mut Vec<Dir<Self>>;
-}
-
 impl<N: Node> UniqueNodes<N> {
     pub(crate) fn add_node(
         &mut self,
         free_list: &mut Vec<Dir<N>>,
         user_table: &mut UserTable,
-        placeholder: Dep<N>,
+        placeholder: Stable<N>,
         node: N,
     ) {
         if let Some(dir) = self.cache.get(&node) {
@@ -174,11 +166,11 @@ impl<N: Node> UniqueNodes<N> {
         }
     }
 
-    pub(crate) fn allocate(&mut self, user_table: &mut UserTable) -> Dep<N> {
+    pub(crate) fn allocate(&mut self, user_table: &mut UserTable) -> Stable<N> {
         let deps_count = self.indirect.to_direct.len();
         self.indirect.to_direct.push(Dir::new(usize::MAX));
         N::add_dep(user_table);
-        Dep::new(deps_count)
+        Stable::new(deps_count)
     }
 
     pub(crate) fn remap_deps(&mut self, free_list: &mut Vec<Dir<N>>, old: Dir<N>, new: Dir<N>) {
@@ -190,11 +182,11 @@ impl<N: Node> UniqueNodes<N> {
         free_list.push(old);
     }
 
-    pub fn direct(&self, dep: Dep<N>) -> Dir<N> {
+    pub fn direct(&self, dep: Stable<N>) -> Dir<N> {
         self.indirect.to_direct[dep]
     }
 
-    pub(crate) fn dependencies(&self, dir: Dir<N>) -> impl Iterator<Item = Dep<N>> + '_ {
+    pub(crate) fn dependencies(&self, dir: Dir<N>) -> impl Iterator<Item = Stable<N>> + '_ {
         self.indirect.from_direct[dir].iter().copied()
     }
 
@@ -216,22 +208,22 @@ impl<A, B> IndexMut<Dir<A>> for Vec<B> {
     }
 }
 
-impl<A, B> Index<Dep<A>> for Vec<B> {
+impl<A, B> Index<Stable<A>> for Vec<B> {
     type Output = B;
-    fn index(&self, index: Dep<A>) -> &Self::Output {
+    fn index(&self, index: Stable<A>) -> &Self::Output {
         &self[index.idx]
     }
 }
 
-impl<A, B> IndexMut<Dep<A>> for Vec<B> {
-    fn index_mut(&mut self, index: Dep<A>) -> &mut Self::Output {
+impl<A, B> IndexMut<Stable<A>> for Vec<B> {
+    fn index_mut(&mut self, index: Stable<A>) -> &mut Self::Output {
         &mut self[index.idx]
     }
 }
 
-impl<T> Index<Dep<T>> for UniqueNodes<T> {
+impl<T> Index<Stable<T>> for UniqueNodes<T> {
     type Output = T;
-    fn index(&self, index: Dep<T>) -> &Self::Output {
+    fn index(&self, index: Stable<T>) -> &Self::Output {
         let dir = self.indirect.to_direct[index];
         &self.nodes[dir]
     }

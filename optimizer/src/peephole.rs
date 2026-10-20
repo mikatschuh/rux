@@ -2,15 +2,15 @@ use canonicalizer::{BinaryOp, ComBinaryOp, Data, DataKind, OrderedOps, UnaryOp};
 
 use crate::PeepholePass;
 
-impl PeepholePass {
+impl PeepholePass<'_> {
     fn simplify_data(&mut self, node: Data) -> Option<Data> {
-        match &self.graph.nodes.data[node] {
+        match &self.graph[node] {
             DataKind::ComBinary {
                 op: ComBinaryOp::Eq,
                 ops,
             } => {
                 if ops[0] == ops[1] {
-                    Some(self.graph.add_data(DataKind::Boolean(true)))
+                    Some(self.graph.add(DataKind::Boolean(true)))
                 } else {
                     None
                 }
@@ -43,14 +43,14 @@ impl PeepholePass {
     fn const_eval_unary(&mut self, op: UnaryOp, value: Data) -> Option<Data> {
         if let DataKind::Boolean(value) = self.graph[value] {
             let result = !value;
-            Some(self.graph.add_data(DataKind::Boolean(result)))
+            Some(self.graph.add(DataKind::Boolean(result)))
         } else if let DataKind::Literal(value) = self.graph[value] {
             let result = match op {
                 UnaryOp::Not => unreachable!(),
                 UnaryOp::BitNot => !value,
                 UnaryOp::Neg | UnaryOp::Reciprocal => return None,
             };
-            Some(self.graph.add_data(DataKind::Literal(result)))
+            Some(self.graph.add(DataKind::Literal(result)))
         } else {
             None
         }
@@ -63,13 +63,13 @@ impl PeepholePass {
             let result = match op {
                 BinaryOp::Less => {
                     let result = a < b;
-                    return Some(self.graph.add_data(DataKind::Boolean(result)));
+                    return Some(self.graph.add(DataKind::Boolean(result)));
                 }
                 BinaryOp::Lsh => a << b,
                 BinaryOp::Rsh => a >> b,
                 BinaryOp::Mod => a % b,
             };
-            Some(self.graph.add_data(DataKind::Literal(result)))
+            Some(self.graph.add(DataKind::Literal(result)))
         } else {
             None
         }
@@ -81,11 +81,11 @@ impl PeepholePass {
                 /* if self.graph[ops[0]] == DataKind::Literal(usize::MIN)
                     || self.graph[ops[1]] == DataKind::Literal(usize::MAX)
                 {
-                    let value = self.graph.add_data(DataKind::ComBinary {
+                    let value = self.graph.add(DataKind::ComBinary {
                         op: ComBinaryOp::Eq,
                         ops: OrderedOps::sorted(ops),
                     });
-                    return Some(self.graph.add_data(DataKind::Unary {
+                    return Some(self.graph.add(DataKind::Unary {
                         op: UnaryOp::Not,
                         value,
                     }));
@@ -101,7 +101,7 @@ impl PeepholePass {
             }
             BinaryOp::Mod => {
                 if self.graph[ops[1]] == DataKind::Literal(1) {
-                    Some(self.graph.add_data(DataKind::Literal(0)))
+                    Some(self.graph.add(DataKind::Literal(0)))
                 } else {
                     None
                 }
@@ -115,7 +115,7 @@ impl PeepholePass {
             && op == ComBinaryOp::Or
         {
             let result = a || b;
-            Some(self.graph.add_data(DataKind::Boolean(result)))
+            Some(self.graph.add(DataKind::Boolean(result)))
         } else if let DataKind::Literal(a) = self.graph[ops[0]]
             && let DataKind::Literal(b) = self.graph[ops[1]]
         {
@@ -125,7 +125,7 @@ impl PeepholePass {
                 ComBinaryOp::Add => a + b,
                 ComBinaryOp::Mul => a * b,
             };
-            Some(self.graph.add_data(DataKind::Literal(result)))
+            Some(self.graph.add(DataKind::Literal(result)))
         } else {
             None
         }
@@ -174,7 +174,7 @@ impl PeepholePass {
                             value: ops[!i & 1],
                         })
                 }) {
-                    Some(self.graph.add_data(DataKind::Literal(0)))
+                    Some(self.graph.add(DataKind::Literal(0)))
                 } else {
                     ops.iter()
                         .enumerate()

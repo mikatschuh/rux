@@ -14,9 +14,7 @@ mod operator;
 mod users;
 
 pub use canonical::Dir;
-pub use graph::{
-    Branch, BranchKind, Ctrl, CtrlKind, Data, DataKind, Graph, ListDeps, Merge, MergeKind, NodeDeps,
-};
+pub use graph::{Branch, BranchKind, Ctrl, CtrlKind, Data, DataKind, Graph, Merge, MergeKind};
 pub use operator::{BinaryOp, ComBinaryOp, OrderedOps, UnaryOp};
 
 pub fn process_graph(

@@ -1,16 +1,16 @@
-use std::slice::from_ref;
+use std::{fmt::Debug, hash::Hash, slice::from_ref};
 
 use crate::{
     Dir,
-    canonical::{Dep, Node, UniqueNodes},
+    canonical::{Stable, UniqueNodes},
     operator::{BinaryOp, ComBinaryOp, OrderedOps, UnaryOp},
-    users::UserTable,
+    users::{ReportUses, UserTable},
 };
 
-pub type Data = Dep<DataKind>;
-pub type Ctrl = Dep<CtrlKind>;
-pub type Branch = Dep<BranchKind>;
-pub type Merge = Dep<MergeKind>;
+pub type Data = Stable<DataKind>;
+pub type Ctrl = Stable<CtrlKind>;
+pub type Branch = Stable<BranchKind>;
+pub type Merge = Stable<MergeKind>;
 
 pub trait ListDeps {
     fn deps<'a>(&'a self) -> NodeDeps<'a>;
@@ -127,7 +127,16 @@ impl ListDeps for MergeKind {
     }
 }
 
+pub trait Node: Sized + Clone + Eq + Hash + ReportUses + Debug {
+    fn nodes(nodes: &Nodes) -> &UniqueNodes<Self>;
+    fn nodes_mut(nodes: &mut Nodes) -> &mut UniqueNodes<Self>;
+    fn free_list_mut(free_list: &mut FreeLists) -> &mut Vec<Dir<Self>>;
+}
+
 impl Node for DataKind {
+    fn nodes(nodes: &Nodes) -> &UniqueNodes<Self> {
+        &nodes.data
+    }
     fn nodes_mut(nodes: &mut Nodes) -> &mut UniqueNodes<Self> {
         &mut nodes.data
     }
@@ -137,6 +146,9 @@ impl Node for DataKind {
 }
 
 impl Node for CtrlKind {
+    fn nodes(nodes: &Nodes) -> &UniqueNodes<Self> {
+        &nodes.ctrl
+    }
     fn nodes_mut(nodes: &mut Nodes) -> &mut UniqueNodes<Self> {
         &mut nodes.ctrl
     }
@@ -146,6 +158,9 @@ impl Node for CtrlKind {
 }
 
 impl Node for BranchKind {
+    fn nodes(nodes: &Nodes) -> &UniqueNodes<Self> {
+        &nodes.branch
+    }
     fn nodes_mut(nodes: &mut Nodes) -> &mut UniqueNodes<Self> {
         &mut nodes.branch
     }
@@ -155,6 +170,9 @@ impl Node for BranchKind {
 }
 
 impl Node for MergeKind {
+    fn nodes(nodes: &Nodes) -> &UniqueNodes<Self> {
+        &nodes.merge
+    }
     fn nodes_mut(nodes: &mut Nodes) -> &mut UniqueNodes<Self> {
         &mut nodes.merge
     }
@@ -173,16 +191,16 @@ pub struct Nodes {
 
 #[derive(Default)]
 pub struct FreeLists {
-    data: Vec<Dir<DataKind>>,
-    ctrl: Vec<Dir<CtrlKind>>,
-    branch: Vec<Dir<BranchKind>>,
-    merge: Vec<Dir<MergeKind>>,
+    pub data: Vec<Dir<DataKind>>,
+    pub ctrl: Vec<Dir<CtrlKind>>,
+    pub branch: Vec<Dir<BranchKind>>,
+    pub merge: Vec<Dir<MergeKind>>,
 }
 
 /// In this graph every node is unique and changes can be followed back to the onces depending on the changed node
 #[derive(Default)]
 pub struct Graph {
-    pub nodes: Nodes,
+    pub(crate) nodes: Nodes,
     free_lists: FreeLists,
     user_table: UserTable,
 }
@@ -245,18 +263,18 @@ impl Graph {
     }
 
     /// Allocates an unfilled dependency and its user-table slot.
-    pub fn allocate<N: Node>(&mut self) -> Dep<N> {
+    pub fn allocate<N: Node>(&mut self) -> Stable<N> {
         N::nodes_mut(&mut self.nodes).allocate(&mut self.user_table)
     }
 
     /// Allocates a dependency and fills it with a canonicalized node.
-    pub fn add<N: Node>(&mut self, node: N) -> Dep<N> {
+    pub fn add<N: Node>(&mut self, node: N) -> Stable<N> {
         let dep = self.allocate();
         self.fill_in(dep, node);
         dep
     }
 
-    pub(crate) fn fill_in<N: Node>(&mut self, dep: Dep<N>, node: N) {
+    pub(crate) fn fill_in<N: Node>(&mut self, dep: Stable<N>, node: N) {
         N::nodes_mut(&mut self.nodes).add_node(
             N::free_list_mut(&mut self.free_lists),
             &mut self.user_table,
@@ -266,7 +284,7 @@ impl Graph {
     }
 
     /// Redirects every dependency on `old` to `new` and frees the old node.
-    pub fn remap<N: Node>(&mut self, old: Dep<N>, new: Dep<N>) {
+    pub fn remap<N: Node>(&mut self, old: Stable<N>, new: Stable<N>) {
         let old_dir = N::nodes_mut(&mut self.nodes).direct(old);
         let new_dir = N::nodes_mut(&mut self.nodes).direct(new);
         if old_dir == new_dir {
@@ -279,76 +297,32 @@ impl Graph {
             new_dir,
         );
     }
+
+    pub fn nodes<'a, N: Node + 'a>(&'a self) -> impl Iterator<Item = Dir<N>> {
+        N::nodes(&self.nodes).nodes()
+    }
 }
 
 mod graph_indexing {
     use std::ops::Index;
 
-    use crate::Dir;
+    use crate::{Dir, canonical::Stable, graph::Node};
 
-    use super::{Branch, BranchKind, Ctrl, CtrlKind, Data, DataKind, Graph, Merge, MergeKind};
+    use super::Graph;
 
-    impl Index<Data> for Graph {
-        type Output = DataKind;
+    impl<N: Node> Index<Stable<N>> for Graph {
+        type Output = N;
 
-        fn index(&self, index: Data) -> &Self::Output {
-            &self.nodes.data[index]
+        fn index(&self, index: Stable<N>) -> &Self::Output {
+            &N::nodes(&self.nodes)[index]
         }
     }
 
-    impl Index<Ctrl> for Graph {
-        type Output = CtrlKind;
+    impl<N: Node> Index<Dir<N>> for Graph {
+        type Output = N;
 
-        fn index(&self, index: Ctrl) -> &Self::Output {
-            &self.nodes.ctrl[index]
-        }
-    }
-
-    impl Index<Branch> for Graph {
-        type Output = BranchKind;
-
-        fn index(&self, index: Branch) -> &Self::Output {
-            &self.nodes.branch[index]
-        }
-    }
-
-    impl Index<Merge> for Graph {
-        type Output = MergeKind;
-
-        fn index(&self, index: Merge) -> &Self::Output {
-            &self.nodes.merge[index]
-        }
-    }
-
-    impl Index<Dir<DataKind>> for Graph {
-        type Output = DataKind;
-
-        fn index(&self, index: Dir<DataKind>) -> &Self::Output {
-            &self.nodes.data[index]
-        }
-    }
-
-    impl Index<Dir<CtrlKind>> for Graph {
-        type Output = CtrlKind;
-
-        fn index(&self, index: Dir<CtrlKind>) -> &Self::Output {
-            &self.nodes.ctrl[index]
-        }
-    }
-
-    impl Index<Dir<BranchKind>> for Graph {
-        type Output = BranchKind;
-
-        fn index(&self, index: Dir<BranchKind>) -> &Self::Output {
-            &self.nodes.branch[index]
-        }
-    }
-
-    impl Index<Dir<MergeKind>> for Graph {
-        type Output = MergeKind;
-
-        fn index(&self, index: Dir<MergeKind>) -> &Self::Output {
-            &self.nodes.merge[index]
+        fn index(&self, index: Dir<N>) -> &Self::Output {
+            &N::nodes(&self.nodes)[index]
         }
     }
 }
