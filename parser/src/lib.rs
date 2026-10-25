@@ -1,3 +1,9 @@
+mod ast;
+mod binary_op;
+mod binding_pow;
+mod error;
+mod unary_op;
+
 use tokenizer::{
     Bracket, IntegerType, Interner, Literal, Span, Symbol,
     Token::{self},
@@ -5,12 +11,6 @@ use tokenizer::{
 };
 
 use std::collections::HashMap;
-
-mod ast;
-mod binary_op;
-mod binding_pow;
-mod error;
-mod unary_op;
 
 pub use ast::{
     Assignment, AstBuilder, BuiltinType, ControlStruct, DeclStmt, Definition, Expr, ExprKind,

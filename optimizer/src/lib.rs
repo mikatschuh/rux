@@ -1,8 +1,8 @@
+mod peephole;
+
 use std::collections::HashSet;
 
 use canonicalizer::{BranchKind, CtrlKind, DataKind, Graph, MergeKind, Unique};
-
-mod peephole;
 
 pub fn optimize_graph(graph: &mut Graph) {
     let mut pass = PeepholePass {

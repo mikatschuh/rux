@@ -289,7 +289,7 @@ impl Graph {
             return;
         }
         N::nodes_mut(&mut self.nodes)[old].remove_node(old, &mut self.user_table);
-        N::nodes_mut(&mut self.nodes).remap_deps(old, new);
+        N::nodes_mut(&mut self.nodes).remap(old, new);
     }
 
     pub fn nodes<'a, N: Node + 'a>(&'a self) -> impl Iterator<Item = Unique<N>> {

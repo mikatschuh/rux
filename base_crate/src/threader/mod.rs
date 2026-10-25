@@ -1,13 +1,13 @@
 mod files;
 mod task;
 
-use crate::{error::CliError, *};
 use crossbeam::deque::Injector;
 use std::{
     sync::Arc,
     thread::{Builder, JoinHandle},
 };
-use task::Task;
+
+use crate::{error::CliError, threader::task::Task, *};
 
 #[derive(Debug)]
 pub struct Threadpool {

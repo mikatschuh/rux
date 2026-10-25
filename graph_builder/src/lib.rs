@@ -1,3 +1,11 @@
+mod binding;
+mod builder;
+mod error;
+mod graph;
+pub mod graph_dump;
+mod jumps;
+mod type_check;
+
 use std::{collections::HashMap, vec};
 
 use parser::{
@@ -12,14 +20,6 @@ use crate::{
     jumps::{Jumps, LoopBlockStack},
     type_check::require_type,
 };
-
-mod binding;
-mod builder;
-mod error;
-mod graph;
-pub mod graph_dump;
-mod jumps;
-mod type_check;
 
 pub use error::Error;
 pub use graph::{

@@ -2,16 +2,16 @@
 //! It's job is to go through all the nodes cleaning up and dedublicating them.
 //! At the end a canonicalized graph should be created.
 
+mod canonical;
+mod graph;
+mod operator;
+mod users;
+
 use std::collections::HashMap;
 
 use graph_builder as source;
 
 use crate::operator::process_source_op;
-
-mod canonical;
-mod graph;
-mod operator;
-mod users;
 
 pub use canonical::Unique;
 pub use graph::{Branch, BranchKind, Ctrl, CtrlKind, Data, DataKind, Graph, Merge, MergeKind};

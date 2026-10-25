@@ -1,3 +1,7 @@
+#[macro_use]
+mod error;
+mod threader;
+
 use clap::{Parser, Subcommand};
 use colored::*;
 use std::time::Instant;
@@ -5,9 +9,6 @@ use std::time::Instant;
 use error::CliError;
 use threader::Threadpool;
 
-#[macro_use]
-mod error;
-mod threader;
 /*
 ___    __
 |#/    `"\_

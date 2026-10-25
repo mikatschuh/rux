@@ -6,7 +6,7 @@ use std::{
     ops::{Index, IndexMut},
 };
 
-use nonempty::{NonEmpty, nonempty};
+use vecmin::{ArrVecMin, arrvecmin};
 
 use crate::{graph::Node, users::UserTable};
 
@@ -93,7 +93,7 @@ pub struct Canonicalizer<N> {
     /// For every dependency `Dep` one direct index `Dir`.
     to_direct: Vec<Unique<N>>,
     /// For every direct index `Dir` all dependencies `Dep` that use it.
-    from_direct: Vec<NonEmpty<Stable<N>>>,
+    from_direct: Vec<ArrVecMin<Stable<N>, 1>>,
     /// Stores the actual nodes
     nodes: Vec<N>,
     /// Caches nodes
@@ -124,7 +124,7 @@ impl<N: Node> Canonicalizer<N> {
             self.bind(stable, *dir);
         } else if let Some(free_dir) = self.free_list.pop() {
             node.add_node(free_dir, user_table);
-            self.from_direct[free_dir] = nonempty![stable];
+            self.from_direct[free_dir] = arrvecmin![stable];
             self.to_direct[stable] = free_dir;
 
             self.nodes[free_dir] = node.clone();
@@ -132,7 +132,7 @@ impl<N: Node> Canonicalizer<N> {
         } else {
             let dir = Unique::new(self.from_direct.len());
             node.add_node(dir, user_table);
-            self.from_direct.push(nonempty![stable]);
+            self.from_direct.push(arrvecmin![stable]);
             self.to_direct[stable] = dir;
 
             self.nodes.push(node.clone());
@@ -147,14 +147,11 @@ impl<N: Node> Canonicalizer<N> {
         Stable::new(deps_count)
     }
 
-    pub(crate) fn remap_deps(&mut self, old: Unique<N>, new: Unique<N>) {
+    pub(crate) fn remap(&mut self, old: Unique<N>, new: Unique<N>) {
         if old == new {
             return;
         }
-        for ind in [self.from_direct[old].head]
-            .into_iter()
-            .chain(std::mem::take(&mut self.from_direct[old].tail))
-        {
+        for ind in self.from_direct[old].clone_take_into_iter() {
             self.bind(ind, new);
         }
         self.cache.remove(&self.nodes[old]);

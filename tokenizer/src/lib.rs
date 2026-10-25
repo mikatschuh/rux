@@ -1,9 +1,3 @@
-use crate::{
-    byte_parsing::whitespace_at_start_or_empty, literal_parsing::Error as LiteralParsingError,
-    parse_tok::parse_token, quote::QuoteEmbeddingState, span::Position,
-    type_parsing::Error as TypeParsingError,
-};
-
 mod byte_parsing;
 mod error;
 mod interner;
@@ -14,6 +8,12 @@ mod quote;
 mod span;
 mod token;
 mod type_parsing;
+
+use crate::{
+    byte_parsing::whitespace_at_start_or_empty, literal_parsing::Error as LiteralParsingError,
+    parse_tok::parse_token, quote::QuoteEmbeddingState, span::Position,
+    type_parsing::Error as TypeParsingError,
+};
 
 pub use error::Error;
 pub use interner::{Interner, Symbol};
