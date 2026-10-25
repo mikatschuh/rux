@@ -3,6 +3,7 @@ use canonicalizer::{
     UnaryOp,
 };
 use optimizer::optimize_graph;
+use vecmin::ArrVecMin;
 
 fn unary(graph: &mut Graph, op: UnaryOp, value: Data) -> Data {
     graph.add(DataKind::Unary { op, value })
@@ -26,13 +27,14 @@ fn merge(graph: &mut Graph, variants: &[Data]) -> Data {
     let parent = graph.add(CtrlKind::Entry);
     let condition = graph.add(DataKind::Boolean(true));
     let branch = graph.add(BranchKind { parent, condition });
-    let prev = (0..variants.len())
-        .map(|idx| graph.add(CtrlKind::Branch { branch, idx }))
-        .collect();
+    let prev = ArrVecMin::collect(
+        (0..variants.len()).map(|idx| graph.add(CtrlKind::Branch { branch, idx })),
+    )
+    .expect("enough variants");
     let merge = graph.add(MergeKind { prev });
     graph.add(DataKind::Merge {
         merge,
-        variants: variants.into(),
+        variants: variants.try_into().unwrap(),
     })
 }
 
@@ -217,8 +219,8 @@ fn preserves_operations_without_folding_rules() {
 }
 
 #[test]
-fn eliminates_single_and_identical_merge_variants() {
-    for count in [1, 2] {
+fn eliminates_identical_merge_variants() {
+    for count in [2, 3] {
         let mut graph = Graph::default();
         let value = graph.add(DataKind::Literal(42));
         let result = merge(&mut graph, &vec![value; count]);

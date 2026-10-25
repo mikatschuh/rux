@@ -23,21 +23,18 @@ impl PeepholePass<'_> {
                     .or_else(|| self.const_eval_binary(op, ops))
             }
             DataKind::Unary { op, value } => self.const_eval_unary(*op, *value),
-            DataKind::Merge { variants, .. } if variants.len() == 1 => Some(variants[0]),
-            DataKind::Merge { variants, .. } => self.phi_variant_equivalence(variants),
+            DataKind::Merge { variants, .. } => {
+                self.phi_variant_equivalence(variants.iter().copied())
+            }
             DataKind::Unit | DataKind::Boolean(_) | DataKind::Literal(_) | DataKind::Quote(_) => {
                 None
             }
         }
     }
 
-    fn phi_variant_equivalence(&self, variants: &[Data]) -> Option<Data> {
-        assert!(!variants.is_empty());
-        if variants.iter().all(|v| *v == variants[0]) {
-            Some(variants[0])
-        } else {
-            None
-        }
+    fn phi_variant_equivalence(&self, mut variants: impl Iterator<Item = Data>) -> Option<Data> {
+        let first = variants.next()?;
+        variants.all(|value| value == first).then_some(first)
     }
 
     fn const_eval_unary(&mut self, op: UnaryOp, value: Data) -> Option<Data> {

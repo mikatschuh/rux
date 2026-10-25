@@ -1,4 +1,11 @@
-use std::{fmt::Debug, hash::Hash, slice::from_ref};
+use std::{
+    fmt::Debug,
+    hash::Hash,
+    iter::{Empty, empty, once},
+    slice::from_ref,
+};
+
+use vecmin::ArrVecMin;
 
 use crate::{
     Unique,
@@ -13,29 +20,67 @@ pub type Branch = Stable<BranchKind>;
 pub type Merge = Stable<MergeKind>;
 
 pub trait ListDeps {
-    fn deps<'a>(&'a self) -> NodeDeps<'a>;
+    fn deps<'a>(
+        &'a self,
+    ) -> NodeDeps<
+        impl Iterator<Item = Data> + 'a,
+        impl Iterator<Item = Ctrl> + 'a,
+        impl Iterator<Item = Branch> + 'a,
+        impl Iterator<Item = Merge> + 'a,
+    >;
 }
 
-#[derive(Debug, Default)]
-pub struct NodeDeps<'a> {
-    pub data: &'a [Data],
-    pub ctrl: &'a [Ctrl],
-    pub branch: &'a [Branch],
-    pub merge: &'a [Merge],
+#[derive(Debug)]
+pub struct NodeDeps<D = Empty<Data>, C = Empty<Ctrl>, B = Empty<Branch>, M = Empty<Merge>> {
+    pub data: D,
+    pub ctrl: C,
+    pub branch: B,
+    pub merge: M,
 }
 
-impl<'a> NodeDeps<'a> {
-    pub fn with_data(self, data: &'a [Data]) -> Self {
-        Self { data, ..self }
+impl Default for NodeDeps {
+    fn default() -> Self {
+        Self {
+            data: empty(),
+            ctrl: empty(),
+            branch: empty(),
+            merge: empty(),
+        }
     }
-    pub fn with_ctrl(self, ctrl: &'a [Ctrl]) -> Self {
-        Self { ctrl, ..self }
+}
+
+impl<D, C, B, M> NodeDeps<D, C, B, M> {
+    pub fn with_data<I: Iterator<Item = Data>>(self, data: I) -> NodeDeps<I, C, B, M> {
+        NodeDeps {
+            data,
+            ctrl: self.ctrl,
+            branch: self.branch,
+            merge: self.merge,
+        }
     }
-    pub fn with_branch(self, branch: &'a [Branch]) -> Self {
-        Self { branch, ..self }
+    pub fn with_ctrl<I: Iterator<Item = Ctrl>>(self, ctrl: I) -> NodeDeps<D, I, B, M> {
+        NodeDeps {
+            data: self.data,
+            ctrl,
+            branch: self.branch,
+            merge: self.merge,
+        }
     }
-    pub fn with_merge(self, merge: &'a [Merge]) -> Self {
-        Self { merge, ..self }
+    pub fn with_branch<I: Iterator<Item = Branch>>(self, branch: I) -> NodeDeps<D, C, I, M> {
+        NodeDeps {
+            data: self.data,
+            ctrl: self.ctrl,
+            branch,
+            merge: self.merge,
+        }
+    }
+    pub fn with_merge<I: Iterator<Item = Merge>>(self, merge: I) -> NodeDeps<D, C, B, I> {
+        NodeDeps {
+            data: self.data,
+            ctrl: self.ctrl,
+            branch: self.branch,
+            merge,
+        }
     }
 }
 
@@ -63,23 +108,34 @@ pub enum DataKind {
     Merge {
         merge: Merge,
         /// `variants[i]` is the value arriving through `merge.prev[i]`.
-        variants: Box<[Data]>,
+        variants: ArrVecMin<Data, 2>,
     },
 }
 
 impl ListDeps for DataKind {
-    fn deps<'a>(&'a self) -> NodeDeps<'a> {
-        match self {
+    fn deps<'a>(
+        &'a self,
+    ) -> NodeDeps<
+        impl Iterator<Item = Data> + 'a,
+        impl Iterator<Item = Ctrl> + 'a,
+        impl Iterator<Item = Branch> + 'a,
+        impl Iterator<Item = Merge> + 'a,
+    > {
+        let (head, tail, merge): (&[Data], &[Data], Option<Merge>) = match self {
             DataKind::Literal(_) | DataKind::Quote(_) | DataKind::Boolean(_) | DataKind::Unit => {
-                NodeDeps::default()
+                (&[], &[], None)
             }
-            DataKind::Unary { value, .. } => NodeDeps::default().with_data(from_ref(value)),
-            DataKind::Binary { ops, .. } => NodeDeps::default().with_data(ops),
-            DataKind::ComBinary { ops, .. } => NodeDeps::default().with_data(ops.get()),
-            DataKind::Merge { merge, variants } => NodeDeps::default()
-                .with_data(variants)
-                .with_merge(from_ref(merge)),
-        }
+            DataKind::Unary { value, .. } => (from_ref(value), &[], None),
+            DataKind::Binary { ops, .. } => (ops, &[], None),
+            DataKind::ComBinary { ops, .. } => (ops.get(), &[], None),
+            DataKind::Merge { merge, variants } => {
+                let (head, tail) = variants.split_at_min();
+                (head, tail, Some(*merge))
+            }
+        };
+        NodeDeps::default()
+            .with_data(head.iter().chain(tail).copied())
+            .with_merge(merge.into_iter())
     }
 }
 
@@ -91,14 +147,22 @@ pub enum CtrlKind {
 }
 
 impl ListDeps for CtrlKind {
-    fn deps<'a>(&'a self) -> NodeDeps<'a> {
-        match self {
-            CtrlKind::Entry => NodeDeps::default(),
-            CtrlKind::Branch { branch: value, .. } => {
-                NodeDeps::default().with_branch(from_ref(value))
-            }
-            CtrlKind::Merge(merge) => NodeDeps::default().with_merge(from_ref(merge)),
-        }
+    fn deps<'a>(
+        &'a self,
+    ) -> NodeDeps<
+        impl Iterator<Item = Data> + 'a,
+        impl Iterator<Item = Ctrl> + 'a,
+        impl Iterator<Item = Branch> + 'a,
+        impl Iterator<Item = Merge> + 'a,
+    > {
+        let (branch, merge) = match self {
+            CtrlKind::Entry => (None, None),
+            CtrlKind::Branch { branch, .. } => (Some(*branch), None),
+            CtrlKind::Merge(merge) => (None, Some(*merge)),
+        };
+        NodeDeps::default()
+            .with_branch(branch.into_iter())
+            .with_merge(merge.into_iter())
     }
 }
 
@@ -109,21 +173,35 @@ pub struct BranchKind {
 }
 
 impl ListDeps for BranchKind {
-    fn deps<'a>(&'a self) -> NodeDeps<'a> {
+    fn deps<'a>(
+        &'a self,
+    ) -> NodeDeps<
+        impl Iterator<Item = Data> + 'a,
+        impl Iterator<Item = Ctrl> + 'a,
+        impl Iterator<Item = Branch> + 'a,
+        impl Iterator<Item = Merge> + 'a,
+    > {
         NodeDeps::default()
-            .with_ctrl(from_ref(&self.parent))
-            .with_data(from_ref(&self.condition))
+            .with_ctrl(once(self.parent))
+            .with_data(once(self.condition))
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MergeKind {
-    pub prev: Box<[Ctrl]>,
+    pub prev: ArrVecMin<Ctrl, 2>,
 }
 
 impl ListDeps for MergeKind {
-    fn deps<'a>(&'a self) -> NodeDeps<'a> {
-        NodeDeps::default().with_ctrl(&self.prev)
+    fn deps<'a>(
+        &'a self,
+    ) -> NodeDeps<
+        impl Iterator<Item = Data> + 'a,
+        impl Iterator<Item = Ctrl> + 'a,
+        impl Iterator<Item = Branch> + 'a,
+        impl Iterator<Item = Merge> + 'a,
+    > {
+        NodeDeps::default().with_ctrl(self.prev.iter().copied())
     }
 }
 
@@ -325,6 +403,8 @@ mod graph_indexing {
 mod tests {
     use std::collections::HashSet;
 
+    use vecmin::arrvecmin;
+
     use super::{BinaryOp, BranchKind, CtrlKind, DataKind, Graph, MergeKind};
 
     #[test]
@@ -392,16 +472,21 @@ mod tests {
             branch: branch_alias,
             idx: 0,
         });
+        let other_projection = graph.add(CtrlKind::Branch {
+            branch: branch_alias,
+            idx: 1,
+        });
         let merge = graph.add(MergeKind {
-            prev: Box::new([entry]),
+            prev: arrvecmin![projection, other_projection],
         });
         let merge_alias = graph.add(MergeKind {
-            prev: Box::new([entry]),
+            prev: arrvecmin![projection, other_projection],
         });
         let merged_ctrl = graph.add(CtrlKind::Merge(merge_alias));
+        let other_value = graph.add(DataKind::Boolean(false));
         let merged_data = graph.add(DataKind::Merge {
             merge,
-            variants: Box::new([condition]),
+            variants: arrvecmin![condition, other_value],
         });
         let branch_dir = graph.nodes.branch.direct(branch);
         let alias_dir = graph.nodes.branch.direct(branch_alias);
@@ -425,15 +510,15 @@ mod tests {
         );
         assert_eq!(
             graph
-                .ctrl_merge_users(graph.direct(entry))
+                .ctrl_merge_users(graph.direct(projection))
                 .collect::<Vec<_>>(),
             [graph.nodes.merge.direct(merge)]
         );
         assert_eq!(
             graph
                 .branch_ctrl_users(graph.direct(branch_alias))
-                .collect::<Vec<_>>(),
-            [graph.nodes.ctrl.direct(projection)]
+                .collect::<HashSet<_>>(),
+            HashSet::from([graph.direct(projection), graph.direct(other_projection)])
         );
         assert_eq!(graph.branch_ctrl_users(graph.direct(branch)).count(), 0);
         assert_eq!(
@@ -448,6 +533,35 @@ mod tests {
                 .collect::<Vec<_>>(),
             [graph.nodes.data.direct(merged_data)]
         );
+    }
+
+    #[test]
+    fn tracks_merge_users_in_inline_values_and_heap_tail() {
+        let mut graph = Graph::default();
+        let values = [1, 2, 3].map(|value| graph.add(DataKind::Literal(value)));
+        let entry = graph.add(CtrlKind::Entry);
+        let merge = graph.add(MergeKind {
+            prev: arrvecmin![2; [entry; 3]],
+        });
+        let merged_data = graph.add(DataKind::Merge {
+            merge,
+            variants: values.as_slice().try_into().unwrap(),
+        });
+        for value in values {
+            assert_eq!(
+                graph
+                    .data_data_users(graph.direct(value))
+                    .collect::<Vec<_>>(),
+                [graph.direct(merged_data)]
+            );
+        }
+
+        let replacement = graph.add(DataKind::Unit);
+        graph.remap(graph.direct(merged_data), graph.direct(replacement));
+        for value in values {
+            assert_eq!(graph.data_data_users(graph.direct(value)).count(), 0);
+        }
+        assert_eq!(graph.merge_data_users(graph.direct(merge)).count(), 0);
     }
 
     #[test]

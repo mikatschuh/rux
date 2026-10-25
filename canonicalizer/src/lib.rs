@@ -10,6 +10,7 @@ mod users;
 use std::collections::HashMap;
 
 use graph_builder as source;
+use vecmin::ArrVecMin;
 
 use crate::operator::process_source_op;
 
@@ -106,7 +107,8 @@ impl<'src, 'graph> GvnPass<'src, 'graph> {
                     permutation.len(),
                     "data-mergee/merge arity mismatch"
                 );
-                let variants = permutation.iter().map(|&i| variants[i]).collect();
+                let variants =
+                    ArrVecMin::collect(permutation.iter().map(|&i| variants[i])).unwrap();
                 self.canonical_graph.bind(
                     canonical_data,
                     DataKind::Merge {
@@ -181,7 +183,7 @@ impl<'src, 'graph> GvnPass<'src, 'graph> {
             .collect::<Vec<_>>()
             .into_boxed_slice();
         let permutation = input_permutation(&prev);
-        let prev = permutation.iter().map(|&i| prev[i]).collect();
+        let prev = ArrVecMin::collect(permutation.iter().map(|&i| prev[i])).unwrap();
         self.canonical_graph
             .bind(canonical_merge, MergeKind { prev });
 
